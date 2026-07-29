@@ -1,0 +1,82 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
+import {
+  ensureGraphDir,
+  writeNode,
+  readNode,
+  writeEdge,
+  readEdge,
+  writeGraph,
+  readGraph,
+} from "../../src/core/parser.js";
+import { NodeType, NodeStatus, EdgeType, NodeSchema, EdgeSchema } from "../../src/core/types.js";
+
+let tmpDir: string;
+
+beforeEach(() => {
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "topo-test-"));
+});
+
+afterEach(() => {
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+describe("Parser", () => {
+  it("创建 .graph 目录结构", () => {
+    ensureGraphDir(tmpDir);
+    expect(fs.existsSync(path.join(tmpDir, ".graph/nodes"))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, ".graph/edges"))).toBe(true);
+  });
+
+  it("写入和读取节点文件", () => {
+    const node: NodeSchema = {
+      id: "task_001",
+      type: NodeType.Task,
+      label: "调研框架",
+      level: 1,
+      status: NodeStatus.Pending,
+      attempts: 0,
+      max_attempts: 3,
+      created_at: "2026-07-28T10:00:00Z",
+      updated_at: "2026-07-28T10:00:00Z",
+    };
+    writeNode(tmpDir, node);
+    const loaded = readNode(tmpDir, "task_001");
+    expect(loaded.id).toBe("task_001");
+    expect(loaded.status).toBe(NodeStatus.Pending);
+  });
+
+  it("写入和读取边文件", () => {
+    const edge: EdgeSchema = {
+      id: "edge_001",
+      source: "task_001",
+      target: "task_002",
+      type: EdgeType.DependsOn,
+    };
+    writeEdge(tmpDir, edge);
+    const loaded = readEdge(tmpDir, "edge_001");
+    expect(loaded.source).toBe("task_001");
+    expect(loaded.type).toBe(EdgeType.DependsOn);
+  });
+
+  it("写入和读取图根文件", () => {
+    writeGraph(tmpDir, {
+      id: "graph_001",
+      version: "0.1.0",
+      label: "test",
+      entry: { description: "entry", defined_by: "human", level: 0 },
+      exit: { description: "exit", acceptance_criteria: [], defined_by: "human", level: 0 },
+      nodes: [{ file: "nodes/task_001.yaml" }],
+      edges: [{ file: "edges/edge_001.yaml" }],
+    });
+    const loaded = readGraph(tmpDir);
+    expect(loaded.id).toBe("graph_001");
+    expect(loaded.nodes).toHaveLength(1);
+  });
+
+  it("读不存在的节点抛错误", () => {
+    expect(() => readNode(tmpDir, "nonexistent")).toThrow();
+  });
+});
