@@ -24,6 +24,7 @@ export function createNode(rootDir: string, params: CreateNodeParams): NodeSchem
     label: params.label,
     level: params.level ?? 1,
     status: NodeStatus.Pending,
+    plan: params.plan_description ? { description: params.plan_description } : undefined,
     assigned_to: params.assigned_to,
     attempts: 0,
     max_attempts: params.max_attempts ?? 3,
