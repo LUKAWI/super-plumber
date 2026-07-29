@@ -11,7 +11,7 @@ const WEB_UI_DIR = path.resolve(
   "../../web-ui/dist"
 );
 
-export function startServer(rootDir: string, port: number = 3030) {
+export function startServer(rootDir: string, port: number = 8934) {
   const server = http.createServer((req, res) => {
     if (req.url === "/api/graph") {
       res.writeHead(200, { "Content-Type": "application/json" });
