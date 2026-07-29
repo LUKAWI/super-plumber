@@ -1,0 +1,69 @@
+id: graph_1785301013875
+version: 0.1.0
+label: 拓扑图管理工具(轮子)
+entry:
+  description: '开发一个工作流拓扑图管理工具（轮子），包含CLI、MCP Server、Web UI三层'
+  defined_by: human
+  level: 0
+exit:
+  description: '可用的MVP：CLI管理图拓扑 + MCP供agent调用 + Web UI可视化 + 纯文件YAML存储'
+  acceptance_criteria:
+    - CLI 11命令可用
+    - MCP 7工具可用
+    - Web UI实时可视化
+    - YAML文件存储，纯文件系统
+  defined_by: human
+  level: 0
+nodes:
+  - file: nodes/l1_data_model.yaml
+  - file: nodes/l1_core_engine.yaml
+  - file: nodes/l1_cli.yaml
+  - file: nodes/l1_mcp.yaml
+  - file: nodes/l1_visual.yaml
+  - file: nodes/l2_schema.yaml
+  - file: nodes/l2_yaml.yaml
+  - file: nodes/l2_state_machine.yaml
+  - file: nodes/l2_topo_sort.yaml
+  - file: nodes/l2_node_crud.yaml
+  - file: nodes/l2_edge_crud.yaml
+  - file: nodes/l2_cli_init.yaml
+  - file: nodes/l2_cli_crud.yaml
+  - file: nodes/l2_cli_status.yaml
+  - file: nodes/l2_cli_export.yaml
+  - file: nodes/l2_mcp_server.yaml
+  - file: nodes/l2_mcp_tools.yaml
+  - file: nodes/l2_web_backend.yaml
+  - file: nodes/l2_web_frontend.yaml
+  - file: nodes/l2_mermaid.yaml
+edges:
+  - file: edges/e001.yaml
+  - file: edges/e002.yaml
+  - file: edges/e003.yaml
+  - file: edges/e004.yaml
+  - file: edges/e005.yaml
+  - file: edges/e006.yaml
+  - file: edges/e007.yaml
+  - file: edges/e008.yaml
+  - file: edges/e009.yaml
+  - file: edges/e010.yaml
+  - file: edges/e011.yaml
+  - file: edges/e012.yaml
+  - file: edges/e013.yaml
+  - file: edges/e014.yaml
+  - file: edges/e015.yaml
+  - file: edges/e016.yaml
+  - file: edges/e017.yaml
+  - file: edges/e018.yaml
+  - file: edges/e019.yaml
+  - file: edges/e020.yaml
+  - file: edges/e021.yaml
+  - file: edges/e022.yaml
+  - file: edges/e023.yaml
+  - file: edges/e024.yaml
+  - file: edges/e025.yaml
+  - file: edges/e026.yaml
+  - file: edges/e027.yaml
+  - file: edges/e028.yaml
+  - file: edges/e029.yaml
+  - file: edges/e030.yaml
+  - file: edges/e031.yaml

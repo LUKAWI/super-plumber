@@ -1,0 +1,16 @@
+id: l1_mcp
+type: task
+label: MCP Server开发
+level: 1
+status: pending
+plan:
+  description: 开发STDIO传输的MCP服务器，注册graph_*系列工具供agent调用
+expected_outcome:
+  definition_of_done:
+    - 7个MCP工具注册可用
+    - STDIO传输协议正确
+    - 错误处理完整，非法操作返回isError
+attempts: 0
+max_attempts: 3
+created_at: '2026-07-29T05:11:16.924Z'
+updated_at: '2026-07-29T05:11:16.924Z'

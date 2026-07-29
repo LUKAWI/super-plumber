@@ -1,0 +1,4 @@
+id: e010
+source: l1_core_engine
+target: l2_state_machine
+type: depends_on

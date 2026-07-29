@@ -1,0 +1,15 @@
+id: l2_topo_sort
+type: task
+label: 拓扑排序+循环检测
+level: 2
+status: pending
+plan:
+  description: Kahn拓扑排序和DFS循环检测，忽略运行时边(fallback/iterates)
+expected_outcome:
+  definition_of_done:
+    - 拓扑排序正确处理线性/扇出依赖
+    - 循环检测发现环并忽略fallback边
+attempts: 0
+max_attempts: 3
+created_at: '2026-07-29T05:11:17.555Z'
+updated_at: '2026-07-29T05:11:17.555Z'

@@ -1,0 +1,16 @@
+id: l2_cli_status
+type: task
+label: status/validate/rebuild
+level: 2
+status: pending
+plan:
+  description: 实现status状态概览、validate结构校验、rebuild重建索引
+expected_outcome:
+  definition_of_done:
+    - status显示状态分布
+    - validate检测引用完整性
+    - rebuild重建.graph/index/
+attempts: 0
+max_attempts: 3
+created_at: '2026-07-29T05:11:18.186Z'
+updated_at: '2026-07-29T05:11:18.186Z'

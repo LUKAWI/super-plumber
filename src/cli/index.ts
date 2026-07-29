@@ -11,6 +11,7 @@ import { deleteNodeCommand } from "./delete-node.js";
 import { validateCommand } from "./validate.js";
 import { rebuildCommand } from "./rebuild.js";
 import { updateStatusCommand } from "./update-status.js";
+import { updateNodeCommand } from "./update-node.js";
 
 const program = new Command();
 
@@ -29,5 +30,6 @@ program.addCommand(deleteNodeCommand);
 program.addCommand(validateCommand);
 program.addCommand(rebuildCommand);
 program.addCommand(updateStatusCommand);
+program.addCommand(updateNodeCommand);
 
 program.parse(process.argv);

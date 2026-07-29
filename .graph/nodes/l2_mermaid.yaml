@@ -1,0 +1,15 @@
+id: l2_mermaid
+type: task
+label: Mermaid导出
+level: 2
+status: pending
+plan:
+  description: 实现graph export的Mermaid格式生成
+expected_outcome:
+  definition_of_done:
+    - 所有节点和边正确渲染
+    - 状态着色正确
+attempts: 0
+max_attempts: 3
+created_at: '2026-07-29T05:11:18.946Z'
+updated_at: '2026-07-29T05:11:18.946Z'

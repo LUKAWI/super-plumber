@@ -1,0 +1,16 @@
+id: l1_core_engine
+type: task
+label: 核心引擎(状态机+拓扑排序)
+level: 1
+status: pending
+plan:
+  description: 实现节点状态机转换规则、拓扑排序算法(Kahn)、循环检测(DFS)，以及节点/边的CRUD操作
+expected_outcome:
+  definition_of_done:
+    - 状态机7状态13种转换全部校验
+    - 拓扑排序和循环检测算法正确
+    - 所有核心测试通过
+attempts: 0
+max_attempts: 3
+created_at: '2026-07-29T05:11:16.669Z'
+updated_at: '2026-07-29T05:11:16.669Z'

@@ -1,0 +1,15 @@
+id: l2_cli_export
+type: task
+label: export --mermaid导出
+level: 2
+status: pending
+plan:
+  description: 实现graph export --mermaid导出为Mermaid流程图
+expected_outcome:
+  definition_of_done:
+    - 生成graph TD格式
+    - 节点按status着色
+attempts: 0
+max_attempts: 3
+created_at: '2026-07-29T05:11:18.318Z'
+updated_at: '2026-07-29T05:11:18.318Z'

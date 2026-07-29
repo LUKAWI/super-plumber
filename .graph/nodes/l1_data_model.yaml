@@ -1,0 +1,16 @@
+id: l1_data_model
+type: task
+label: 数据模型设计
+level: 1
+status: pending
+plan:
+  description: 设计拓扑图的核心数据模型：定义Node/Edge/Graph三个核心Schema接口，以及NodeStatus/NodeType/EdgeType枚举
+expected_outcome:
+  definition_of_done:
+    - 完成NodeSchema/EdgeSchema/GraphSchema接口定义
+    - 完成状态机和边类型枚举
+    - 核心类型零外部依赖，编译通过
+attempts: 0
+max_attempts: 3
+created_at: '2026-07-29T05:11:16.541Z'
+updated_at: '2026-07-29T05:11:16.541Z'

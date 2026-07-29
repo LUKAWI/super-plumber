@@ -1,0 +1,4 @@
+id: e024
+source: l2_edge_crud
+target: l2_mcp_server
+type: depends_on

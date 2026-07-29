@@ -1,0 +1,16 @@
+id: l2_web_backend
+type: task
+label: Web后端(HTTP+WebSocket)
+level: 2
+status: pending
+plan:
+  description: 实现graph serve命令，HTTP静态服务+WebSocket热同步+文件监听
+expected_outcome:
+  definition_of_done:
+    - HTTP服务/api/graph返回图索引
+    - WebSocket文件变更推送
+    - 端口8934，非标准端口
+attempts: 0
+max_attempts: 3
+created_at: '2026-07-29T05:11:18.698Z'
+updated_at: '2026-07-29T05:11:18.698Z'

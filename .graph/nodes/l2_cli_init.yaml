@@ -1,0 +1,15 @@
+id: l2_cli_init
+type: task
+label: graph init/delete
+level: 2
+status: pending
+plan:
+  description: 实现graph init初始化目录和graph delete-node软删除
+expected_outcome:
+  definition_of_done:
+    - init创建完整.graph目录
+    - delete-node保留.deleted.yaml历史
+attempts: 0
+max_attempts: 3
+created_at: '2026-07-29T05:11:17.935Z'
+updated_at: '2026-07-29T05:11:17.935Z'

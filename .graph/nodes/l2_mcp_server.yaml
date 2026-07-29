@@ -1,0 +1,15 @@
+id: l2_mcp_server
+type: task
+label: MCP STDIO Server
+level: 2
+status: pending
+plan:
+  description: 搭建基于@modelcontextprotocol/sdk的STDIO传输MCP服务器
+expected_outcome:
+  definition_of_done:
+    - ListToolsRequestSchema响应正确
+    - CallToolRequestSchema路由正确
+attempts: 0
+max_attempts: 3
+created_at: '2026-07-29T05:11:18.443Z'
+updated_at: '2026-07-29T05:11:18.443Z'

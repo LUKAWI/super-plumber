@@ -1,0 +1,16 @@
+id: l1_visual
+type: task
+label: 可视化(Web UI+Mermaid)
+level: 1
+status: pending
+plan:
+  description: 开发Web前端可视化界面(基于已有的Svelte+D3.js)和Mermaid导出功能
+expected_outcome:
+  definition_of_done:
+    - Web UI显示力导向拓扑图
+    - WebSocket实时同步后端变更
+    - Mermaid导出包含节点状态着色
+attempts: 0
+max_attempts: 3
+created_at: '2026-07-29T05:11:17.049Z'
+updated_at: '2026-07-29T05:11:17.049Z'

@@ -1,0 +1,58 @@
+graph TD;
+  %% 节点定义 (按状态着色)
+  l1_cli["CLI工具开发"]:::pending;
+  l1_core_engine["核心引擎(状态机+拓扑排序)"]:::pending;
+  l1_data_model["数据模型设计"]:::pending;
+  l1_mcp["MCP Server开发"]:::pending;
+  l1_visual["可视化(Web UI+Mermaid)"]:::pending;
+  l2_cli_crud["create-node/add-edge/update-status"]:::pending;
+  l2_cli_export["export --mermaid导出"]:::pending;
+  l2_cli_init["graph init/delete"]:::pending;
+  l2_cli_status["status/validate/rebuild"]:::pending;
+  l2_edge_crud["边CRUD操作"]:::pending;
+  l2_mcp_server["MCP STDIO Server"]:::pending;
+  l2_mcp_tools["graph_* 工具注册"]:::pending;
+  l2_mermaid["Mermaid导出"]:::pending;
+  l2_node_crud["节点CRUD操作"]:::pending;
+  l2_schema["节点/边 Schema 定义"]:::pending;
+  l2_state_machine["状态机实现"]:::pending;
+  l2_topo_sort["拓扑排序+循环检测"]:::pending;
+  l2_web_backend["Web后端(HTTP+WebSocket)"]:::pending;
+  l2_web_frontend["Svelte+D3.js前端"]:::pending;
+  l2_yaml["YAML序列化/反序列化"]:::pending;
+
+  %% 边
+  l2_schema -->|"depends on"| l2_yaml;
+  l1_data_model -->|"depends on"| l1_core_engine;
+  l1_data_model -->|"depends on"| l1_cli;
+  l1_core_engine -->|"depends on"| l1_cli;
+  l1_core_engine -->|"depends on"| l1_mcp;
+  l1_core_engine -->|"depends on"| l1_visual;
+  l1_cli -->|"depends on"| l1_mcp;
+  l1_data_model -->|"depends on"| l2_schema;
+  l2_schema -->|"depends on"| l2_yaml;
+  l1_core_engine -->|"depends on"| l2_state_machine;
+  l2_state_machine -->|"depends on"| l2_node_crud;
+  l2_yaml -->|"depends on"| l2_node_crud;
+  l2_node_crud -->|"depends on"| l2_edge_crud;
+  l2_state_machine -->|"depends on"| l2_topo_sort;
+  l2_edge_crud -->|"depends on"| l2_topo_sort;
+  l2_node_crud -->|"depends on"| l2_cli_init;
+  l2_node_crud -->|"depends on"| l2_cli_crud;
+  l2_edge_crud -->|"depends on"| l2_cli_crud;
+  l2_topo_sort -->|"depends on"| l2_cli_status;
+  l2_node_crud -->|"depends on"| l2_cli_status;
+  l2_node_crud -->|"depends on"| l2_cli_export;
+  l2_edge_crud -->|"depends on"| l2_cli_export;
+  l2_node_crud -->|"depends on"| l2_mcp_server;
+  l2_edge_crud -->|"depends on"| l2_mcp_server;
+  l2_mcp_server -->|"depends on"| l2_mcp_tools;
+  l2_topo_sort -->|"depends on"| l2_mcp_tools;
+  l2_topo_sort -->|"depends on"| l2_web_backend;
+  l2_web_backend -->|"depends on"| l2_web_frontend;
+  l2_node_crud -->|"depends on"| l2_web_backend;
+  l2_node_crud -->|"depends on"| l2_mermaid;
+  l2_edge_crud -->|"depends on"| l2_mermaid;
+
+  %% 样式定义
+  classDef pending fill:#94a3b8,stroke:#475569;

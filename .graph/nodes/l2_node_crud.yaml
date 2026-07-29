@@ -1,0 +1,15 @@
+id: l2_node_crud
+type: task
+label: 节点CRUD操作
+level: 2
+status: pending
+plan:
+  description: 实现createNode/getNode/updateNodeStatus/listNodes/updateNodeContent
+expected_outcome:
+  definition_of_done:
+    - 所有节点操作函数正确
+    - 状态转换调用状态机校验
+attempts: 0
+max_attempts: 3
+created_at: '2026-07-29T05:11:17.678Z'
+updated_at: '2026-07-29T05:11:17.678Z'

@@ -11,6 +11,7 @@ export type CreateNodeParams = {
   label: string;
   level?: number;
   plan_description?: string;
+  definition_of_done?: string[];
   assigned_to?: string;
   max_attempts?: number;
   checkpoints?: Checkpoint[];
@@ -25,6 +26,9 @@ export function createNode(rootDir: string, params: CreateNodeParams): NodeSchem
     level: params.level ?? 1,
     status: NodeStatus.Pending,
     plan: params.plan_description ? { description: params.plan_description } : undefined,
+    expected_outcome: params.definition_of_done
+      ? { definition_of_done: params.definition_of_done }
+      : undefined,
     assigned_to: params.assigned_to,
     attempts: 0,
     max_attempts: params.max_attempts ?? 3,
@@ -47,6 +51,21 @@ export function updateNodeStatus(
 ): NodeSchema {
   const node = readNode(rootDir, id);
   const updated = transition(node, to);
+  writeNode(rootDir, updated);
+  return updated;
+}
+
+export function updateNodeContent(
+  rootDir: string,
+  id: string,
+  updates: Partial<Pick<NodeSchema, "plan" | "expected_outcome" | "checkpoints" | "assigned_to" | "label" | "max_attempts">>
+): NodeSchema {
+  const node = readNode(rootDir, id);
+  const updated: NodeSchema = {
+    ...node,
+    ...updates,
+    updated_at: new Date().toISOString(),
+  };
   writeNode(rootDir, updated);
   return updated;
 }

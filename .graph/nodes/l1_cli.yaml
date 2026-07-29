@@ -1,0 +1,16 @@
+id: l1_cli
+type: task
+label: CLI工具开发
+level: 1
+status: pending
+plan:
+  description: 开发graph CLI工具的全部命令：init/create-node/add-edge/update-status/delete-node/status/validate/rebuild/export/serve
+expected_outcome:
+  definition_of_done:
+    - 11个CLI命令全部可用
+    - 所有命令有错误处理和友好提示
+    - CLI e2e测试通过
+attempts: 0
+max_attempts: 3
+created_at: '2026-07-29T05:11:16.803Z'
+updated_at: '2026-07-29T05:11:16.803Z'

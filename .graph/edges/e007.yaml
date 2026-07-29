@@ -1,0 +1,4 @@
+id: e007
+source: l1_cli
+target: l1_mcp
+type: depends_on

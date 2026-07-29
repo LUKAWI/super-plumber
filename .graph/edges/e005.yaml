@@ -1,0 +1,4 @@
+id: e005
+source: l1_core_engine
+target: l1_mcp
+type: depends_on

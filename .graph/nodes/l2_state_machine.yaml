@@ -1,0 +1,15 @@
+id: l2_state_machine
+type: task
+label: 状态机实现
+level: 2
+status: pending
+plan:
+  description: 实现7状态13种转换的校验逻辑和checkpoint聚合
+expected_outcome:
+  definition_of_done:
+    - canTransition/transition/getAllowedTransitions正确
+    - checkpoint聚合状态正确
+attempts: 0
+max_attempts: 3
+created_at: '2026-07-29T05:11:17.430Z'
+updated_at: '2026-07-29T05:11:17.430Z'

@@ -1,0 +1,15 @@
+id: l2_mcp_tools
+type: task
+label: graph_* 工具注册
+level: 2
+status: pending
+plan:
+  description: 注册7个graph工具：get/create/update-status/delete-node/get-graph/traverse/search
+expected_outcome:
+  definition_of_done:
+    - 所有工具inputSchema完整
+    - 错误处理返回isError
+attempts: 0
+max_attempts: 3
+created_at: '2026-07-29T05:11:18.570Z'
+updated_at: '2026-07-29T05:11:18.570Z'
