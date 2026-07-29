@@ -45,7 +45,24 @@ export function writeNode(rootDir: string, node: NodeSchema): void {
 
 export function deleteNode(rootDir: string, id: string): void {
   const filePath = nodeFilePath(rootDir, id);
-  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  if (!fs.existsSync(filePath)) return;
+  // soft delete: rename to .deleted.yaml 保留历史
+  const deletedPath = filePath.replace(/\.yaml$/, ".deleted.yaml");
+  // 如果已存在 .deleted 文件，先追加时间戳
+  const finalPath = fs.existsSync(deletedPath)
+    ? filePath.replace(/\.yaml$/, `.deleted.${Date.now()}.yaml`)
+    : deletedPath;
+  fs.renameSync(filePath, finalPath);
+}
+
+export function deleteEdge(rootDir: string, id: string): void {
+  const filePath = edgeFilePath(rootDir, id);
+  if (!fs.existsSync(filePath)) return;
+  const deletedPath = filePath.replace(/\.yaml$/, ".deleted.yaml");
+  const finalPath = fs.existsSync(deletedPath)
+    ? filePath.replace(/\.yaml$/, `.deleted.${Date.now()}.yaml`)
+    : deletedPath;
+  fs.renameSync(filePath, finalPath);
 }
 
 // ── Edge ──
@@ -64,7 +81,4 @@ export function writeEdge(rootDir: string, edge: EdgeSchema): void {
   fs.writeFileSync(edgeFilePath(rootDir, edge.id), content, "utf-8");
 }
 
-export function deleteEdge(rootDir: string, id: string): void {
-  const filePath = edgeFilePath(rootDir, id);
-  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-}
+

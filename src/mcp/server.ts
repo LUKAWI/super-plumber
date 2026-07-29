@@ -12,6 +12,7 @@ import {
   updateNodeStatus,
   listNodes,
 } from "../core/node.js";
+import { deleteNode } from "../core/parser.js";
 import { buildGraphIndex } from "../core/graph.js";
 import { NodeType, NodeStatus } from "../core/types.js";
 
@@ -61,6 +62,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: "graph_delete_node",
+      description: "软删除一个节点（标记为废弃，保留历史）",
+      inputSchema: {
+        type: "object",
+        properties: { id: { type: "string" } },
+        required: ["id"],
+      },
+    },
+    {
       name: "graph_get_graph",
       description: "获取完整图拓扑",
       inputSchema: { type: "object", properties: {} },
@@ -102,6 +112,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "graph_get_node": {
         const node = getNode(rootDir, args!.id as string);
         return { content: [{ type: "text", text: JSON.stringify(node, null, 2) }] };
+      }
+      case "graph_delete_node": {
+        deleteNode(rootDir, args!.id as string);
+        return { content: [{ type: "text", text: JSON.stringify({ deleted: args!.id }, null, 2) }] };
       }
       case "graph_create_node": {
         const a = args!;

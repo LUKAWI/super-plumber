@@ -1,0 +1,11 @@
+import { Command } from "commander";
+import { deleteNode } from "../core/parser.js";
+
+export const deleteNodeCommand = new Command("delete-node")
+  .description("删除一个节点（soft delete，保留文件备份）")
+  .requiredOption("-i, --id <id>", "要删除的节点 ID")
+  .action((options) => {
+    const rootDir = process.cwd();
+    deleteNode(rootDir, options.id);
+    console.log(`✅ 已删除节点: ${options.id}`);
+  });
