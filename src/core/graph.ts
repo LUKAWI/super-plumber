@@ -1,5 +1,5 @@
 // src/core/graph.ts
-import { NodeSchema, EdgeSchema, EdgeType, TOPOLOGICAL_EDGE_TYPES } from "./types.js";
+import { NodeSchema, EdgeSchema, TOPOLOGICAL_EDGE_TYPES } from "./types.js";
 import { listNodes } from "./node.js";
 import { listEdges } from "./edge.js";
 
