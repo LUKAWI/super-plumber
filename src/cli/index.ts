@@ -6,6 +6,7 @@ import { createNodeCommand } from "./create-node.js";
 import { addEdgeCommand } from "./add-edge.js";
 import { statusCommand } from "./status.js";
 import { exportMermaidCommand } from "./export-mermaid.js";
+import { serveCommand } from "./serve.js";
 
 const program = new Command();
 
@@ -19,5 +20,6 @@ program.addCommand(createNodeCommand);
 program.addCommand(addEdgeCommand);
 program.addCommand(statusCommand);
 program.addCommand(exportMermaidCommand);
+program.addCommand(serveCommand);
 
 program.parse(process.argv);
