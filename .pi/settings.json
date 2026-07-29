@@ -1,0 +1,7 @@
+{
+  "extensions": {
+    "subagent": {
+      "agentScope": "both"
+    }
+  }
+}
