@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from "svelte";
   import * as d3 from "d3";
   import { graphState } from "../lib/store.svelte";
-  import { STATUS_COLORS } from "../lib/types";
+  import { STATUS_COLORS, EDGE_TYPE_COLORS, EDGE_TYPE_LABELS } from "../lib/types";
   import type { GraphIndex, NodeSchema } from "../lib/types";
 
   // Extend NodeSchema with D3 simulation properties
@@ -29,6 +29,7 @@
     if (!svgEl || !graph || !wrapperEl) return;
     const { w, h } = getContainerSize();
 
+    stopFlowDots();
     const svg = d3.select(svgEl);
     svg.selectAll("*").remove();
 
@@ -110,23 +111,46 @@
       .force("collision", d3.forceCollide(NODE_R + 8))
       .alphaDecay(0.02);
 
-    // ── Edges ──
-    const link = zoomGroup.append("g")
-      .attr("class", "edges")
-      .selectAll("line")
+    // ── Edges（每边一个 group：线 + 中点标签）──
+    const linkG = zoomGroup.append("g").attr("class", "edges");
+    const link = linkG.selectAll("g.edge-group")
       .data(edges)
-      .join("line")
-      .attr("stroke", "rgba(255, 255, 255, 0.18)")
-      .attr("stroke-width", 1.5)
-      .attr("marker-end", "url(#arrowhead)")
+      .join("g")
+      .attr("class", "edge-group")
       .style("cursor", "pointer");
+
+    link.append("line")
+      .attr("class", "edge-line")
+      .attr("stroke", (d) => {
+        const hue = EDGE_TYPE_COLORS[d.type] ?? "#ffffff";
+        return hue;
+      })
+      .attr("stroke-opacity", 0.28)   // 默认微妙色相
+      .attr("stroke-width", 1.5)
+      .attr("marker-end", "url(#arrowhead)");
+
+    // 中点类型标签（默认隐藏，hover 显示）
+    link.append("text")
+      .attr("class", "edge-label")
+      .attr("text-anchor", "middle")
+      .attr("font-size", "9px")
+      .attr("font-family", "var(--font-mono)")
+      .attr("fill", (d) => EDGE_TYPE_COLORS[d.type] ?? "#fff")
+      .attr("paint-order", "stroke")
+      .attr("stroke", "#0b1120")
+      .attr("stroke-width", "3px")
+      .attr("stroke-linejoin", "round")
+      .attr("opacity", 0)
+      .text((d) => EDGE_TYPE_LABELS[d.type] ?? d.type);
 
     // Edge hover effects
     link.on("mouseenter", function (this: any, d: any) {
-      const edge = d3.select(this);
-      edge
-        .attr("stroke", "rgba(255, 255, 255, 0.6)")
+      const group = d3.select(this);
+      group.select(".edge-line")
+        .attr("stroke-opacity", 0.9)
         .attr("stroke-width", 2.5);
+      group.select(".edge-label")
+        .attr("opacity", 1);
 
       // Highlight source and target nodes
       const sourceNode = node.filter((n: any) => n.id === d.source.id);
@@ -139,16 +163,23 @@
         .attr("stroke", "rgba(255, 255, 255, 0.9)")
         .attr("stroke-width", 2.5);
     }).on("mouseleave", function () {
-      const edge = d3.select(this);
-      edge
-        .attr("stroke", "rgba(255, 255, 255, 0.18)")
+      const group = d3.select(this);
+      group.select(".edge-line")
+        .attr("stroke-opacity", (d: any) => EDGE_TYPE_COLORS[d.type] ? 0.28 : 0.18)
         .attr("stroke-width", 1.5);
+      group.select(".edge-label")
+        .attr("opacity", 0);
 
       // Reset node highlights (unless selected)
       node.select(".node-circle")
         .attr("stroke", (d: any) => d.id === graphState.selectedNode?.id ? "var(--ink)" : "rgba(255, 255, 255, 0.6)")
         .attr("stroke-width", (d: any) => d.id === graphState.selectedNode?.id ? 3 : 1.5);
     });
+
+    // 记录当前渲染数据（供增量更新重启用）
+    currentNodes = nodes;
+    currentEdges = edges;
+    currentZoomGroup = zoomGroup;
 
     // ── Nodes ──
     const node = zoomGroup.append("g")
@@ -196,6 +227,40 @@
       .attr("font-weight", "600")
       .attr("fill", "var(--ink)")
       .attr("letter-spacing", "0.04em")
+      .style("pointer-events", "none")
+      .style("user-select", "none");
+
+    // Checkpoint 进度条（节点下方小进度条）
+    const nodeWithCp = node.filter((d: any) => d.checkpoints && d.checkpoints.length > 0);
+    nodeWithCp.append("rect")
+      .attr("class", "cp-track")
+      .attr("x", -14).attr("y", NODE_R + 12)
+      .attr("width", 28).attr("height", 3)
+      .attr("rx", 1.5)
+      .attr("fill", "rgba(255, 255, 255, 0.1)");
+    nodeWithCp.append("rect")
+      .attr("class", "cp-fill")
+      .attr("x", -14).attr("y", NODE_R + 12)
+      .attr("width", (d: any) => {
+        const done = d.checkpoints.filter((c: any) => c.status === "passed").length;
+        return d.checkpoints.length ? (done / d.checkpoints.length) * 28 : 0;
+      })
+      .attr("height", 3)
+      .attr("rx", 1.5)
+      .attr("fill", (d: any) => d.status === "failed" ? "#ef4444" : "#22c55e");
+
+    // 执行者标签（仅 running 节点旁显示 assigned_to）
+    node.filter((d: any) => d.status === "running" && d.assigned_to)
+      .append("text")
+      .attr("class", "assign-label")
+      .text((d: any) => d.assigned_to)
+      .attr("text-anchor", "middle")
+      .attr("y", -NODE_R - 8)
+      .attr("font-family", "var(--font-mono)")
+      .attr("font-size", "8px")
+      .attr("font-weight", "500")
+      .attr("fill", "#f59e0b")
+      .attr("opacity", 0.9)
       .style("pointer-events", "none")
       .style("user-select", "none");
 
@@ -315,11 +380,14 @@
     // ── Tick ──
     if (simulation) {
       simulation.on("tick", () => {
-        link
+        link.select(".edge-line")
           .attr("x1", (d: any) => d.source.x)
           .attr("y1", (d: any) => d.source.y)
           .attr("x2", (d: any) => d.target.x)
           .attr("y2", (d: any) => d.target.y);
+        link.select(".edge-label")
+          .attr("x", (d: any) => (d.source.x + d.target.x) / 2)
+          .attr("y", (d: any) => (d.source.y + d.target.y) / 2 - 4);
 
         node.attr("transform", (d: any) => `translate(${d.x},${d.y})`);
 
@@ -332,9 +400,90 @@
       });
 
       // ── Auto-fit after simulation settles ──
-      simulation.on("end", () => autoFit(svg, zoom, nodes));
+      simulation.on("end", () => {
+        autoFit(svg, zoom, nodes);
+        startFlowDots(zoomGroup, nodes, edges, runningNodeIds(nodes));
+      });
     }
-    setTimeout(() => { if (simulation) autoFit(svg, zoom, nodes); }, 2000);
+    setTimeout(() => {
+      if (simulation) autoFit(svg, zoom, nodes);
+      startFlowDots(zoomGroup, nodes, edges, runningNodeIds(nodes));
+    }, 2000);
+  }
+
+  /** 找出所有 running 节点的下游边（光点流动的通道） */
+  function runningNodeIds(nodes: any[]): Set<string> {
+    return new Set(nodes.filter((n) => n.status === "running").map((n) => n.id));
+  }
+
+  /**
+   * 血管隐喻：running 节点的下游边上有光点沿边流动。
+   * 用一个 dot layer 管理所有流动光点，requestAnimationFrame 驱动。
+   */
+  let flowRaf: number | null = null;
+  let flowDotsLayer: d3.Selection<SVGGElement, unknown, null, undefined> | null = null;
+
+  function startFlowDots(
+    zoomGroup: d3.Selection<SVGGElement, unknown, null, undefined>,
+    nodes: any[],
+    edges: any[],
+    running: Set<string>
+  ) {
+    if (prefersReducedMotion || running.size === 0) return;
+
+    // 取 running 节点的下游边
+    const flowEdges = edges.filter((e: any) => running.has(e.source.id));
+    if (flowEdges.length === 0) return;
+
+    // 清掉旧的 dot layer（重新渲染时）
+    zoomGroup.selectAll(".flow-layer").remove();
+
+    const layer = zoomGroup.append("g").attr("class", "flow-layer");
+    flowDotsLayer = layer;
+
+    // 每个边一个光点，记录进度 t ∈ [0,1)
+    const dots = flowEdges.map((e: any, i: number) => ({
+      edge: e,
+      t: (i / flowEdges.length) % 1,
+      speed: 0.003 + Math.random() * 0.001, // 每帧推进比例
+    }));
+
+    // 绘制光点
+    const dotSel = layer.selectAll("circle")
+      .data(dots)
+      .join("circle")
+      .attr("r", 3)
+      .attr("fill", (d: any) => EDGE_TYPE_COLORS[d.edge.type] ?? "#f59e0b")
+      .attr("opacity", 0.9)
+      .attr("filter", "url(#glow)");
+
+    const prevRaf = flowRaf;
+    if (prevRaf !== null) cancelAnimationFrame(prevRaf);
+
+    function frame() {
+      for (const d of dots) {
+        d.t += d.speed;
+        if (d.t >= 1) d.t -= 1;
+        const sx = d.edge.source.x, sy = d.edge.source.y;
+        const tx = d.edge.target.x, ty = d.edge.target.y;
+        const x = sx + (tx - sx) * d.t;
+        const y = sy + (ty - sy) * d.t;
+        dotSel.filter((dd: any) => dd === d)
+          .attr("cx", x).attr("cy", y);
+      }
+      flowRaf = requestAnimationFrame(frame);
+    }
+    flowRaf = requestAnimationFrame(frame);
+  }
+
+  /** 停止光点流动（onDestroy / 全量重渲染前） */
+  function stopFlowDots() {
+    if (flowRaf !== null) {
+      cancelAnimationFrame(flowRaf);
+      flowRaf = null;
+    }
+    flowDotsLayer?.remove();
+    flowDotsLayer = null;
   }
 
   function autoFit(
@@ -399,13 +548,90 @@
     };
   });
 
+  // 供增量更新重启用：当前渲染的节点/边数据
+  let currentNodes: any[] = [];
+  let currentEdges: any[] = [];
+  let currentZoomGroup: d3.Selection<SVGGElement, unknown, null, undefined> | null = null;
+
+  // 全量渲染：仅在 graph 对象引用变化（首连 / 低频全量事件）时触发
+  let lastGraphRef: GraphIndex | null = null;
   $effect(() => {
-    if (graphState.graph) renderGraph(graphState.graph);
+    const g = graphState.graph;
+    if (g && g !== lastGraphRef) {
+      lastGraphRef = g;
+      renderGraph(g);
+    }
+  });
+
+  // 增量更新：监听 lastPatched，就地刷新单个节点的视觉状态
+  let patchCache: { nodeId: string; elements: d3.Selection<SVGGElement, any, any, any> } | null = null;
+  $effect(() => {
+    const patched = graphState.lastPatched;
+    if (!patched || !svgEl) return;
+    const svg = d3.select(svgEl);
+    const nodeSel = svg.selectAll<SVGGElement, any>(".nodes > g");
+    const target = nodeSel.filter((d: any) => d.id === patched.id);
+    if (target.empty()) return;
+
+    // 更新状态环颜色
+    target.select(".status-ring")
+      .attr("stroke", () => STATUS_COLORS[patched.status] ?? "var(--status-pending)");
+
+    // 更新标签
+    target.select(".node-label")
+      .text(patched.label.length > 14 ? patched.label.slice(0, 12) + "…" : patched.label);
+
+    // 更新 checkpoint 进度条
+    const cps = patched.checkpoints ?? [];
+    const done = cps.filter((c: any) => c.status === "passed").length;
+    const fillW = cps.length ? (done / cps.length) * 28 : 0;
+    const track = target.select(".cp-track");
+    const fill = target.select(".cp-fill");
+    if (track.empty() && cps.length > 0) {
+      // 新增进度条（节点之前没有 checkpoints）
+      target.append("rect").attr("class", "cp-track")
+        .attr("x", -14).attr("y", NODE_R + 12).attr("width", 28).attr("height", 3)
+        .attr("rx", 1.5).attr("fill", "rgba(255, 255, 255, 0.1)");
+      target.append("rect").attr("class", "cp-fill")
+        .attr("x", -14).attr("y", NODE_R + 12).attr("height", 3).attr("rx", 1.5);
+    }
+    target.select(".cp-fill")
+      .attr("width", fillW)
+      .attr("fill", patched.status === "failed" ? "#ef4444" : "#22c55e");
+    if (cps.length === 0) {
+      target.select(".cp-track").attr("width", 0);
+      target.select(".cp-fill").attr("width", 0);
+    }
+
+    // running：加 glow + 粗环；非 running：还原
+    target.select(".node-circle")
+      .attr("filter", patched.status === "running" ? "url(#glow)" : null)
+      .attr("stroke", patched.status === "running" ? "var(--status-running)" : "rgba(255, 255, 255, 0.6)")
+      .attr("stroke-width", patched.status === "running" ? 2.5 : 1.5);
+    target.select(".status-ring")
+      .attr("stroke-width", patched.status === "running" ? 3 : 2);
+
+    // 触发数据绑定更新（progress bar 等由 data 驱动）
+    if (patchCache) {
+      // 仅更新内部状态，不重启 simulation
+      const data = target.datum() as any;
+      if (data) {
+        Object.assign(data, patched);
+      }
+    }
+
+    // 若该节点进入 running：重启光点流动（沿其下游边）
+    if (patched.status === "running") {
+      stopFlowDots();
+      const running = runningNodeIds(currentNodes);
+      startFlowDots(currentZoomGroup!, currentNodes, currentEdges, running);
+    }
   });
 
   onDestroy(() => {
     simulation?.stop();
     resizeObs?.disconnect();
+    stopFlowDots();
   });
 
   // Zoom control functions

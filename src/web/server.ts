@@ -3,6 +3,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { WebSocketServer, WebSocket } from "ws";
 import { buildGraphIndex } from "../core/graph.js";
+import { getNode } from "../core/node.js";
 import { createWatcher, type FileChangeEvent } from "./watcher.js";
 
 const WEB_UI_DIR = path.resolve(
@@ -10,6 +11,15 @@ const WEB_UI_DIR = path.resolve(
   (import.meta as any).dirname ?? __dirname,
   "../../web-ui/dist"
 );
+
+/** 从文件路径解析出事件类型（node 变更 / edge 变更 / 其他）。Windows 路径用反斜杠，统一正斜杠 */
+function classifyEvent(file: string): "node" | "edge" | "graph" | "other" {
+  const f = file.replace(/\\/g, "/");
+  if (f.startsWith(".graph/nodes/") && f.endsWith(".yaml")) return "node";
+  if (f.startsWith(".graph/edges/") && f.endsWith(".yaml")) return "edge";
+  if (f === ".graph/graph.yaml") return "graph";
+  return "other";
+}
 
 export function startServer(rootDir: string, port: number = 8934) {
   const server = http.createServer((req, res) => {
@@ -37,6 +47,15 @@ export function startServer(rootDir: string, port: number = 8934) {
   const wss = new WebSocketServer({ server });
   const clients = new Set<WebSocket>();
 
+  function broadcast(msg: unknown) {
+    const json = JSON.stringify(msg);
+    for (const client of clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(json);
+      }
+    }
+  }
+
   wss.on("connection", (ws) => {
     clients.add(ws);
     ws.on("close", () => clients.delete(ws));
@@ -47,15 +66,31 @@ export function startServer(rootDir: string, port: number = 8934) {
   });
 
   const watcher = createWatcher(rootDir, (event: FileChangeEvent) => {
-    const msg = JSON.stringify({
+    const kind = classifyEvent(event.file);
+
+    // 节点文件变更 → 增量推送该节点
+    if (kind === "node") {
+      const f = event.file.replace(/\\/g, "/");
+      const nodeId = f.split("/").pop()!.replace(/\.yaml$/, "").replace(/\.deleted.*$/, "");
+      // 软删除或 unlink 时节点可能不存在
+      let node: ReturnType<typeof getNode> | null = null;
+      try {
+        node = getNode(rootDir, nodeId);
+      } catch { /* 节点已删除 */ }
+      broadcast({
+        type: "node:updated",
+        nodeId,
+        node,
+        removed: node === null,
+      });
+      return;
+    }
+
+    // 边 / 图 / 其他变更 → 全量推送（低频事件，全量可接受）
+    broadcast({
       type: "graph:update",
       data: { ...event, graph: buildGraphIndex(rootDir) },
     });
-    for (const client of clients) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(msg);
-      }
-    }
   });
 
   server.listen(port, () => {

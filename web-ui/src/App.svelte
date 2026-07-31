@@ -9,10 +9,14 @@
   let connected = $state(false);
 
   onMount(() => {
-    disconnect = connectGraph(location.host, (g) => {
-      graphState.setGraph(g);
-      connected = true;
-    });
+    disconnect = connectGraph(
+      location.host,
+      (g) => {
+        graphState.setGraph(g);
+        connected = true;
+      },
+      (nodeId, node) => graphState.patchNode(nodeId, node)
+    );
   });
   onDestroy(() => disconnect?.());
 </script>

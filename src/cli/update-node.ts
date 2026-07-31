@@ -1,6 +1,5 @@
 import { Command } from "commander";
-import { getNode, updateNodeContent, updateCheckpoint } from "../core/node.js";
-import * as fs from "node:fs";
+import { getNode, updateNodeContent } from "../core/node.js";
 
 export const updateNodeCommand = new Command("update-node")
   .description("更新节点的详细内容（plan、expected_outcome、checkpoints 等）")

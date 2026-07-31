@@ -64,9 +64,34 @@ export interface GraphIndex {
 }
 
 export interface WsMessage {
-	type: "graph:full" | "graph:update";
+	type: "graph:full" | "graph:update" | "node:updated";
 	data: GraphIndex & { file?: string; type?: string; timestamp?: number };
+	nodeId?: string;
+	node?: NodeSchema | null;
+	removed?: boolean;
 }
+
+// 边类型 → 基础色相（默认状态下微妙差异，hover 时增强）
+export const EDGE_TYPE_COLORS: Record<EdgeType, string> = {
+	depends_on: "#3b82f6",      // 蓝：顺序依赖
+	validates: "#22c55e",       // 绿：验证
+	shares_context: "#a855f7",  // 紫：上下文共享
+	fan_out: "#06b6d4",         // 青：扇出
+	fan_in: "#eab308",          // 黄：扇入
+	fallback: "#ef4444",        // 红：回退
+	iterates: "#f97316",        // 橙：迭代
+};
+
+// 边类型中文标签（hover 显示）
+export const EDGE_TYPE_LABELS: Record<EdgeType, string> = {
+	depends_on: "依赖",
+	validates: "验证",
+	shares_context: "共享上下文",
+	fan_out: "扇出",
+	fan_in: "扇入",
+	fallback: "回退",
+	iterates: "迭代",
+};
 
 export const STATUS_COLORS: Record<NodeStatus, string> = {
 	pending: "#6b7280",
