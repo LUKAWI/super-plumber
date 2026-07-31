@@ -21,16 +21,29 @@
 
   function cpIcon(status: string): string {
     const m: Record<string, string> = {
-      passed: "✅", failed: "❌", running: "⏳", pending: "🔲", skipped: "⏭️",
+      passed: "✓",
+      failed: "✗",
+      running: "◐",
+      pending: "○",
+      skipped: "–",
     };
-    return m[status] ?? "🔲";
+    return m[status] ?? "○";
+  }
+
+  function cpClass(status: string): string {
+    const m: Record<string, string> = {
+      passed: "cp-passed",
+      failed: "cp-failed",
+      running: "cp-running",
+    };
+    return m[status] ?? "cp-pending";
   }
 </script>
 
 {#if graphState.selectedNode}
   <div class="detail-panel" class:visible>
     <div class="panel-header">
-      <span class="panel-title">节点详情</span>
+      <span class="panel-title">NODE DETAIL</span>
       <button class="close-btn" onclick={() => graphState.selectNode(null)} aria-label="关闭">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M3 3l8 8M11 3l-8 8"/>
@@ -41,13 +54,14 @@
     <div class="panel-body">
       <h2 class="node-label">{graphState.selectedNode.label}</h2>
 
-      <!-- 元信息 -->
+      <!-- Meta tags -->
       <div class="meta-grid">
         <span class="meta-tag id-tag">{graphState.selectedNode.id}</span>
         <span class="meta-tag type-tag">{graphState.selectedNode.type}</span>
-        <span class="meta-tag">L{graphState.selectedNode.level}</span>
+        <span class="meta-tag level-tag">L{graphState.selectedNode.level}</span>
         <span class="meta-tag status-tag"
-          style="background: {STATUS_COLORS[graphState.selectedNode.status as NodeStatus]}">
+          style="border-color: {STATUS_COLORS[graphState.selectedNode.status as NodeStatus]}">
+          <span class="status-dot" style="background: {STATUS_COLORS[graphState.selectedNode.status as NodeStatus]}"></span>
           {graphState.selectedNode.status}
         </span>
         {#if graphState.selectedNode.assigned_to}
@@ -55,14 +69,17 @@
         {/if}
       </div>
 
-      <!-- 构建计划 -->
+      <!-- Build plan -->
       {#if graphState.selectedNode.plan?.description}
         <section class="section">
-          <h3 class="section-title">📋 构建计划</h3>
+          <h3 class="section-title">
+            <span class="section-icon">▸</span>
+            PLAN
+          </h3>
           <p class="plan-desc">{graphState.selectedNode.plan.description}</p>
           {#if graphState.selectedNode.plan.output_to && graphState.selectedNode.plan.output_to.length > 0}
             <div class="sub-list">
-              <span class="sub-label">交付: </span>
+              <span class="sub-label">outputs:</span>
               {#each graphState.selectedNode.plan.output_to as out}
                 <span class="chip">{out.artifact} → {out.node}</span>
               {/each}
@@ -71,10 +88,13 @@
         </section>
       {/if}
 
-      <!-- 完成标准 -->
+      <!-- Definition of done -->
       {#if graphState.selectedNode.expected_outcome?.definition_of_done}
         <section class="section">
-          <h3 class="section-title">✅ 完成标准</h3>
+          <h3 class="section-title">
+            <span class="section-icon">▸</span>
+            DONE CRITERIA
+          </h3>
           <ul class="dod-list">
             {#each graphState.selectedNode.expected_outcome.definition_of_done as item}
               <li>{item}</li>
@@ -86,16 +106,22 @@
       <!-- Checkpoints -->
       {#if graphState.selectedNode.checkpoints && graphState.selectedNode.checkpoints.length > 0}
         <section class="section">
-          <h3 class="section-title">🔲 检查点 ({graphState.selectedNode.checkpoints.filter((c: Checkpoint) => c.status === 'passed').length}/{graphState.selectedNode.checkpoints.length})</h3>
+          <h3 class="section-title">
+            <span class="section-icon">▸</span>
+            CHECKPOINTS
+            <span class="section-count">
+              {graphState.selectedNode.checkpoints.filter((c: Checkpoint) => c.status === 'passed').length}
+              /
+              {graphState.selectedNode.checkpoints.length}
+            </span>
+          </h3>
           <div class="cp-list">
             {#each graphState.selectedNode.checkpoints as cp}
               <div class="cp-item">
-                <span class="cp-icon">{cpIcon(cp.status)}</span>
+                <span class="cp-icon {cpClass(cp.status)}">{cpIcon(cp.status)}</span>
                 <div class="cp-body">
                   <span class="cp-label">{cp.label}</span>
-                  <span class="cp-status" class:cp-done={cp.status === 'passed'} class:cp-fail={cp.status === 'failed'}>
-                    {cp.status}
-                  </span>
+                  <span class="cp-status {cpClass(cp.status)}">{cp.status}</span>
                 </div>
               </div>
             {/each}
@@ -103,11 +129,17 @@
         </section>
       {/if}
 
-      <!-- 底部信息 -->
+      <!-- Footer info -->
       <div class="footer-info">
-        <span>尝试: {graphState.selectedNode.attempts}/{graphState.selectedNode.max_attempts}</span>
+        <span>
+          <span class="footer-label">attempts:</span>
+          {graphState.selectedNode.attempts}/{graphState.selectedNode.max_attempts}
+        </span>
         {#if graphState.selectedNode.created_at}
-          <span>创建: {new Date(graphState.selectedNode.created_at).toLocaleDateString()}</span>
+          <span>
+            <span class="footer-label">created:</span>
+            {new Date(graphState.selectedNode.created_at).toLocaleDateString()}
+          </span>
         {/if}
       </div>
     </div>
@@ -116,92 +148,376 @@
 
 <style>
   .detail-panel {
-    position: fixed; right: 0; top: 0; bottom: 0; width: 360px;
-    background: #0f172a; border-left: 1px solid #1e293b; color: #e2e8f0;
-    display: flex; flex-direction: column; z-index: 100;
+    position: fixed;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 380px;
+    background: var(--surface-1);
+    border-left: 1px solid var(--line);
+    color: var(--ink);
+    display: flex;
+    flex-direction: column;
+    z-index: var(--z-panel);
     transform: translateX(100%);
-    transition: transform 0.25s cubic-bezier(0.25, 1, 0.5, 1);
-    box-shadow: -4px 0 24px rgba(0,0,0,0.3);
+    transition: transform 0.25s var(--ease-out-quart);
+    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.5);
   }
-  .detail-panel.visible { transform: translateX(0); }
+
+  .detail-panel.visible {
+    transform: translateX(0);
+  }
 
   .panel-header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 0.875rem 1.25rem; border-bottom: 1px solid #1e293b; flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--sp-3) var(--sp-4);
+    border-bottom: 1px solid var(--line);
+    flex-shrink: 0;
+    background: var(--surface-2);
   }
-  .panel-title {
-    font-size: 0.75rem; font-weight: 500; text-transform: uppercase;
-    letter-spacing: 0.06em; color: #64748b;
-  }
-  .close-btn {
-    background: none; border: none; color: #64748b; cursor: pointer;
-    padding: 4px; border-radius: 4px;
-    transition: color 0.15s ease, background 0.15s ease;
-  }
-  .close-btn:hover { color: #e2e8f0; background: #1e293b; }
 
-  .panel-body { padding: 1.25rem; overflow-y: auto; flex: 1; }
+  .panel-title {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    letter-spacing: var(--track-caps);
+    color: var(--ink-muted);
+    text-transform: uppercase;
+  }
+
+  .close-btn {
+    background: none;
+    border: none;
+    color: var(--ink-muted);
+    cursor: pointer;
+    padding: var(--sp-1);
+    border-radius: var(--r-sm);
+    min-width: var(--tap);
+    min-height: var(--tap);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s var(--ease-out-quart), color 0.15s var(--ease-out-quart);
+  }
+
+  .close-btn:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--ink);
+  }
+
+  .close-btn:active {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .panel-body {
+    padding: var(--sp-5);
+    overflow-y: auto;
+    flex: 1;
+  }
 
   .node-label {
-    font-size: 1.1rem; font-weight: 600; margin: 0 0 0.75rem;
-    color: #f1f5f9; line-height: 1.4;
+    font-family: var(--font-sans);
+    font-size: var(--text-xl);
+    font-weight: 700;
+    margin: 0 0 var(--sp-4);
+    color: var(--ink);
+    line-height: 1.2;
+    letter-spacing: -0.015em;
   }
 
-  /* 元信息标签行 */
-  .meta-grid { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 1rem; }
+  /* Meta tags */
+  .meta-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+    margin-bottom: var(--sp-5);
+    padding-bottom: var(--sp-4);
+    border-bottom: 1px solid var(--line);
+  }
+
   .meta-tag {
-    font-size: 0.65rem; padding: 2px 8px; border-radius: 4px;
-    background: #1e293b; color: #94a3b8; font-weight: 500;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    padding: var(--sp-1) var(--sp-2);
+    border-radius: var(--r-sm);
+    background: var(--surface-2);
+    color: var(--ink-muted);
+    border: 1px solid var(--line);
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-1);
+    letter-spacing: var(--track-label);
   }
-  .id-tag { font-family: monospace; background: #1e1b4b; color: #a5b4fc; }
-  .type-tag { background: #1c1917; color: #fdba74; }
-  .status-tag { color: #fff; }
-  .assign-tag { background: #052e16; color: #86efac; }
 
-  /* 分区 */
-  .section { margin-bottom: 1rem; }
+  .id-tag {
+    color: var(--ink);
+    border-color: var(--line-strong);
+    background: var(--surface-3);
+  }
+
+  .type-tag {
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .level-tag {
+    color: var(--ink-muted);
+  }
+
+  .status-tag {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+    text-transform: lowercase;
+    color: var(--ink);
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .assign-tag {
+    color: var(--ink);
+    border-color: var(--line-strong);
+  }
+
+  /* Sections */
+  .section {
+    margin-bottom: var(--sp-5);
+    padding-top: var(--sp-3);
+    border-top: 1px solid var(--line);
+  }
+
   .section-title {
-    font-size: 0.75rem; font-weight: 600; margin: 0 0 0.5rem;
-    color: #94a3b8; letter-spacing: 0.02em;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    font-weight: 700;
+    margin: 0 0 var(--sp-3);
+    color: var(--ink-muted);
+    letter-spacing: var(--track-caps);
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
   }
+
+  .section-icon {
+    color: var(--ink-faint);
+    font-size: 0.8em;
+  }
+
+  .section-count {
+    margin-left: auto;
+    color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
+    font-size: var(--text-2xs);
+  }
+
   .plan-desc {
-    font-size: 0.8rem; line-height: 1.5; color: #cbd5e1; margin: 0;
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    line-height: 1.7;
+    color: var(--ink);
+    margin: 0;
   }
-  .sub-list { margin-top: 0.5rem; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-  .sub-label { font-size: 0.7rem; color: #64748b; }
+
+  .sub-list {
+    margin-top: var(--sp-3);
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+    align-items: center;
+  }
+
+  .sub-label {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--ink-faint);
+  }
+
   .chip {
-    font-size: 0.65rem; background: #1e293b; padding: 1px 6px;
-    border-radius: 3px; color: #818cf8;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    background: var(--surface-2);
+    padding: var(--sp-1) var(--sp-2);
+    border-radius: var(--r-sm);
+    color: var(--ink-muted);
+    border: 1px solid var(--line);
   }
 
-  /* 完成标准列表 */
+  /* Definition of done list */
   .dod-list {
-    margin: 0; padding-left: 1.2rem;
-    font-size: 0.8rem; color: #cbd5e1; line-height: 1.6;
+    margin: 0;
+    padding-left: 0;
+    list-style: none;
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    color: var(--ink);
+    line-height: 1.7;
   }
 
-  /* 检查点列表 */
-  .cp-list { display: flex; flex-direction: column; gap: 0.4rem; }
+  .dod-list li {
+    margin-bottom: var(--sp-2);
+    padding-left: var(--sp-5);
+    position: relative;
+  }
+
+  .dod-list li::before {
+    content: "▸";
+    position: absolute;
+    left: 0;
+    color: var(--ink-faint);
+    font-size: 0.9em;
+  }
+
+  /* Checkpoints */
+  .cp-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+  }
+
   .cp-item {
-    display: flex; align-items: center; gap: 0.5rem;
-    padding: 0.4rem 0.5rem; background: #1e293b; border-radius: 6px;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: var(--sp-3);
+    background: var(--surface-2);
+    border-radius: var(--r);
+    border: 1px solid var(--line);
+    transition: background 0.15s var(--ease-out-quart), border-color 0.15s var(--ease-out-quart);
   }
-  .cp-icon { font-size: 0.85rem; flex-shrink: 0; }
-  .cp-body { display: flex; justify-content: space-between; align-items: center; flex: 1; min-width: 0; }
-  .cp-label { font-size: 0.75rem; color: #e2e8f0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .cp-item:hover {
+    background: var(--surface-3);
+    border-color: var(--line-strong);
+  }
+
+  .cp-icon {
+    font-family: var(--font-mono);
+    font-size: var(--text-base);
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border-radius: var(--r-sm);
+    font-weight: 600;
+  }
+
+  .cp-passed {
+    background: rgba(52, 201, 100, 0.12);
+    color: var(--status-passed);
+  }
+
+  .cp-failed {
+    background: rgba(229, 80, 79, 0.12);
+    color: var(--status-failed);
+  }
+
+  .cp-running {
+    background: rgba(240, 167, 58, 0.12);
+    color: var(--status-running);
+    animation: cp-pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes cp-pulse {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 1; }
+  }
+
+  .cp-pending {
+    background: var(--surface-3);
+    color: var(--ink-faint);
+  }
+
+  .cp-body {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+    gap: var(--sp-3);
+  }
+
+  .cp-label {
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.4;
+  }
+
   .cp-status {
-    font-size: 0.6rem; padding: 1px 6px; border-radius: 3px;
-    background: #334155; color: #94a3b8; flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    padding: 2px var(--sp-2);
+    border-radius: var(--r-sm);
+    text-transform: lowercase;
+    flex-shrink: 0;
+    font-weight: 500;
+    letter-spacing: 0.02em;
   }
-  .cp-done { background: #052e16; color: #86efac; }
-  .cp-fail { background: #450a0a; color: #fca5a5; }
 
-  /* 底部 */
+  .cp-status.cp-passed {
+    background: rgba(52, 201, 100, 0.12);
+    color: var(--status-passed);
+  }
+
+  .cp-status.cp-failed {
+    background: rgba(229, 80, 79, 0.12);
+    color: var(--status-failed);
+  }
+
+  .cp-status.cp-running {
+    background: rgba(240, 167, 58, 0.12);
+    color: var(--status-running);
+  }
+
+  .cp-status.cp-pending {
+    background: var(--surface-3);
+    color: var(--ink-faint);
+  }
+
+  /* Footer */
   .footer-info {
-    margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid #1e293b;
-    display: flex; justify-content: space-between;
-    font-size: 0.65rem; color: #475569;
+    margin-top: var(--sp-5);
+    padding-top: var(--sp-4);
+    border-top: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
   }
 
-  @media (prefers-reduced-motion: reduce) { .detail-panel { transition: none; } }
+  .footer-label {
+    color: var(--ink-faint);
+    margin-right: var(--sp-1);
+    opacity: 0.7;
+  }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .detail-panel {
+      width: 100%;
+      max-width: 100%;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .detail-panel {
+      transition: none;
+    }
+  }
 </style>
