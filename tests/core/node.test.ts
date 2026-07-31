@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { createNode, getNode, updateNodeStatus, updateCheckpoint, listNodes } from "../../src/core/node.js";
+import { createNode, getNode, updateNodeStatus, updateCheckpoint, updateExecutionReport, listNodes } from "../../src/core/node.js";
 import { NodeType, NodeStatus } from "../../src/core/types.js";
 
 let tmpDir: string;
@@ -74,5 +74,36 @@ describe("Node operations", () => {
   it("不存在的 checkpoint 抛出错误", () => {
     createNode(tmpDir, { id: "t1", type: NodeType.Task, label: "T1", checkpoints: [{ id: "cp_01", label: "S1", status: "pending", verifier: "auto" }] });
     expect(() => updateCheckpoint(tmpDir, "t1", "cp_wrong", "passed")).toThrow();
+  });
+
+  it("claim 语义：ready→running 记录 assigned_to 和 started_at", () => {
+    createNode(tmpDir, { id: "t1", type: NodeType.Task, label: "T1" });
+    updateNodeStatus(tmpDir, "t1", NodeStatus.Ready);
+    const claimed = updateNodeStatus(tmpDir, "t1", NodeStatus.Running, "executor-alpha");
+    expect(claimed.assigned_to).toBe("executor-alpha");
+    expect(claimed.execution_report?.started_at).toBeTruthy();
+  });
+
+  it("updateExecutionReport 合并写入交接单", () => {
+    createNode(tmpDir, { id: "t1", type: NodeType.Task, label: "T1" });
+    updateNodeStatus(tmpDir, "t1", NodeStatus.Ready);
+    updateNodeStatus(tmpDir, "t1", NodeStatus.Running, "executor-alpha");
+    const reported = updateExecutionReport(tmpDir, "t1", {
+      summary: "完成状态机实现",
+      artifacts: ["src/core/state-machine.ts"],
+    });
+    expect(reported.execution_report?.summary).toBe("完成状态机实现");
+    expect(reported.execution_report?.artifacts).toHaveLength(1);
+    // 保留 claim 时写入的 started_at
+    expect(reported.execution_report?.started_at).toBeTruthy();
+  });
+
+  it("passed 时记录 completed_at", () => {
+    createNode(tmpDir, { id: "t1", type: NodeType.Task, label: "T1" });
+    updateNodeStatus(tmpDir, "t1", NodeStatus.Ready);
+    updateNodeStatus(tmpDir, "t1", NodeStatus.Running, "executor-alpha");
+    updateExecutionReport(tmpDir, "t1", { summary: "完成" });
+    const done = updateNodeStatus(tmpDir, "t1", NodeStatus.Passed);
+    expect(done.execution_report?.completed_at).toBeTruthy();
   });
 });

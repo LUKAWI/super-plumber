@@ -10,6 +10,8 @@ import {
   getNode,
   createNode as createNodeOp,
   updateNodeStatus,
+  updateCheckpoint,
+  updateExecutionReport,
   listNodes,
 } from "../core/node.js";
 import { deleteNode } from "../core/parser.js";
@@ -51,14 +53,43 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: "graph_update_node_status",
-      description: "更新节点状态（状态机校验）",
+      description: "更新节点状态（状态机校验）。claim语义：status=running时传claim_by记录执行者",
       inputSchema: {
         type: "object",
         properties: {
           id: { type: "string" },
           status: { type: "string", enum: Object.values(NodeStatus) },
+          claim_by: { type: "string", description: "认领者（执行agent名），status=running时必传" },
         },
         required: ["id", "status"],
+      },
+    },
+    {
+      name: "graph_update_checkpoint",
+      description: "执行agent上报checkpoint进度（只改checkpoints数组，不触节点状态）",
+      inputSchema: {
+        type: "object",
+        properties: {
+          node_id: { type: "string" },
+          checkpoint_id: { type: "string" },
+          status: { type: "string", enum: ["pending", "running", "passed", "failed", "skipped"] },
+        },
+        required: ["node_id", "checkpoint_id", "status"],
+      },
+    },
+    {
+      name: "graph_update_execution_report",
+      description: "执行agent填写执行报告（交接单），供Super Mario抽查",
+      inputSchema: {
+        type: "object",
+        properties: {
+          node_id: { type: "string" },
+          summary: { type: "string" },
+          artifacts: { type: "array", items: { type: "string" } },
+          blockers: { type: "array", items: { type: "string" } },
+          notes: { type: "string" },
+        },
+        required: ["node_id", "summary"],
       },
     },
     {
@@ -130,7 +161,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
       case "graph_update_node_status": {
         const a = args!;
-        const node = updateNodeStatus(rootDir, a.id as string, a.status as NodeStatus);
+        const node = updateNodeStatus(
+          rootDir,
+          a.id as string,
+          a.status as NodeStatus,
+          a.claim_by as string | undefined
+        );
+        return { content: [{ type: "text", text: JSON.stringify(node, null, 2) }] };
+      }
+      case "graph_update_checkpoint": {
+        const a = args!;
+        const node = updateCheckpoint(
+          rootDir,
+          a.node_id as string,
+          a.checkpoint_id as string,
+          a.status as any
+        );
+        return { content: [{ type: "text", text: JSON.stringify(node, null, 2) }] };
+      }
+      case "graph_update_execution_report": {
+        const a = args!;
+        const node = updateExecutionReport(rootDir, a.node_id as string, {
+          summary: a.summary as string,
+          artifacts: a.artifacts as string[] | undefined,
+          blockers: a.blockers as string[] | undefined,
+          notes: a.notes as string | undefined,
+        });
         return { content: [{ type: "text", text: JSON.stringify(node, null, 2) }] };
       }
       case "graph_get_graph": {

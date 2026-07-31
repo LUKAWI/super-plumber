@@ -59,6 +59,25 @@ export interface ExpectedOutcome {
   quality_gates?: { check: string; method: "auto" | "cross_review" | "human" }[];
 }
 
+// 执行报告：执行 agent 写给 Super Mario 的交接单
+// summary: 执行摘要 | artifacts: 产物路径（供抽查）| blockers: 阻塞原因 | notes: 补充
+// started_at / completed_at: 认领与完成时间戳
+// verification: Super Mario 抽查后的验证结论
+
+export interface ExecutionReport {
+  summary: string;
+  artifacts?: string[];
+  blockers?: string[];
+  notes?: string;
+  started_at?: string;
+  completed_at?: string;
+  verification?: {
+    verdict: "pending" | "passed" | "failed";
+    checked_at?: string;
+    note?: string;
+  };
+}
+
 export interface NodeSchema {
   id: string;
   type: NodeType;
@@ -69,6 +88,7 @@ export interface NodeSchema {
   checkpoints?: Checkpoint[];
   status: NodeStatus;
   assigned_to?: string;
+  execution_report?: ExecutionReport;
   attempts: number;
   max_attempts: number;
   created_at: string;  // ISO 8601

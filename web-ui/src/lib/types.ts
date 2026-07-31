@@ -34,6 +34,20 @@ export interface Checkpoint {
 	verifier: string;
 }
 
+export interface ExecutionReport {
+	summary: string;
+	artifacts?: string[];
+	blockers?: string[];
+	notes?: string;
+	started_at?: string;
+	completed_at?: string;
+	verification?: {
+		verdict: "pending" | "passed" | "failed";
+		checked_at?: string;
+		note?: string;
+	};
+}
+
 export interface NodeSchema {
 	id: string;
 	type: NodeType;
@@ -44,6 +58,7 @@ export interface NodeSchema {
 	expected_outcome?: ExpectedOutcome;
 	checkpoints?: Checkpoint[];
 	assigned_to?: string;
+	execution_report?: ExecutionReport;
 	attempts: number;
 	max_attempts: number;
 	created_at: string;

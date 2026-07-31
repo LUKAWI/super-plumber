@@ -47,18 +47,56 @@ export function getNode(rootDir: string, id: string): NodeSchema {
 export function updateNodeStatus(
   rootDir: string,
   id: string,
-  to: NodeStatus
+  to: NodeStatus,
+  claimBy?: string  // claim 语义：ready→running 时记录执行者
 ): NodeSchema {
   const node = readNode(rootDir, id);
   const updated = transition(node, to);
+
+  // claim：ready → running，记录 assigned_to + started_at
+  if (to === NodeStatus.Running && claimBy) {
+    updated.assigned_to = claimBy;
+    updated.execution_report = {
+      ...(updated.execution_report ?? {}),
+      summary: updated.execution_report?.summary ?? "",
+      started_at: updated.execution_report?.started_at ?? new Date().toISOString(),
+    };
+  }
+
+  // 节点完成时记录 completed_at
+  if ((to === NodeStatus.Passed || to === NodeStatus.Failed) && updated.execution_report) {
+    updated.execution_report = {
+      ...updated.execution_report,
+      completed_at: new Date().toISOString(),
+    };
+  }
+
   writeNode(rootDir, updated);
   return updated;
+}
+
+export function updateExecutionReport(
+  rootDir: string,
+  id: string,
+  report: Partial<NonNullable<NodeSchema["execution_report"]>>
+): NodeSchema {
+  const node = readNode(rootDir, id);
+  const merged: NodeSchema = {
+    ...node,
+    execution_report: {
+      ...(node.execution_report ?? { summary: "" }),
+      ...report,
+    },
+    updated_at: new Date().toISOString(),
+  };
+  writeNode(rootDir, merged);
+  return merged;
 }
 
 export function updateNodeContent(
   rootDir: string,
   id: string,
-  updates: Partial<Pick<NodeSchema, "plan" | "expected_outcome" | "checkpoints" | "assigned_to" | "label" | "max_attempts">>
+  updates: Partial<Pick<NodeSchema, "plan" | "expected_outcome" | "checkpoints" | "assigned_to" | "label" | "max_attempts" | "execution_report">>
 ): NodeSchema {
   const node = readNode(rootDir, id);
   const updated: NodeSchema = {

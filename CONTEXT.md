@@ -111,6 +111,21 @@ YAML 文件（`graph.yaml`、`nodes/*.yaml`、`edges/*.yaml`）是唯一真相�
 ### 马里奥水管工（Mario Plumber）
 专用验证 subagent 的隐喻。Mario 按图跳跃到每个节点，解压"压缩包"，核对预期输出 vs 实际输出，更新 checkpoint 状态，决定前进/回退/请求人类介入。
 
+### Super Mario
+职责合并后的拓扑管理主控 subagent。承担：节点生命周期裁决（checkpoint 聚合 + 实际输出抽查）、重试管理、状态监测、进度同步检查。与执行 agent 职责分离——执行 agent 只报 checkpoint 进度，Super Mario 裁决节点状态。
+
+### 执行 agent（Executor）
+执行具体任务的 subagent（或集群）。职责：认领（claim）ready 节点为 running、执行任务、逐项上报 checkpoint 进度、填写执行报告。不负责节点状态的最终裁决。
+
+### 认领（Claim）
+执行 agent 将节点从 ready 置为 running 的动作。通过扩展后的 update_node_status 完成，自动记录 assigned_to 和 started_at。状态机原子性保证同一节点不可被重复认领。
+
+### 执行报告（Execution Report）
+执行 agent 写给 Super Mario 的"交接单"，存储在节点的 execution_report 字段中。包含 summary（执行摘要）、artifacts（产物路径，供抽查）、blockers（阻塞原因）、notes（补充说明）。
+
+### 进度同步检查（Progress Sync Check）
+主 agent 每轮决策前，调用 Super Mario 对 running 节点做快速扫描，识别长时间无更新的"疑似卡住"节点并提醒。这是"提醒 agent 做完即同步"的强制机制。
+
 ---
 
 ## 工具边界
