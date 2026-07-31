@@ -1,6 +1,6 @@
 ---
 name: topo-graph
-description: 拓扑图管理工具操作指南。用于管理工作流拓扑图的节点、边、状态和检查点。包含 CLI 命令和辅助脚本。
+description: 拓扑图管理工具操作指南。用于管理工作流拓扑图的节点、边、状态和检查点。包含 CLI 命令、MCP 工具使用、执行 agent 与 Super Mario 的协作协议（claim/checkpoint/execution_report/裁决）。
 ---
 
 # Topo-Graph：拓扑图管理工具
@@ -69,24 +69,62 @@ graph export --mermaid -o topology.mmd
 
 ## MCP 工具（高级）
 
-如果 `graph-mcp` 服务器正在运行，可以通过 MCP 协议直接调用拓扑工具。MCP 工具的响应速度比 CLI 更快。
+如果 `graph-mcp` 服务器正在运行，可以通过 MCP 协议直接调用拓扑工具。MCP 工具自带参数校验，比 CLI 更安全、更快。
 
 ```bash
-# 启动 MCP 服务器（后台运行）
+# 启动 MCP 服务器（后台运行，在工作目录启动，作用于该目录的 .graph/）
 graph-mcp
 ```
 
-启动后，agent 可通过 `mcp({ tool: "graph_get_node", args: { id: "..." } })` 等方式调用。
+启动后，agent 通过 MCP 客户端直接调用工具（参数名与 inputSchema 一致）。
 
-可用 MCP 工具：
-| 工具 | 功能 |
-|------|------|
-| `graph_get_node` | 读取单个节点 |
-| `graph_create_node` | 创建节点 |
-| `graph_update_node_status` | 更新节点状态 |
-| `graph_get_graph` | 获取完整图拓扑 |
-| `graph_traverse` | 遍历相邻节点 |
-| `graph_search` | 搜索节点 |
+可用 MCP 工具（9 个）：
+| 工具 | 功能 | 必填参数 |
+|------|------|----------|
+| `graph_get_node` | 读取单个节点 | id |
+| `graph_create_node` | 创建节点 | id, label |
+| `graph_update_node_status` | 更新节点状态（claim语义：status=running时传claim_by） | id, status |
+| `graph_update_checkpoint` | 执行agent上报checkpoint进度 | node_id, checkpoint_id, status |
+| `graph_update_execution_report` | 执行agent填写交接单 | node_id, summary |
+| `graph_delete_node` | 软删除节点 | id |
+| `graph_get_graph` | 获取完整图拓扑 | — |
+| `graph_traverse` | 遍历相邻节点 | node_id |
+| `graph_search` | 按条件搜索节点 | — |
+
+### MCP 参数校验行为
+
+所有工具由 zod schema 驱动校验。**非法或缺参调用返回协议错误** `MCP error -32602: Input validation error`（isError=true），LLM 能读到错误并自纠。常见失败：
+- 缺必填参数 → `expected string, received undefined at <field>`
+- 非法枚举 → 如 status 传了 `bogus`，direction 传了 `sideways`
+- 类型错误 → 如 summary 传了数字而非字符串
+
+## 执行 agent 协作协议（claim → checkpoint → report → 裁决）
+
+拓扑工作流由**执行 agent**（干活）和 **Super Mario**（裁决）协作驱动。职责分离：执行 agent 只报进度，Super Mario 裁决节点状态。
+
+```
+执行 agent:  claim(ready→running) → 干活 → 逐个报 checkpoint → 填 execution_report
+Super Mario: 读取 execution_report → 抽查 artifacts → 裁决 passed/failed/blocked
+```
+
+### 执行 agent 的操作序列
+
+1. **认领**：`graph_update_node_status {id, status: "running", claim_by: "<agent名>"}`
+   - 自动记录 assigned_to + execution_report.started_at
+2. **干活**：按节点 plan / checkpoints 执行任务
+3. **报进度**：每个子步骤完成即调用 `graph_update_checkpoint {node_id, checkpoint_id, status}`
+   - checkpoint 状态：pending → running → passed/failed/skipped
+   - **做完一个就报一个，不要攒到结束**（渐进式同步，防止丢失进度）
+4. **填交接单**：`graph_update_execution_report {node_id, summary, artifacts, blockers, notes}`
+   - artifacts 列出产物路径（Super Mario 据此抽查）
+   - blockers 说明阻塞原因
+5. **召唤裁决**：通知 Super Mario 检查 execution_report 并裁决
+
+### Super Mario 的裁决依据
+
+1. checkpoint 聚合：全部 passed 才进入抽查；任一 failed → 节点 failed
+2. 输出抽查：检查 `execution_report.artifacts` 中的产物是否真实存在、是否满足 `expected_outcome.definition_of_done`
+3. 裁决：passed → 推进下游；failed → 重试管理（attempts < max_attempts 则重试，否则人工介入）
 
 ## 节点状态机
 
