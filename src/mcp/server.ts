@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 // src/mcp/server.ts
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+// 使用 SDK 推荐的 McpServer 高级 API（取代 deprecated 的 Server）
+// 每个工具用 zod schema 声明参数，SDK 自动校验并生成 JSON schema 给 LLM
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
 import {
   getNode,
   createNode as createNodeOp,
@@ -20,234 +19,201 @@ import { NodeType, NodeStatus } from "../core/types.js";
 
 const rootDir = process.cwd();
 
-const server = new Server(
-  { name: "topological-tool", version: "0.1.0" },
-  { capabilities: { tools: {} } }
+const server = new McpServer({
+  name: "topological-tool",
+  version: "0.1.0",
+});
+
+// zod 4.x 中 z.nativeEnum deprecated，用 z.enum 显式枚举
+const nodeStatusSchema = z.enum(Object.values(NodeStatus) as [string, ...string[]]);
+const nodeTypeSchema = z.enum(Object.values(NodeType) as [string, ...string[]]);
+const cpStatusSchema = z.enum(["pending", "running", "passed", "failed", "skipped"]);
+
+// ── 工具注册（zod schema 驱动参数校验，SDK 自动处理非法参数）──
+
+server.registerTool(
+  "graph_get_node",
+  {
+    description: "读取单个节点的全部内容（解压压缩包）",
+    inputSchema: { id: z.string().describe("节点 ID") },
+  },
+  async ({ id }) => {
+    const node = getNode(rootDir, id);
+    return { content: [{ type: "text" as const, text: JSON.stringify(node, null, 2) }] };
+  }
 );
 
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [
-    {
-      name: "graph_get_node",
-      description: "读取单个节点的全部内容",
-      inputSchema: {
-        type: "object",
-        properties: { id: { type: "string" } },
-        required: ["id"],
-      },
+server.registerTool(
+  "graph_create_node",
+  {
+    description: "创建新节点",
+    inputSchema: {
+      id: z.string(),
+      label: z.string(),
+      type: nodeTypeSchema.optional().default(NodeType.Task),
+      level: z.number().int().optional().default(1),
+      assigned_to: z.string().optional(),
     },
-    {
-      name: "graph_create_node",
-      description: "创建新节点",
-      inputSchema: {
-        type: "object",
-        properties: {
-          id: { type: "string" },
-          label: { type: "string" },
-          type: { type: "string", enum: Object.values(NodeType) },
-          level: { type: "number" },
-          assigned_to: { type: "string" },
-        },
-        required: ["id", "label"],
-      },
-    },
-    {
-      name: "graph_update_node_status",
-      description: "更新节点状态（状态机校验）。claim语义：status=running时传claim_by记录执行者",
-      inputSchema: {
-        type: "object",
-        properties: {
-          id: { type: "string" },
-          status: { type: "string", enum: Object.values(NodeStatus) },
-          claim_by: { type: "string", description: "认领者（执行agent名），status=running时必传" },
-        },
-        required: ["id", "status"],
-      },
-    },
-    {
-      name: "graph_update_checkpoint",
-      description: "执行agent上报checkpoint进度（只改checkpoints数组，不触节点状态）",
-      inputSchema: {
-        type: "object",
-        properties: {
-          node_id: { type: "string" },
-          checkpoint_id: { type: "string" },
-          status: { type: "string", enum: ["pending", "running", "passed", "failed", "skipped"] },
-        },
-        required: ["node_id", "checkpoint_id", "status"],
-      },
-    },
-    {
-      name: "graph_update_execution_report",
-      description: "执行agent填写执行报告（交接单），供Super Mario抽查",
-      inputSchema: {
-        type: "object",
-        properties: {
-          node_id: { type: "string" },
-          summary: { type: "string" },
-          artifacts: { type: "array", items: { type: "string" } },
-          blockers: { type: "array", items: { type: "string" } },
-          notes: { type: "string" },
-        },
-        required: ["node_id", "summary"],
-      },
-    },
-    {
-      name: "graph_delete_node",
-      description: "软删除一个节点（标记为废弃，保留历史）",
-      inputSchema: {
-        type: "object",
-        properties: { id: { type: "string" } },
-        required: ["id"],
-      },
-    },
-    {
-      name: "graph_get_graph",
-      description: "获取完整图拓扑",
-      inputSchema: { type: "object", properties: {} },
-    },
-    {
-      name: "graph_traverse",
-      description: "从指定节点出发遍历相邻节点",
-      inputSchema: {
-        type: "object",
-        properties: {
-          node_id: { type: "string" },
-          direction: { type: "string", enum: ["downstream", "upstream", "both"] },
-          max_depth: { type: "number" },
-        },
-        required: ["node_id"],
-      },
-    },
-    {
-      name: "graph_search",
-      description: "按条件搜索节点",
-      inputSchema: {
-        type: "object",
-        properties: {
-          query: { type: "string" },
-          status: { type: "string", enum: Object.values(NodeStatus) },
-          type: { type: "string", enum: Object.values(NodeType) },
-          assigned_to: { type: "string" },
-        },
-      },
-    },
-  ],
-}));
-
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-
-  try {
-    switch (name) {
-      case "graph_get_node": {
-        const node = getNode(rootDir, args!.id as string);
-        return { content: [{ type: "text", text: JSON.stringify(node, null, 2) }] };
-      }
-      case "graph_delete_node": {
-        deleteNode(rootDir, args!.id as string);
-        return { content: [{ type: "text", text: JSON.stringify({ deleted: args!.id }, null, 2) }] };
-      }
-      case "graph_create_node": {
-        const a = args!;
-        const node = createNodeOp(rootDir, {
-          id: a.id as string,
-          label: a.label as string,
-          type: (a.type as NodeType) ?? NodeType.Task,
-          level: a.level as number | undefined,
-          assigned_to: a.assigned_to as string | undefined,
-        });
-        return { content: [{ type: "text", text: JSON.stringify(node, null, 2) }] };
-      }
-      case "graph_update_node_status": {
-        const a = args!;
-        const node = updateNodeStatus(
-          rootDir,
-          a.id as string,
-          a.status as NodeStatus,
-          a.claim_by as string | undefined
-        );
-        return { content: [{ type: "text", text: JSON.stringify(node, null, 2) }] };
-      }
-      case "graph_update_checkpoint": {
-        const a = args!;
-        const node = updateCheckpoint(
-          rootDir,
-          a.node_id as string,
-          a.checkpoint_id as string,
-          a.status as any
-        );
-        return { content: [{ type: "text", text: JSON.stringify(node, null, 2) }] };
-      }
-      case "graph_update_execution_report": {
-        const a = args!;
-        const node = updateExecutionReport(rootDir, a.node_id as string, {
-          summary: a.summary as string,
-          artifacts: a.artifacts as string[] | undefined,
-          blockers: a.blockers as string[] | undefined,
-          notes: a.notes as string | undefined,
-        });
-        return { content: [{ type: "text", text: JSON.stringify(node, null, 2) }] };
-      }
-      case "graph_get_graph": {
-        const index = buildGraphIndex(rootDir);
-        // ponytail: Map doesn't serialize to JSON, convert to plain objects
-        const serializable = {
-          nodes: index.nodes,
-          edges: index.edges,
-          adjacency: Object.fromEntries(index.adjacency),
-          reverseAdj: Object.fromEntries(index.reverseAdj),
-        };
-        return { content: [{ type: "text", text: JSON.stringify(serializable, null, 2) }] };
-      }
-      case "graph_traverse": {
-        const a = args!;
-        const index = buildGraphIndex(rootDir);
-        const visited = new Set<string>();
-        const result: string[] = [];
-        const maxDepth = (a.max_depth as number) ?? 3;
-        const direction = (a.direction as string) ?? "downstream";
-
-        function dfs(nodeId: string, depth: number) {
-          if (depth > maxDepth || visited.has(nodeId)) return;
-          visited.add(nodeId);
-          result.push(nodeId);
-          if (direction === "downstream" || direction === "both") {
-            for (const neighbor of index.adjacency.get(nodeId) ?? []) {
-              dfs(neighbor, depth + 1);
-            }
-          }
-          if (direction === "upstream" || direction === "both") {
-            for (const neighbor of index.reverseAdj.get(nodeId) ?? []) {
-              dfs(neighbor, depth + 1);
-            }
-          }
-        }
-        dfs(a.node_id as string, 0);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-      }
-      case "graph_search": {
-        const a = args!;
-        const nodes = listNodes(rootDir);
-        const filtered = nodes.filter((n) => {
-          if (a.query && !n.id.includes(a.query as string) && !n.label.includes(a.query as string)) return false;
-          if (a.status && n.status !== a.status) return false;
-          if (a.type && n.type !== a.type) return false;
-          if (a.assigned_to && n.assigned_to !== a.assigned_to) return false;
-          return true;
-        });
-        return { content: [{ type: "text", text: JSON.stringify(filtered, null, 2) }] };
-      }
-      default:
-        throw new Error(`Unknown tool: ${name}`);
-    }
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    return {
-      content: [{ type: "text", text: `Error: ${message}` }],
-      isError: true,
-    };
+  },
+  async ({ id, label, type, level, assigned_to }) => {
+    const node = createNodeOp(rootDir, {
+      id,
+      label,
+      type: type as NodeType,
+      level,
+      assigned_to,
+    });
+    return { content: [{ type: "text" as const, text: JSON.stringify(node, null, 2) }] };
   }
+);
+
+server.registerTool(
+  "graph_update_node_status",
+  {
+    description: "更新节点状态（状态机校验）。claim语义：status=running时传claim_by记录执行者",
+    inputSchema: {
+      id: z.string(),
+      status: nodeStatusSchema,
+      claim_by: z.string().optional().describe("认领者（执行agent名），status=running时传"),
+    },
+  },
+  async ({ id, status, claim_by }) => {
+    const node = updateNodeStatus(rootDir, id, status as NodeStatus, claim_by);
+    return { content: [{ type: "text" as const, text: JSON.stringify(node, null, 2) }] };
+  }
+);
+
+server.registerTool(
+  "graph_update_checkpoint",
+  {
+    description: "执行agent上报checkpoint进度（只改checkpoints数组，不触节点状态）",
+    inputSchema: {
+      node_id: z.string(),
+      checkpoint_id: z.string(),
+      status: cpStatusSchema,
+    },
+  },
+  async ({ node_id, checkpoint_id, status }) => {
+    const node = updateCheckpoint(rootDir, node_id, checkpoint_id, status);
+    return { content: [{ type: "text" as const, text: JSON.stringify(node, null, 2) }] };
+  }
+);
+
+server.registerTool(
+  "graph_update_execution_report",
+  {
+    description: "执行agent填写执行报告（交接单），供Super Mario抽查",
+    inputSchema: {
+      node_id: z.string(),
+      summary: z.string(),
+      artifacts: z.array(z.string()).optional(),
+      blockers: z.array(z.string()).optional(),
+      notes: z.string().optional(),
+    },
+  },
+  async ({ node_id, summary, artifacts, blockers, notes }) => {
+    const node = updateExecutionReport(rootDir, node_id, {
+      summary, artifacts, blockers, notes,
+    });
+    return { content: [{ type: "text" as const, text: JSON.stringify(node, null, 2) }] };
+  }
+);
+
+server.registerTool(
+  "graph_delete_node",
+  {
+    description: "软删除一个节点（标记为废弃，保留历史）",
+    inputSchema: { id: z.string() },
+  },
+  async ({ id }) => {
+    deleteNode(rootDir, id);
+    return { content: [{ type: "text" as const, text: JSON.stringify({ deleted: id }, null, 2) }] };
+  }
+);
+
+server.registerTool(
+  "graph_get_graph",
+  {
+    description: "获取完整图拓扑（节点+边+邻接表）",
+    inputSchema: {},
+  },
+  async () => {
+    const index = buildGraphIndex(rootDir);
+    const serializable = {
+      nodes: index.nodes,
+      edges: index.edges,
+      adjacency: Object.fromEntries(index.adjacency),
+      reverseAdj: Object.fromEntries(index.reverseAdj),
+    };
+    return { content: [{ type: "text" as const, text: JSON.stringify(serializable, null, 2) }] };
+  }
+);
+
+server.registerTool(
+  "graph_traverse",
+  {
+    description: "从指定节点出发遍历相邻节点",
+    inputSchema: {
+      node_id: z.string(),
+      direction: z.enum(["downstream", "upstream", "both"]).optional().default("downstream"),
+      max_depth: z.number().int().optional().default(3),
+    },
+  },
+  async ({ node_id, direction, max_depth }) => {
+    const index = buildGraphIndex(rootDir);
+    const visited = new Set<string>();
+    const result: string[] = [];
+
+    function dfs(nodeId: string, depth: number) {
+      if (depth > max_depth || visited.has(nodeId)) return;
+      visited.add(nodeId);
+      result.push(nodeId);
+      if (direction === "downstream" || direction === "both") {
+        for (const neighbor of index.adjacency.get(nodeId) ?? []) {
+          dfs(neighbor, depth + 1);
+        }
+      }
+      if (direction === "upstream" || direction === "both") {
+        for (const neighbor of index.reverseAdj.get(nodeId) ?? []) {
+          dfs(neighbor, depth + 1);
+        }
+      }
+    }
+    dfs(node_id, 0);
+    return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+server.registerTool(
+  "graph_search",
+  {
+    description: "按条件搜索节点",
+    inputSchema: {
+      query: z.string().optional(),
+      status: nodeStatusSchema.optional(),
+      type: nodeTypeSchema.optional(),
+      assigned_to: z.string().optional(),
+    },
+  },
+  async ({ query, status, type, assigned_to }) => {
+    const nodes = listNodes(rootDir);
+    const filtered = nodes.filter((n) => {
+      if (query && !n.id.includes(query) && !n.label.includes(query)) return false;
+      if (status && n.status !== status) return false;
+      if (type && n.type !== type) return false;
+      if (assigned_to && n.assigned_to !== assigned_to) return false;
+      return true;
+    });
+    return { content: [{ type: "text" as const, text: JSON.stringify(filtered, null, 2) }] };
+  }
+);
+
+// ── 传输/进程级错误处理 ──
+process.on("uncaughtException", (err) => {
+  console.error("[mcp] uncaught exception:", err);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[mcp] unhandled rejection:", reason);
 });
 
 const transport = new StdioServerTransport();
