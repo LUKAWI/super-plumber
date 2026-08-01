@@ -11,16 +11,33 @@ export const createNodeCommand = new Command("create-node")
   .option("--level <level>", "拓扑层级", "1")
   .option("--assigned-to <agent>", "分配给哪个 agent")
   .option("--plan-desc <text>", "构建计划描述")
-  .option("--dod <item>", "完成标准 (可多次使用)", (val: string, prev: string[]) => [...prev, val], [] as string[])
+  .option(
+    "--dod <item>",
+    "完成标准 (可多次使用)",
+    (val: string, prev: string[]) => [...prev, val],
+    [] as string[],
+  )
   .action((options) => {
-    const node = createNode(process.cwd(), {
-      id: options.id,
-      type: options.type as NodeType,
-      label: options.label,
-      level: parseInt(options.level, 10),
-      assigned_to: options.assignedTo,
-      plan_description: options.planDesc,
-      definition_of_done: options.dod.length > 0 ? options.dod : undefined,
-    });
-    console.log(`✅ 已创建节点: ${node.id} (${node.status})`);
+    const type = options.type as NodeType;
+    if (!Object.values(NodeType).includes(type)) {
+      console.error(
+        `❌ 非法节点类型: ${options.type}。允许的值: ${Object.values(NodeType).join(", ")}`,
+      );
+      process.exit(1);
+    }
+    try {
+      const node = createNode(process.cwd(), {
+        id: options.id,
+        type,
+        label: options.label,
+        level: parseInt(options.level, 10),
+        assigned_to: options.assignedTo,
+        plan_description: options.planDesc,
+        definition_of_done: options.dod.length > 0 ? options.dod : undefined,
+      });
+      console.log(`✅ 已创建节点: ${node.id} (${node.status})`);
+    } catch (err: any) {
+      console.error(`❌ ${err.message}`);
+      process.exit(1);
+    }
   });

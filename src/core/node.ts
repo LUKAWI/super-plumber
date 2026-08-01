@@ -1,6 +1,12 @@
 // src/core/node.ts
-import { NodeSchema, NodeStatus, NodeType, Checkpoint, NODES_DIR } from "./types.js";
-import { readNode, writeNode } from "./parser.js";
+import {
+  type NodeSchema,
+  NodeStatus,
+  type NodeType,
+  type Checkpoint,
+  NODES_DIR,
+} from "./types.js";
+import { readNode, writeNode, nodeFilePath, addGraphRef } from "./parser.js";
 import { transition } from "./state-machine.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -17,7 +23,14 @@ export type CreateNodeParams = {
   checkpoints?: Checkpoint[];
 };
 
-export function createNode(rootDir: string, params: CreateNodeParams): NodeSchema {
+export function createNode(
+  rootDir: string,
+  params: CreateNodeParams,
+): NodeSchema {
+  // 重复 id 检查：不静默覆盖已有节点
+  if (fs.existsSync(nodeFilePath(rootDir, params.id))) {
+    throw new Error(`Node ${params.id} already exists`);
+  }
   const now = new Date().toISOString();
   const node: NodeSchema = {
     id: params.id,
@@ -25,7 +38,9 @@ export function createNode(rootDir: string, params: CreateNodeParams): NodeSchem
     label: params.label,
     level: params.level ?? 1,
     status: NodeStatus.Pending,
-    plan: params.plan_description ? { description: params.plan_description } : undefined,
+    plan: params.plan_description
+      ? { description: params.plan_description }
+      : undefined,
     expected_outcome: params.definition_of_done
       ? { definition_of_done: params.definition_of_done }
       : undefined,
@@ -37,6 +52,7 @@ export function createNode(rootDir: string, params: CreateNodeParams): NodeSchem
     ...(params.checkpoints ? { checkpoints: params.checkpoints } : {}),
   };
   writeNode(rootDir, node);
+  addGraphRef(rootDir, "node", node.id);
   return node;
 }
 
@@ -48,7 +64,7 @@ export function updateNodeStatus(
   rootDir: string,
   id: string,
   to: NodeStatus,
-  claimBy?: string  // claim 语义：ready→running 时记录执行者
+  claimBy?: string, // claim 语义：ready→running 时记录执行者
 ): NodeSchema {
   const node = readNode(rootDir, id);
   const updated = transition(node, to);
@@ -59,12 +75,16 @@ export function updateNodeStatus(
     updated.execution_report = {
       ...(updated.execution_report ?? {}),
       summary: updated.execution_report?.summary ?? "",
-      started_at: updated.execution_report?.started_at ?? new Date().toISOString(),
+      started_at:
+        updated.execution_report?.started_at ?? new Date().toISOString(),
     };
   }
 
   // 节点完成时记录 completed_at
-  if ((to === NodeStatus.Passed || to === NodeStatus.Failed) && updated.execution_report) {
+  if (
+    (to === NodeStatus.Passed || to === NodeStatus.Failed) &&
+    updated.execution_report
+  ) {
     updated.execution_report = {
       ...updated.execution_report,
       completed_at: new Date().toISOString(),
@@ -78,7 +98,7 @@ export function updateNodeStatus(
 export function updateExecutionReport(
   rootDir: string,
   id: string,
-  report: Partial<NonNullable<NodeSchema["execution_report"]>>
+  report: Partial<NonNullable<NodeSchema["execution_report"]>>,
 ): NodeSchema {
   const node = readNode(rootDir, id);
   const merged: NodeSchema = {
@@ -96,7 +116,18 @@ export function updateExecutionReport(
 export function updateNodeContent(
   rootDir: string,
   id: string,
-  updates: Partial<Pick<NodeSchema, "plan" | "expected_outcome" | "checkpoints" | "assigned_to" | "label" | "max_attempts" | "execution_report">>
+  updates: Partial<
+    Pick<
+      NodeSchema,
+      | "plan"
+      | "expected_outcome"
+      | "checkpoints"
+      | "assigned_to"
+      | "label"
+      | "max_attempts"
+      | "execution_report"
+    >
+  >,
 ): NodeSchema {
   const node = readNode(rootDir, id);
   const updated: NodeSchema = {
@@ -112,7 +143,7 @@ export function updateCheckpoint(
   rootDir: string,
   nodeId: string,
   cpId: string,
-  status: Checkpoint["status"]
+  status: Checkpoint["status"],
 ): NodeSchema {
   const node = readNode(rootDir, nodeId);
   if (!node.checkpoints) throw new Error(`Node ${nodeId} has no checkpoints`);
@@ -127,7 +158,8 @@ export function updateCheckpoint(
 export function listNodes(rootDir: string): NodeSchema[] {
   const nodesDir = path.join(rootDir, NODES_DIR);
   if (!fs.existsSync(nodesDir)) return [];
-  return fs.readdirSync(nodesDir)
-    .filter((f) => f.endsWith(".yaml"))
+  return fs
+    .readdirSync(nodesDir)
+    .filter((f) => f.endsWith(".yaml") && !f.includes(".deleted"))
     .map((f) => readNode(rootDir, f.replace(/\.yaml$/, "")));
 }

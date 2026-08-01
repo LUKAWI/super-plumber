@@ -1,7 +1,6 @@
 // tests/mcp/server.test.ts
 // MCP server 协议合规性测试：参数缺失应返回 isError=true 的明确错误，而非静默错误数据
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -32,8 +31,8 @@ describe("MCP server protocol compliance", () => {
     // 初始化一个图 + 节点（用绝对路径，vitest 工作目录可能不同）
     const { execSync } = await import("node:child_process");
     const cli = path.resolve(process.cwd(), "dist/cli/index.js");
-    execSync(`node \"${cli}\" init`, { cwd: tmpDir });
-    execSync(`node \"${cli}\" create-node --id a --label A`, { cwd: tmpDir });
+    execSync(`node "${cli}" init`, { cwd: tmpDir });
+    execSync(`node "${cli}" create-node --id a --label A`, { cwd: tmpDir });
     client = await connectServer(tmpDir);
   });
 
@@ -48,7 +47,10 @@ describe("MCP server protocol compliance", () => {
   });
 
   it("graph_get_node 正常调用返回节点", async () => {
-    const r = await client!.callTool({ name: "graph_get_node", arguments: { id: "a" } });
+    const r = await client!.callTool({
+      name: "graph_get_node",
+      arguments: { id: "a" },
+    });
     expect(r.isError).toBeFalsy();
     const block = r.content[0] as { type: "text"; text: string };
     expect(block.text).toContain('"id": "a"');
@@ -60,7 +62,10 @@ describe("MCP server protocol compliance", () => {
     // 绝不应是 ENOENT 文件错误或 undefined.yaml
     let handled = false;
     try {
-      const r = await client!.callTool({ name: "graph_get_node", arguments: {} });
+      const r = await client!.callTool({
+        name: "graph_get_node",
+        arguments: {},
+      });
       handled = r.isError === true;
       const text = JSON.stringify(r.content);
       expect(text).not.toContain("ENOENT");
@@ -77,7 +82,10 @@ describe("MCP server protocol compliance", () => {
     // 关键断言：要么协议错误，要么 isError=true；绝不允许 isError=false 且返回 [null]
     let handled = false;
     try {
-      const r = await client!.callTool({ name: "graph_traverse", arguments: {} });
+      const r = await client!.callTool({
+        name: "graph_traverse",
+        arguments: {},
+      });
       handled = r.isError === true;
       const text = JSON.stringify(r.content);
       expect(text).not.toContain("[null]");
@@ -96,7 +104,10 @@ describe("MCP server protocol compliance", () => {
   });
 
   it("不存在的工具名返回 isError", async () => {
-    const r = await client!.callTool({ name: "graph_nonexistent", arguments: {} });
+    const r = await client!.callTool({
+      name: "graph_nonexistent",
+      arguments: {},
+    });
     expect(r.isError).toBe(true);
   });
 });

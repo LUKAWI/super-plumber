@@ -6,6 +6,11 @@ export const deleteNodeCommand = new Command("delete-node")
   .requiredOption("-i, --id <id>", "要删除的节点 ID")
   .action((options) => {
     const rootDir = process.cwd();
-    deleteNode(rootDir, options.id);
-    console.log(`✅ 已删除节点: ${options.id}`);
+    try {
+      deleteNode(rootDir, options.id);
+      console.log(`✅ 已删除节点: ${options.id}`);
+    } catch (err: any) {
+      console.error(`❌ ${err.message}`);
+      process.exit(1);
+    }
   });

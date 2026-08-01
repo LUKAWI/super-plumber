@@ -10,8 +10,16 @@ import {
   readEdge,
   writeGraph,
   readGraph,
+  deleteNode,
+  deleteEdge,
 } from "../../src/core/parser.js";
-import { NodeType, NodeStatus, EdgeType, NodeSchema, EdgeSchema } from "../../src/core/types.js";
+import {
+  NodeType,
+  NodeStatus,
+  EdgeType,
+  type NodeSchema,
+  type EdgeSchema,
+} from "../../src/core/types.js";
 
 let tmpDir: string;
 
@@ -67,7 +75,12 @@ describe("Parser", () => {
       version: "0.1.0",
       label: "test",
       entry: { description: "entry", defined_by: "human", level: 0 },
-      exit: { description: "exit", acceptance_criteria: [], defined_by: "human", level: 0 },
+      exit: {
+        description: "exit",
+        acceptance_criteria: [],
+        defined_by: "human",
+        level: 0,
+      },
       nodes: [{ file: "nodes/task_001.yaml" }],
       edges: [{ file: "edges/edge_001.yaml" }],
     });
@@ -78,5 +91,51 @@ describe("Parser", () => {
 
   it("读不存在的节点抛错误", () => {
     expect(() => readNode(tmpDir, "nonexistent")).toThrow();
+  });
+
+  it("删除不存在的节点/边抛错误（不静默假成功）", () => {
+    expect(() => deleteNode(tmpDir, "ghost")).toThrow(/not found/i);
+    expect(() => deleteEdge(tmpDir, "ghost")).toThrow(/not found/i);
+  });
+
+  it("软删除后 graph.yaml 引用列表同步移除", () => {
+    writeGraph(tmpDir, {
+      id: "graph_001",
+      version: "0.1.0",
+      label: "test",
+      entry: { description: "entry", defined_by: "human", level: 0 },
+      exit: {
+        description: "exit",
+        acceptance_criteria: [],
+        defined_by: "human",
+        level: 0,
+      },
+      nodes: [{ file: "nodes/a.yaml" }, { file: "nodes/b.yaml" }],
+      edges: [{ file: "edges/e1.yaml" }],
+    });
+    const nodeA: NodeSchema = {
+      id: "a",
+      type: NodeType.Task,
+      label: "A",
+      level: 1,
+      status: NodeStatus.Pending,
+      attempts: 0,
+      max_attempts: 3,
+      created_at: "x",
+      updated_at: "x",
+    };
+    writeNode(tmpDir, nodeA);
+    const edgeE: EdgeSchema = {
+      id: "e1",
+      source: "a",
+      target: "b",
+      type: EdgeType.DependsOn,
+    };
+    writeEdge(tmpDir, edgeE);
+    deleteNode(tmpDir, "a");
+    deleteEdge(tmpDir, "e1");
+    const g = readGraph(tmpDir);
+    expect(g.nodes.map((n) => n.file)).toEqual(["nodes/b.yaml"]);
+    expect(g.edges).toEqual([]);
   });
 });

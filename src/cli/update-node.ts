@@ -5,9 +5,17 @@ export const updateNodeCommand = new Command("update-node")
   .description("更新节点的详细内容（plan、expected_outcome、checkpoints 等）")
   .requiredOption("-i, --id <id>", "节点 ID")
   .option("--plan-desc <text>", "设置构建计划描述")
-  .option("--add-dod <item>", "追加一条完成标准 (definition_of_done)")
+  .option(
+    "--add-dod <item>",
+    "追加一条完成标准 (可多次使用)",
+    (val: string, prev: string[]) => [...prev, val],
+    [] as string[],
+  )
   .option("--clear-dod", "清空完成标准列表")
-  .option("--add-checkpoint <json>", "追加一个检查点 (JSON: {\"id\":\"...\",\"label\":\"...\"})")
+  .option(
+    "--add-checkpoint <json>",
+    '追加一个检查点 (JSON: {"id":"...","label":"..."})',
+  )
   .option("--set-assigned <agent>", "分配给哪个 agent")
   .option("--show", "显示当前节点内容")
   .action((options) => {
@@ -25,7 +33,13 @@ export const updateNodeCommand = new Command("update-node")
     // 更新 plan.description
     if (options.planDesc) {
       updates.plan = {
-        ...(node.plan ? { input_from: node.plan.input_from, output_to: node.plan.output_to, required_context: node.plan.required_context } : {}),
+        ...(node.plan
+          ? {
+              input_from: node.plan.input_from,
+              output_to: node.plan.output_to,
+              required_context: node.plan.required_context,
+            }
+          : {}),
         description: options.planDesc,
       };
     }
@@ -34,11 +48,13 @@ export const updateNodeCommand = new Command("update-node")
     if (options.clearDod) {
       updates.expected_outcome = { definition_of_done: [] };
     }
-    if (options.addDod) {
+    if (options.addDod.length > 0) {
       const existing = node.expected_outcome?.definition_of_done ?? [];
       updates.expected_outcome = {
-        ...(node.expected_outcome ? { quality_gates: node.expected_outcome.quality_gates } : {}),
-        definition_of_done: [...existing, options.addDod],
+        ...(node.expected_outcome
+          ? { quality_gates: node.expected_outcome.quality_gates }
+          : {}),
+        definition_of_done: [...existing, ...options.addDod],
       };
     }
 
@@ -53,13 +69,20 @@ export const updateNodeCommand = new Command("update-node")
       try {
         cp = JSON.parse(options.addCheckpoint);
       } catch {
-        console.error("❌ checkpoint 格式错误，需为 JSON: {\"id\":\"...\",\"label\":\"...\"}");
+        console.error(
+          '❌ checkpoint 格式错误，需为 JSON: {"id":"...","label":"..."}',
+        );
         process.exit(1);
       }
       const existing = node.checkpoints ?? [];
       updates.checkpoints = [
         ...existing,
-        { id: cp.id, label: cp.label, status: "pending" as const, verifier: "auto" as const },
+        {
+          id: cp.id,
+          label: cp.label,
+          status: "pending" as const,
+          verifier: "auto" as const,
+        },
       ];
     }
 

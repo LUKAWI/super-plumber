@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { createEdge, getEdge, listEdges } from "../../src/core/edge.js";
+import { deleteEdge } from "../../src/core/parser.js";
 import { EdgeType } from "../../src/core/types.js";
 
 let tmpDir: string;
@@ -45,8 +46,36 @@ describe("Edge operations", () => {
   });
 
   it("listEdges 返回所有边", () => {
-    createEdge(tmpDir, { id: "e1", source: "a", target: "b", type: EdgeType.DependsOn });
-    createEdge(tmpDir, { id: "e2", source: "b", target: "c", type: EdgeType.DependsOn });
+    createEdge(tmpDir, {
+      id: "e1",
+      source: "a",
+      target: "b",
+      type: EdgeType.DependsOn,
+    });
+    createEdge(tmpDir, {
+      id: "e2",
+      source: "b",
+      target: "c",
+      type: EdgeType.DependsOn,
+    });
     expect(listEdges(tmpDir)).toHaveLength(2);
+  });
+
+  it("软删除后 listEdges 不再返回该边", () => {
+    createEdge(tmpDir, {
+      id: "e1",
+      source: "a",
+      target: "b",
+      type: EdgeType.DependsOn,
+    });
+    createEdge(tmpDir, {
+      id: "e2",
+      source: "b",
+      target: "c",
+      type: EdgeType.DependsOn,
+    });
+    deleteEdge(tmpDir, "e1");
+    const ids = listEdges(tmpDir).map((e) => e.id);
+    expect(ids).toEqual(["e2"]);
   });
 });

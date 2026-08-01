@@ -57,4 +57,51 @@ describe("CLI commands", () => {
     expect(content).toContain("graph TD");
     expect(content).toContain("a");
   });
+
+  it("graph init 创建完整目录骨架", () => {
+    run("init");
+    for (const d of ["nodes", "edges", "index", "snapshots"]) {
+      expect(fs.existsSync(path.join(tmpDir, ".graph", d)), d).toBe(true);
+    }
+  });
+
+  it("graph create-node 重复 id 报错且不覆盖原数据", () => {
+    run("init");
+    run("create-node --id dup --label First");
+    expect(() => run("create-node --id dup --label Second")).toThrow();
+    const content = fs.readFileSync(
+      path.join(tmpDir, ".graph/nodes/dup.yaml"),
+      "utf-8",
+    );
+    expect(content).toContain("First");
+  });
+
+  it("graph add-edge 引用不存在的节点时报错", () => {
+    run("init");
+    run("create-node --id a --label A");
+    expect(() => run("add-edge --id e1 --source ghost --target a")).toThrow();
+  });
+
+  it("graph add-edge 非法边类型时报错", () => {
+    run("init");
+    run("create-node --id a --label A");
+    run("create-node --id b --label B");
+    expect(() =>
+      run("add-edge --id e1 --source a --target b --type bogus"),
+    ).toThrow();
+  });
+
+  it("graph delete-node 后 status 不再统计该节点", () => {
+    run("init");
+    run("create-node --id a --label A");
+    run("create-node --id b --label B");
+    run("delete-node --id a");
+    const output = run("status");
+    expect(output).toContain("节点数: 1");
+  });
+
+  it("graph delete-node 不存在的节点时报错", () => {
+    run("init");
+    expect(() => run("delete-node --id ghost")).toThrow();
+  });
 });

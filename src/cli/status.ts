@@ -9,7 +9,15 @@ export const statusCommand = new Command("status")
   .description("显示当前拓扑图状态")
   .action(() => {
     const rootDir = process.cwd();
-    const graph = readGraph(rootDir);
+    let graph: ReturnType<typeof readGraph>;
+    try {
+      graph = readGraph(rootDir);
+    } catch {
+      console.error(
+        `❌ 未找到 ${rootDir}/.graph/graph.yaml，请先运行 graph init`,
+      );
+      process.exit(1);
+    }
     const nodes = listNodes(rootDir);
     const edges = listEdges(rootDir);
 
@@ -27,7 +35,10 @@ export const statusCommand = new Command("status")
     }
 
     try {
-      const order = topologicalSort(nodes.map((n) => n.id), edges);
+      const order = topologicalSort(
+        nodes.map((n) => n.id),
+        edges,
+      );
       console.log(`\n✅ 拓扑排序通过 (${order.length} 节点)`);
     } catch (err: any) {
       console.log(`\n❌ ${err.message}`);

@@ -36,6 +36,8 @@ describe("StateMachine", () => {
     [NodeStatus.Failed, NodeStatus.Pending],
     [NodeStatus.Pending, NodeStatus.Cancelled],
     [NodeStatus.Running, NodeStatus.Cancelled],
+    [NodeStatus.Ready, NodeStatus.Cancelled],
+    [NodeStatus.Passed, NodeStatus.Cancelled],
     [NodeStatus.Failed, NodeStatus.Cancelled],
     [NodeStatus.Blocked, NodeStatus.Cancelled],
   ])("允许 %s → %s", (from, to) => {
@@ -44,10 +46,10 @@ describe("StateMachine", () => {
 
   // ── 非法转换 ──
   it.each([
-    [NodeStatus.Pending, NodeStatus.Passed],   // 跳级
-    [NodeStatus.Pending, NodeStatus.Failed],   // 跳级
-    [NodeStatus.Passed, NodeStatus.Running],   // 单向
-    [NodeStatus.Cancelled, NodeStatus.Ready],  // 终止态不可逆
+    [NodeStatus.Pending, NodeStatus.Passed], // 跳级
+    [NodeStatus.Pending, NodeStatus.Failed], // 跳级
+    [NodeStatus.Passed, NodeStatus.Running], // 单向
+    [NodeStatus.Cancelled, NodeStatus.Ready], // 终止态不可逆
   ])("禁止 %s → %s", (from, to) => {
     expect(canTransition(from, to)).toBe(false);
   });
@@ -67,7 +69,9 @@ describe("StateMachine", () => {
 
   it("非法转换抛出错误", () => {
     const node = makeNode();
-    expect(() => transition(node, NodeStatus.Passed)).toThrow("Invalid transition");
+    expect(() => transition(node, NodeStatus.Passed)).toThrow(
+      "Invalid transition",
+    );
   });
 
   // ── Checkpoint 聚合 ──
@@ -76,17 +80,21 @@ describe("StateMachine", () => {
   });
 
   it("所有 checkpoint passed 才返回 passed", () => {
-    expect(aggregateCheckpointStatus([
-      { id: "c1", label: "c1", status: "passed", verifier: "auto" },
-      { id: "c2", label: "c2", status: "passed", verifier: "auto" },
-    ])).toBe("passed");
+    expect(
+      aggregateCheckpointStatus([
+        { id: "c1", label: "c1", status: "passed", verifier: "auto" },
+        { id: "c2", label: "c2", status: "passed", verifier: "auto" },
+      ]),
+    ).toBe("passed");
   });
 
   it("有 failed 返回 failed", () => {
-    expect(aggregateCheckpointStatus([
-      { id: "c1", label: "c1", status: "passed", verifier: "auto" },
-      { id: "c2", label: "c2", status: "failed", verifier: "auto" },
-    ])).toBe("failed");
+    expect(
+      aggregateCheckpointStatus([
+        { id: "c1", label: "c1", status: "passed", verifier: "auto" },
+        { id: "c2", label: "c2", status: "failed", verifier: "auto" },
+      ]),
+    ).toBe("failed");
   });
 
   it("cancelled 是终止态，无出口", () => {
