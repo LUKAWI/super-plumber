@@ -11,6 +11,9 @@
     ".": "./dist/index.js",
     "./core": "./dist/core/types.js"
   },
+  "files": ["dist/", "web-ui/dist/"],
+  "license": "MIT",
+  "keywords": ["topology", "workflow", "graph", "yaml", "mcp", "agent"],
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
