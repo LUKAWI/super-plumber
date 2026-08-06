@@ -20,7 +20,7 @@ import { NodeType, NodeStatus } from "../core/types.js";
 const rootDir = process.cwd();
 
 const server = new McpServer({
-  name: "topological-tool",
+  name: "super-plumber",
   version: "0.1.0",
 });
 

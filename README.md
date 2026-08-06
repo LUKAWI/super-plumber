@@ -6,7 +6,7 @@
 > **English:** [README.en.md](README.en.md)
 
 ```bash
-npm install -g topological-tool
+npm install -g super-plumber
 ```
 
 ---
@@ -107,7 +107,7 @@ graph-mcp
 ```json
 {
   "mcpServers": {
-    "topological-tool": {
+    "super-plumber": {
       "command": "graph-mcp"
     }
   }

@@ -6,7 +6,7 @@
 > **中文版:** [README.md](README.md)
 
 ```bash
-npm install -g topological-tool
+npm install -g super-plumber
 ```
 
 ---
@@ -107,7 +107,7 @@ Params are validated by zod schemas: missing params / invalid enums return proto
 ```json
 {
   "mcpServers": {
-    "topological-tool": {
+    "super-plumber": {
       "command": "graph-mcp"
     }
   }

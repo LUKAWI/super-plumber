@@ -1,13 +1,13 @@
 ---
 name: graph-workflow
-description: Use when breaking a task or requirement into an executable workflow, designing a task topology graph with the topological-tool, executing nodes in dependency order, or updating node progress (claim/checkpoint/execution_report). Also use when an agent needs to create, read, update, or traverse nodes/edges of a .graph/ topology, or when asked to "build a plan as a graph", "decompose into tasks", "track progress on a topology", or run graph CLI/MCP tools. Do NOT use for plain todo lists — the graph is the product, not a side note.
+description: Use when breaking a task or requirement into an executable workflow, designing a task topology graph with the super-plumber, executing nodes in dependency order, or updating node progress (claim/checkpoint/execution_report). Also use when an agent needs to create, read, update, or traverse nodes/edges of a .graph/ topology, or when asked to "build a plan as a graph", "decompose into tasks", "track progress on a topology", or run graph CLI/MCP tools. Do NOT use for plain todo lists — the graph is the product, not a side note.
 ---
 
 # Graph Workflow — Decompose → Design → Execute → Report
 
 ## Overview
 
-The topological-tool (`graph`) is a workflow topology manager: nodes are tasks, edges are typed dependencies, and every node carries a lifecycle state. **Your job is to drive a requirement through it end-to-end: decompose → design the graph → execute nodes in order → report progress.** The `.graph/` YAML files are the source of truth. The graph is the deliverable, not a side note.
+The super-plumber (`graph`) is a workflow topology manager: nodes are tasks, edges are typed dependencies, and every node carries a lifecycle state. **Your job is to drive a requirement through it end-to-end: decompose → design the graph → execute nodes in order → report progress.** The `.graph/` YAML files are the source of truth. The graph is the deliverable, not a side note.
 
 **Violating the letter of this protocol is violating its spirit. No shortcuts.**
 
@@ -44,7 +44,7 @@ The topological-tool (`graph`) is a workflow topology manager: nodes are tasks, 
 **Common CLI commands:**
 
 ```bash
-GRAPH="graph"   # globally installed — `npm link` / `npm install -g topological-tool`
+GRAPH="graph"   # globally installed — `npm link` / `npm install -g super-plumber`
 $GRAPH init -l "项目名"                       # create .graph/ skeleton
 $GRAPH create-node -i l1_register -l "注册模块" -t task --level 1 --plan-desc "..." --dod "完成标准A" --dod "完成标准B"
 $GRAPH add-edge -i e1 -s l1_login -t l2_auth --type depends_on
