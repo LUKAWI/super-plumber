@@ -178,7 +178,7 @@ Two project-local subagents live in `.pi/agents/`:
 | `super-mario` | Topology controller | Node lifecycle adjudication (checkpoint aggregation + output spot-checks), retry management, status monitoring, progress sync checks |
 | `graph-designer` | Topology designer | Decompose requirements into a structured graph topology and author each node's plan and definition_of_done |
 
-Plus the `topo-graph` skill (`.pi/skills/topo-graph/`) documenting the MCP tool table and the executor collaboration protocol (claim → report checkpoint progress → submit handoff report → Super Mario adjudicates).
+Plus the `plumber-tools` skill (`.pi/skills/plumber-tools/`) documenting the MCP tool table and the executor collaboration protocol (claim → report checkpoint progress → submit handoff report → Super Mario adjudicates).
 
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: graph-workflow
+name: plumber-flow
 description: Use when breaking a task or requirement into an executable workflow, designing a task topology graph with the super-plumber, executing nodes in dependency order, or updating node progress (claim/checkpoint/execution_report). Also use when an agent needs to create, read, update, or traverse nodes/edges of a .graph/ topology, or when asked to "build a plan as a graph", "decompose into tasks", "track progress on a topology", or run graph CLI/MCP tools. Do NOT use for plain todo lists — the graph is the product, not a side note.
 ---
 
@@ -54,7 +54,7 @@ $GRAPH update-status -i l1_register -s running  # state machine enforced
 $GRAPH export --mermaid -o flow.mmd             # visualize
 ```
 
-**Common helper scripts** — topo-graph (read-only + status; from `.pi/skills/topo-graph/scripts/`):
+**Common helper scripts** — plumber-tools (read-only + status; from `.pi/skills/plumber-tools/scripts/`):
 
 ```bash
 ./graph-get-node.sh <node_id>            # read one node's full content
@@ -62,7 +62,7 @@ $GRAPH export --mermaid -o flow.mmd             # visualize
 ./graph-update-status.sh <node_id> <status>  # status change w/ state machine check
 ```
 
-**Protocol scripts** — graph-workflow (Phase 4 executor actions; from `.pi/skills/graph-workflow/scripts/`). Thin wrappers over the core engine — use these when no MCP client is available:
+**Protocol scripts** — plumber-flow (Phase 4 executor actions; from `.pi/skills/plumber-flow/scripts/`). Thin wrappers over the core engine — use these when no MCP client is available:
 
 ```bash
 node graph-claim.mjs <node_id> <claim_by>      # Phase 4 step 1: ready→running, records assigned_to + started_at
@@ -149,4 +149,4 @@ pending → ready → running → passed → blocked
 ## When NOT to use
 
 - Pure todo/task-list tracking without dependencies or lifecycle — use a todo list.
-- Reading an existing graph without executing it — use topo-graph reference only.
+- Reading an existing graph without executing it — use plumber-tools reference only.

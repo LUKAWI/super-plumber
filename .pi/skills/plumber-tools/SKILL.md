@@ -1,5 +1,5 @@
 ---
-name: topo-graph
+name: plumber-tools
 description: 拓扑图管理工具操作指南。用于管理工作流拓扑图的节点、边、状态和检查点。包含 CLI 命令、MCP 工具使用、执行 agent 与 Super Mario 的协作协议（claim/checkpoint/execution_report/裁决）。
 ---
 
@@ -43,13 +43,13 @@ graph export --mermaid -o topology.mmd
 
 ```bash
 # 快速读取节点全部内容
-.pi/skills/topo-graph/scripts/graph-get-node.sh <node_id>
+.pi/skills/plumber-tools/scripts/graph-get-node.sh <node_id>
 ```
 
 ### 更新节点状态（含状态机校验）
 
 ```bash
-.pi/skills/topo-graph/scripts/graph-update-status.sh <node_id> <new_status>
+.pi/skills/plumber-tools/scripts/graph-update-status.sh <node_id> <new_status>
 ```
 
 脚本会自动校验状态转换的合法性，非法转换会报错。
@@ -58,13 +58,13 @@ graph export --mermaid -o topology.mmd
 
 ```bash
 # 下游遍历（默认）
-.pi/skills/topo-graph/scripts/graph-traverse.sh task_001
+.pi/skills/plumber-tools/scripts/graph-traverse.sh task_001
 
 # 上游遍历
-.pi/skills/topo-graph/scripts/graph-traverse.sh task_001 upstream
+.pi/skills/plumber-tools/scripts/graph-traverse.sh task_001 upstream
 
 # 双向遍历，深度 5
-.pi/skills/topo-graph/scripts/graph-traverse.sh task_001 both 5
+.pi/skills/plumber-tools/scripts/graph-traverse.sh task_001 both 5
 ```
 
 ## MCP 工具（高级）

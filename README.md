@@ -178,7 +178,7 @@ npm run dev
 | `super-mario` | 拓扑主控 | 节点生命周期裁决（checkpoint 聚合 + 输出抽查）、重试管理、状态监测、进度同步检查 |
 | `graph-designer` | 拓扑图设计师 | 将需求分解为结构化图拓扑，为每个节点制定 plan 和 definition_of_done |
 
-以及 `topo-graph` skill（`.pi/skills/topo-graph/`），包含 MCP 工具表与执行 agent 协作协议（认领 → 报 checkpoint 进度 → 填交接单 → Super Mario 裁决）。
+以及 `plumber-tools` skill（`.pi/skills/plumber-tools/`），包含 MCP 工具表与执行 agent 协作协议（认领 → 报 checkpoint 进度 → 填交接单 → Super Mario 裁决）。
 
 ---
 
