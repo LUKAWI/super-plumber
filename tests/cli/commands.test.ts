@@ -104,4 +104,32 @@ describe("CLI commands", () => {
     run("init");
     expect(() => run("delete-node --id ghost")).toThrow();
   });
+
+  it("graph update-node --add-checkpoint 多次传参全部保留", () => {
+    run("init");
+    run("create-node --id a --label A");
+    // 用 spawnSync 参数数组避免 Windows cmd 的引号剥除
+    const { spawnSync } = require("node:child_process");
+    const res = spawnSync(
+      process.execPath,
+      [
+        path.resolve("dist/cli/index.js"),
+        "update-node",
+        "--id",
+        "a",
+        "--add-checkpoint",
+        '{"id":"cp1","label":"Step 1"}',
+        "--add-checkpoint",
+        '{"id":"cp2","label":"Step 2"}',
+      ],
+      { cwd: tmpDir, encoding: "utf-8" },
+    );
+    expect(res.status).toBe(0);
+    const content = fs.readFileSync(
+      path.join(tmpDir, ".graph/nodes/a.yaml"),
+      "utf-8",
+    );
+    expect(content).toContain("cp1");
+    expect(content).toContain("cp2");
+  });
 });

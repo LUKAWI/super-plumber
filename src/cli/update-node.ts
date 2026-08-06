@@ -14,7 +14,9 @@ export const updateNodeCommand = new Command("update-node")
   .option("--clear-dod", "清空完成标准列表")
   .option(
     "--add-checkpoint <json>",
-    '追加一个检查点 (JSON: {"id":"...","label":"..."})',
+    "追加一个检查点 (可多次使用, JSON: {\"id\":\"...\",\"label\":\"...\"})",
+    (val: string, prev: string[]) => [...prev, val],
+    [] as string[],
   )
   .option("--set-assigned <agent>", "分配给哪个 agent")
   .option("--show", "显示当前节点内容")
@@ -63,26 +65,28 @@ export const updateNodeCommand = new Command("update-node")
       updates.assigned_to = options.setAssigned;
     }
 
-    // 追加 checkpoint
-    if (options.addCheckpoint) {
-      let cp: { id: string; label: string };
-      try {
-        cp = JSON.parse(options.addCheckpoint);
-      } catch {
-        console.error(
-          '❌ checkpoint 格式错误，需为 JSON: {"id":"...","label":"..."}',
-        );
-        process.exit(1);
-      }
+    // 追加 checkpoint（可多次）
+    if (options.addCheckpoint.length > 0) {
       const existing = node.checkpoints ?? [];
+      const parsed: { id: string; label: string }[] = [];
+      for (const raw of options.addCheckpoint) {
+        try {
+          parsed.push(JSON.parse(raw));
+        } catch {
+          console.error(
+            '❌ checkpoint 格式错误，需为 JSON: {"id":"...","label":"..."}',
+          );
+          process.exit(1);
+        }
+      }
       updates.checkpoints = [
         ...existing,
-        {
+        ...parsed.map((cp) => ({
           id: cp.id,
           label: cp.label,
           status: "pending" as const,
           verifier: "auto" as const,
-        },
+        })),
       ];
     }
 
