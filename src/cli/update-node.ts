@@ -14,7 +14,7 @@ export const updateNodeCommand = new Command("update-node")
   .option("--clear-dod", "清空完成标准列表")
   .option(
     "--add-checkpoint <json>",
-    "追加一个检查点 (可多次使用, JSON: {\"id\":\"...\",\"label\":\"...\"})",
+    '追加一个检查点 (可多次使用, JSON: {"id":"...","label":"..."})',
     (val: string, prev: string[]) => [...prev, val],
     [] as string[],
   )
