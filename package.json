@@ -18,7 +18,8 @@
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "prepublishOnly": "npm test && npm run build && npm --prefix web-ui run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
