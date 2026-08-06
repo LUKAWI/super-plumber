@@ -23,7 +23,7 @@ The super-plumber (`graph`) is a workflow topology manager: nodes are tasks, edg
 
 ### Phase 2 — Design the topology
 
-- **ALWAYS define entry and exit before any nodes.** Empty entry/exit is a warning that fails validate — never ship a graph without them.
+- **ALWAYS define entry and exit before any nodes.** Empty entry/exit produces a validate warning (and the CLI has no dedicated command to fill them — edit .graph/graph.yaml by hand). Never ship a graph without them.
 - Create nodes at L1 (arteries), then L2 (capillaries) under them.
 - **Every node MUST carry:**
   - `plan.description` — what the node does

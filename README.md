@@ -185,7 +185,7 @@ npm run dev
 ## 项目状态
 
 ```text
-Tests:  78/78 ✅  |  CLI: 11 命令  |  MCP: 9 工具  |  Web UI: Svelte 5 + D3.js
+Tests:  96/96 ✅  |  CLI: 11 命令  |  MCP: 9 工具  |  Web UI: Svelte 5 + D3.js
 ```
 
 ## 许可

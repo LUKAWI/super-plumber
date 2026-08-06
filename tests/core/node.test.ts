@@ -11,7 +11,7 @@ import {
   updateExecutionReport,
   listNodes,
 } from "../../src/core/node.js";
-import { deleteNode } from "../../src/core/parser.js";
+import { deleteNode, writeNode } from "../../src/core/parser.js";
 import { NodeType, NodeStatus } from "../../src/core/types.js";
 
 let tmpDir: string;
@@ -150,5 +150,24 @@ describe("Node operations", () => {
     expect(
       fs.existsSync(path.join(tmpDir, ".graph/nodes/a.deleted.yaml")),
     ).toBe(true);
+  });
+
+  it("BUG-03 updateCheckpoint 非法 status 抛错（不静默写入）", () => {
+    createNode(tmpDir, { id: "a", type: NodeType.Task, label: "A" });
+    writeNode(tmpDir, {
+      ...getNode(tmpDir, "a"),
+      checkpoints: [
+        { id: "cp1", label: "Step", status: "pending", verifier: "auto" },
+      ],
+    });
+    expect(() => updateCheckpoint(tmpDir, "a", "cp1", "bogus" as any)).toThrow(
+      /非法/,
+    );
+    // 数据未被污染
+    expect(getNode(tmpDir, "a").checkpoints![0].status).toBe("pending");
+  });
+
+  it("BUG-13 getNode 不存在 → 友好错误（非 ENOENT 堆栈）", () => {
+    expect(() => getNode(tmpDir, "ghost")).toThrow("Node ghost not found");
   });
 });

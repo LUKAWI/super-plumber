@@ -110,4 +110,25 @@ describe("MCP server protocol compliance", () => {
     });
     expect(r.isError).toBe(true);
   });
+
+  it("BUG-05 traverse 不存在起点 → isError（非静默返回 [ghost]）", async () => {
+    const r = await client!.callTool({
+      name: "graph_traverse",
+      arguments: { node_id: "ghost", direction: "downstream" },
+    });
+    expect(r.isError).toBe(true);
+    const text = JSON.stringify(r.content);
+    expect(text).not.toContain('"ghost"');
+  });
+
+  it("BUG-13 get_node 不存在 → isError 且消息可读（非 ENOENT 堆栈）", async () => {
+    const r = await client!.callTool({
+      name: "graph_get_node",
+      arguments: { id: "ghost" },
+    });
+    expect(r.isError).toBe(true);
+    const text = JSON.stringify(r.content);
+    expect(text).not.toContain("ENOENT");
+    expect(text).toContain("not found");
+  });
 });

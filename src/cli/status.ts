@@ -41,6 +41,8 @@ export const statusCommand = new Command("status")
       );
       console.log(`\n✅ 拓扑排序通过 (${order.length} 节点)`);
     } catch (err: any) {
-      console.log(`\n❌ ${err.message}`);
+      // 拓扑失败（幽灵边/环）必须非 0 退出，供脚本/CI 判断
+      console.error(`\n❌ ${err.message}`);
+      process.exit(1);
     }
   });

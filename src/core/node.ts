@@ -57,7 +57,14 @@ export function createNode(
 }
 
 export function getNode(rootDir: string, id: string): NodeSchema {
-  return readNode(rootDir, id);
+  try {
+    return readNode(rootDir, id);
+  } catch (err: any) {
+    if (err?.code === "ENOENT") {
+      throw new Error(`Node ${id} not found`);
+    }
+    throw err;
+  }
 }
 
 export function updateNodeStatus(
@@ -66,7 +73,7 @@ export function updateNodeStatus(
   to: NodeStatus,
   claimBy?: string, // claim 语义：ready→running 时记录执行者
 ): NodeSchema {
-  const node = readNode(rootDir, id);
+  const node = getNode(rootDir, id);
   const updated = transition(node, to);
 
   // claim：ready → running，记录 assigned_to + started_at
@@ -100,7 +107,7 @@ export function updateExecutionReport(
   id: string,
   report: Partial<NonNullable<NodeSchema["execution_report"]>>,
 ): NodeSchema {
-  const node = readNode(rootDir, id);
+  const node = getNode(rootDir, id);
   const merged: NodeSchema = {
     ...node,
     execution_report: {
@@ -129,7 +136,7 @@ export function updateNodeContent(
     >
   >,
 ): NodeSchema {
-  const node = readNode(rootDir, id);
+  const node = getNode(rootDir, id);
   const updated: NodeSchema = {
     ...node,
     ...updates,
@@ -145,7 +152,20 @@ export function updateCheckpoint(
   cpId: string,
   status: Checkpoint["status"],
 ): NodeSchema {
-  const node = readNode(rootDir, nodeId);
+  // 运行时校验：TS 类型只保护编译期，脚本/手工调用可绕过，必须显式拦截
+  const CP_STATUSES: Checkpoint["status"][] = [
+    "pending",
+    "running",
+    "passed",
+    "failed",
+    "skipped",
+  ];
+  if (!CP_STATUSES.includes(status as Checkpoint["status"])) {
+    throw new Error(
+      `非法 checkpoint 状态: ${status}。允许的值: ${CP_STATUSES.join(", ")}`,
+    );
+  }
+  const node = getNode(rootDir, nodeId);
   if (!node.checkpoints) throw new Error(`Node ${nodeId} has no checkpoints`);
   const cp = node.checkpoints.find((c) => c.id === cpId);
   if (!cp) throw new Error(`Checkpoint ${cpId} not found in node ${nodeId}`);

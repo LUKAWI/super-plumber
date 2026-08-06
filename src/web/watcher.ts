@@ -7,10 +7,15 @@ export type FileChangeEvent = {
   timestamp: number;
 };
 
-export function createWatcher(rootDir: string, onChange: (event: FileChangeEvent) => void) {
+export function createWatcher(
+  rootDir: string,
+  onChange: (event: FileChangeEvent) => void,
+) {
   const watchDir = path.join(rootDir, ".graph");
   const watcher = chokidar.watch(watchDir, {
-    ignored: /index\//,
+    // 排除 index/ 与软删除历史文件：.deleted.yaml 的 add 事件会与节点 unlink 重复推送
+    // 相同的 removed=true（曾导致删除节点触发 2 次 node:updated）
+    ignored: [/index\//, /\.deleted[^/]*\.yaml$/],
     persistent: true,
     ignoreInitial: true,
   });

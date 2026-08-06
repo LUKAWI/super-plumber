@@ -9,7 +9,7 @@ import { createWatcher, type FileChangeEvent } from "./watcher.js";
 const WEB_UI_DIR = path.resolve(
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   (import.meta as any).dirname ?? __dirname,
-  "../../web-ui/dist"
+  "../../web-ui/dist",
 );
 
 /** 从文件路径解析出事件类型（node 变更 / edge 变更 / 其他）。Windows 路径用反斜杠，统一正斜杠 */
@@ -28,7 +28,10 @@ export function startServer(rootDir: string, port: number = 8934) {
       res.end(JSON.stringify(buildGraphIndex(rootDir)));
       return;
     }
-    let filePath = path.join(WEB_UI_DIR, req.url === "/" ? "index.html" : req.url!);
+    let filePath = path.join(
+      WEB_UI_DIR,
+      req.url === "/" ? "index.html" : req.url!,
+    );
     if (!fs.existsSync(filePath)) {
       filePath = path.join(WEB_UI_DIR, "index.html");
     }
@@ -40,11 +43,22 @@ export function startServer(rootDir: string, port: number = 8934) {
       ".json": "application/json",
       ".svg": "image/svg+xml",
     };
-    res.writeHead(200, { "Content-Type": mime[ext] ?? "application/octet-stream" });
+    res.writeHead(200, {
+      "Content-Type": mime[ext] ?? "application/octet-stream",
+    });
     res.end(fs.readFileSync(filePath));
   });
 
   const wss = new WebSocketServer({ server });
+  // ws 库会把 http server 的 'error' 事件转发到 wss 实例（this.emit.bind），
+  // wss 无监听器时 emit('error') 直接 throw 并中断后续监听器——必须给 wss 也注册
+  wss.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(`❌ 端口 ${port} 已被占用，请用 -p 指定其他端口`);
+      process.exit(1);
+    }
+    throw err;
+  });
   const clients = new Set<WebSocket>();
 
   function broadcast(msg: unknown) {
@@ -59,10 +73,12 @@ export function startServer(rootDir: string, port: number = 8934) {
   wss.on("connection", (ws) => {
     clients.add(ws);
     ws.on("close", () => clients.delete(ws));
-    ws.send(JSON.stringify({
-      type: "graph:full",
-      data: buildGraphIndex(rootDir),
-    }));
+    ws.send(
+      JSON.stringify({
+        type: "graph:full",
+        data: buildGraphIndex(rootDir),
+      }),
+    );
   });
 
   const watcher = createWatcher(rootDir, (event: FileChangeEvent) => {
@@ -71,12 +87,18 @@ export function startServer(rootDir: string, port: number = 8934) {
     // 节点文件变更 → 增量推送该节点
     if (kind === "node") {
       const f = event.file.replace(/\\/g, "/");
-      const nodeId = f.split("/").pop()!.replace(/\.yaml$/, "").replace(/\.deleted.*$/, "");
+      const nodeId = f
+        .split("/")
+        .pop()!
+        .replace(/\.yaml$/, "")
+        .replace(/\.deleted.*$/, "");
       // 软删除或 unlink 时节点可能不存在
       let node: ReturnType<typeof getNode> | null = null;
       try {
         node = getNode(rootDir, nodeId);
-      } catch { /* 节点已删除 */ }
+      } catch {
+        /* 节点已删除 */
+      }
       broadcast({
         type: "node:updated",
         nodeId,
@@ -91,6 +113,15 @@ export function startServer(rootDir: string, port: number = 8934) {
       type: "graph:update",
       data: { ...event, graph: buildGraphIndex(rootDir) },
     });
+  });
+
+  // 端口占用/监听错误必须友好处理（曾 unhandled 'error' event 裸崩溃）
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(`❌ 端口 ${port} 已被占用，请用 -p 指定其他端口`);
+      process.exit(1);
+    }
+    throw err;
   });
 
   server.listen(port, () => {

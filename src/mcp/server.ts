@@ -201,6 +201,10 @@ server.registerTool(
   },
   async ({ node_id, direction, max_depth }) => {
     const index = buildGraphIndex(rootDir);
+    // 起点不存在时明确报错（曾静默返回 [node_id] 误导 agent 以为节点存在）
+    if (!index.adjacency.has(node_id)) {
+      throw new Error(`Node ${node_id} not found`);
+    }
     const visited = new Set<string>();
     const result: string[] = [];
 

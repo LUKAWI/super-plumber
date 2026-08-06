@@ -75,6 +75,20 @@ describe("Graph operations", () => {
       expect(result).toHaveLength(2);
       expect(result.indexOf("a")).toBeLessThan(result.indexOf("b"));
     });
+
+    it("BUG-02 忽略 target 不存在的悬挂边（不误报环）", () => {
+      // 回归：target 指向图中不存在的节点时，Kahn 算法曾把幽灵节点入队，
+      // result 长度超过 nodeIds 导致误报 "Cycle detected among nodes: []"
+      const result = topologicalSort(
+        ["a", "b"],
+        [
+          { source: "a", target: "ghost", type: EdgeType.DependsOn },
+          { source: "b", target: "a", type: EdgeType.DependsOn },
+        ],
+      );
+      expect(result).toHaveLength(2);
+      expect(result.indexOf("b")).toBeLessThan(result.indexOf("a"));
+    });
   });
 
   describe("detectCycles", () => {

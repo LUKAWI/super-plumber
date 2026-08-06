@@ -185,7 +185,7 @@ Plus the `plumber-flow` skill (`.pi/skills/plumber-flow/`) with the 5-phase prot
 ## Project Status
 
 ```text
-Tests:  78/78 ✅  |  CLI: 11 commands  |  MCP: 9 tools  |  Web UI: Svelte 5 + D3.js
+Tests:  96/96 ✅  |  CLI: 11 commands  |  MCP: 9 tools  |  Web UI: Svelte 5 + D3.js
 ```
 
 ## License

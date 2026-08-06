@@ -13,7 +13,7 @@
 | 项目目录 | `D:/LUKAWI/AI_project/projects/topological-tool/`（目录名未改，仅品牌名改了） |
 | 品牌名 / npm 包名 | **super-plumber**（CLI 命令 `graph` / `graph-mcp` 不变） |
 | Git | master 分支，可回滚点 `mvp-checkpoint` tag；最新提交 `04e18e4`（改名） |
-| 测试基线 | **79/79 通过**（7 个测试文件），`npx tsc --noEmit` 零错误，`vite build` 无警告 |
+| 测试基线 | **96/96 通过**（8 个测试文件），`npx tsc --noEmit` 零错误，`vite build` 无警告 |
 
 **必读文档（引用，不重复内容）：**
 
@@ -252,3 +252,43 @@ node D:/LUKAWI/AI_project/projects/topological-tool/dist/mcp/server.js
 - **verification-before-completion** —— 宣称测试完成/修复前必须跑证据（tsc/vitest/build）
 - **writing-skills** —— 若 skills 功能测试发现缺陷需改进时使用
 - **handoff** —— 本文件更新时使用
+
+## 10. 2026-08-06 修复记录（验收会话二）
+
+> 基线从 79/79 提升至 **96/96**（新增 `tests/cli/error-paths.test.ts` 12 用例 + graph/node/mcp 回归 6 用例）。TDD 流程：先写失败测试（RED）→ 修复 → 全绿（GREEN）→ blind subagent 盲测 17 项全过。
+
+### 已修复（含回归测试）
+
+| ID | 严重度 | 修复 | 位置 | 回归测试 |
+|----|--------|------|------|----------|
+| BUG-01 | 高 | update-node 不存在节点 ENOENT 裸崩溃 → try/catch 友好报错 exit 1 | `src/cli/update-node.ts` | error-paths BUG-01/01b |
+| BUG-02 | 高 | 幽灵 target 边误报环 + validate 矛盾输出 → Kahn 忽略 target 悬挂边 | `src/core/graph.ts` | graph BUG-02/02b |
+| BUG-03 | 中 | checkpoint 非法 status 静默写入 → 核心层运行时校验 + 脚本前置校验 | `src/core/node.ts`、`scripts/graph-checkpoint.mjs` | node BUG-03 |
+| BUG-04 | 中 | CLI --add-checkpoint 静默强制 pending → 合法 status 保留、非法报错 | `src/cli/update-node.ts` | error-paths BUG-04/04b |
+| BUG-05 | 中 | traverse 不存在起点静默返回 [ghost] → isError | `src/mcp/server.ts` | mcp BUG-05 |
+| BUG-06 | 中 | validate 未 init EXIT=0 → exit 1 | `src/cli/validate.ts` | error-paths BUG-06 |
+| BUG-07 | 中 | rebuild 未 init 自动建 index 假成功 → 报错 exit 1 | `src/cli/rebuild.ts` | error-paths BUG-07 |
+| BUG-08 | 中 | status 拓扑失败 EXIT=0 → exit 1（真环时） | `src/cli/status.ts` | error-paths BUG-08/08b |
+| BUG-09 | 中 | serve 端口占用 EADDRINUSE 裸崩溃 → wss+server 双 error 监听友好退出（根因：ws 库把 error 转发到 wss，wss 无监听器时 emit throw 中断后续监听器） | `src/web/server.ts` | error-paths BUG-09 |
+| BUG-10 | 中 | create-node 未 init 创建孤儿节点 → CLI 层 init 检查 | `src/cli/create-node.ts` | error-paths BUG-10 |
+| BUG-11 | 低 | 重复 init 静默覆盖 → 拒绝 + --force | `src/cli/init.ts` | error-paths BUG-11/11b |
+| BUG-12 | 低 | 项目/全局 .mjs 脚本不同步 → 全局新版同步到项目 | `scripts/graph-{claim,checkpoint,report}.mjs` | 实测 |
+| BUG-13 | 低 | MCP 不存在实体 ENOENT 堆栈消息 → getNode 统一包装 "Node X not found" | `src/core/node.ts` | node/mcp BUG-13 |
+| BUG-14 | 低 | README 测试数 78/78 过时 → 96/96 | `README.md`/`README.en.md` | — |
+| BUG-15 | 低 | ADR 0001 声称 `graph sort --strict` 不存在 → 修正措辞 | `docs/adr/0001` | — |
+| BUG-16 | 低 | 删除节点事件重复（2×removed）→ watcher 忽略 .deleted 文件 | `src/web/watcher.ts` | 实测 |
+| BUG-17 | 低 | SKILL.md "empty entry/exit fails validate" 与实际不符 → 措辞修正 | `SKILL.md`（项目+全局） | — |
+
+### 已知问题状态更新
+
+- **#6 MCP 测试覆盖薄** → 已补 traverse 不存在/isError、get_node 消息可读性 2 用例（仍可再补 search/traverse 正常断言）
+- **#7 CLI 测试缺错误路径** → 已补 `tests/cli/error-paths.test.ts`（12 用例）
+- **#9 chokidar 事件合并** → 部分修复：.deleted 文件不再触发重复 node:updated；高频连续写事件合并仍待专项验证
+- **#1/#2/#3/#4/#5/#8/#10/#11/#12** → 未处理，维持待办（改进方向见第 8 节）
+
+### 遗留（未修，属功能增强）
+
+- entry/exit 仍无 CLI 编辑命令（#1，SKILL.md 已提示手改 YAML）
+- CLI update-status 仍无 claim_by（#3）
+- graph-traverse.sh 脚本层仍为递归 DFS（#5）
+- 脚本 `grep -oP` 跨平台仍存疑（#4）

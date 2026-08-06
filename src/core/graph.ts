@@ -59,8 +59,10 @@ export function topologicalSort(
   }
 
   for (const e of topologicalEdges) {
-    // 悬挂边：source 不在图中 → 忽略（与 detectCycles 一致），否则入度永不归零误报环
+    // 悬挂边（source 或 target 不在图中）→ 忽略（与 detectCycles 一致），
+    // 否则幽灵 target 被入队会导致 result 长度超过 nodeIds 误报环
     if (!outEdges.has(e.source)) continue;
+    if (!inDegree.has(e.target)) continue;
     outEdges.get(e.source)!.push(e.target);
     inDegree.set(e.target, (inDegree.get(e.target) ?? 0) + 1);
   }

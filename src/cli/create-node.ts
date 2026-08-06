@@ -2,6 +2,8 @@
 import { Command } from "commander";
 import { createNode } from "../core/node.js";
 import { NodeType } from "../core/types.js";
+import * as fs from "node:fs";
+import * as path from "node:path";
 
 export const createNodeCommand = new Command("create-node")
   .description("创建新节点")
@@ -18,6 +20,7 @@ export const createNodeCommand = new Command("create-node")
     [] as string[],
   )
   .action((options) => {
+    const rootDir = process.cwd();
     const type = options.type as NodeType;
     if (!Object.values(NodeType).includes(type)) {
       console.error(
@@ -25,8 +28,15 @@ export const createNodeCommand = new Command("create-node")
       );
       process.exit(1);
     }
+    // 未初始化时拒绝创建（避免写入孤儿节点文件形成半初始化状态）
+    if (!fs.existsSync(path.join(rootDir, ".graph", "graph.yaml"))) {
+      console.error(
+        `❌ 未找到 ${rootDir}/.graph/graph.yaml，请先运行 graph init`,
+      );
+      process.exit(1);
+    }
     try {
-      const node = createNode(process.cwd(), {
+      const node = createNode(rootDir, {
         id: options.id,
         type,
         label: options.label,
