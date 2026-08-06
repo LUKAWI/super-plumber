@@ -1,147 +1,125 @@
 ---
 name: plumber-tools
-description: 拓扑图管理工具操作指南。用于管理工作流拓扑图的节点、边、状态和检查点。包含 CLI 命令、MCP 工具使用、执行 agent 与 Super Mario 的协作协议（claim/checkpoint/execution_report/裁决）。
+description: Use when operating the super-plumber workflow topology tool — running graph CLI commands, calling graph_* MCP tools, using helper scripts, or checking node status, state machine transitions, or edge types. Also use when debugging tool errors (MCP -32602, ENOENT, Invalid transition) while working with a .graph/ topology. Reference companion to plumber-flow; do NOT use for the workflow protocol itself — that is plumber-flow.
 ---
 
-# Topo-Graph：拓扑图管理工具
+# Plumber Tools — Super Plumber Reference
 
-本技能教您如何高效操作工作流拓扑图工具（`graph` CLI 及辅助脚本）。
+## Overview
 
-## 目录结构
+Super Plumber (`graph`) is a file-based workflow topology tool: nodes are YAML files, edges are typed dependencies, statuses follow a state machine. This skill is the **tool reference** — what exists, how to call it, and how to read its errors. The workflow protocol (decompose → design → execute → report) lives in **plumber-flow** — use that for process, this for tools.
 
-```
-.graph/                     # 拓扑图根目录
-├── graph.yaml              # 图定义（入口/出口/根上下文）
-├── nodes/*.yaml            # 节点文件
-└── edges/*.yaml            # 边文件
-```
+**One rule governs everything: tools validate. Errors are signals, never suggestions to bypass.**
 
-## CLI 命令
+## Access Layers — know what each can and cannot do
 
-```bash
-# 初始化新图
-graph init -l "项目名称"
+| Layer | Use for | Cannot do |
+|-------|---------|-----------|
+| **CLI** `graph` | init, bulk create/edge, status, validate, rebuild, export, serve | claim / checkpoint / execution_report (MCP-only) |
+| **MCP** `graph_*` (9 tools) | everything, incl. claim semantics, zod-validated | — |
+| **Scripts** (this skill + plumber-flow) | quick read/traverse/status/claim when no MCP client | — |
 
-# 创建节点
-graph create-node --id task_001 --type task --label "节点标签" --level 1
+> **NEVER treat the CLI as a complete replacement for MCP.** The CLI is a SUBSET. If you only use the CLI, claim, checkpoint, and execution_report are unreachable — the workflow cannot progress. `graph serve` runs the Web UI, not the MCP server.
 
-# 添加边
-graph add-edge --id e001 --source task_001 --target task_002 --type depends_on
+## CLI Commands (11) — `graph <cmd>`
 
-# 查看状态
-graph status
-
-# 导出 Mermaid
-graph export --mermaid -o topology.mmd
-```
-
-## 辅助脚本（推荐）
-
-除了 CLI 外，本 skill 提供了更便捷的脚本，适合快速操作：
-
-### 读取节点
+| Command | Purpose | Key flags |
+|---------|---------|-----------|
+| `init` | create `.graph/` skeleton | `-l <label>` |
+| `create-node` | create node | `-i -l -t --level --plan-desc --dod(×N) --assigned-to` |
+| `add-edge` | add typed edge | `-i -s -t --type` |
+| `update-status` | state machine transition | `-i -s` |
+| `update-node` | edit plan/DoD/checkpoints/assignee | `-i --plan-desc --add-dod --add-checkpoint --set-assigned --show` |
+| `delete-node` | soft delete | `-i` |
+| `status` | overview + topo check | — |
+| `validate` | integrity + topo sort + cycles | — |
+| `rebuild` | rebuild `index/` from sources | — |
+| `export --mermaid` | Mermaid output | `-o <file>` |
+| `serve` | Web UI (port 8934) | `-p <port>` |
 
 ```bash
-# 快速读取节点全部内容
-.pi/skills/plumber-tools/scripts/graph-get-node.sh <node_id>
+# Minimal happy path
+graph init -l "name"
+graph create-node -i l1_a -l "Task A" --plan-desc "..." --dod "done A"
+graph add-edge -i e1 -s l1_a -t l1_b --type depends_on
+graph validate
 ```
 
-### 更新节点状态（含状态机校验）
+**NEVER invent flags** — run `graph <cmd> --help`. **ALWAYS `graph validate` after structural edits.**
 
-```bash
-.pi/skills/plumber-tools/scripts/graph-update-status.sh <node_id> <new_status>
-```
+## Helper Scripts
 
-脚本会自动校验状态转换的合法性，非法转换会报错。
+From `~/.pi/agent/skills/plumber-tools/scripts/` (project: `.pi/skills/plumber-tools/scripts/`):
 
-### 遍历拓扑图
+| Script | Usage | Notes |
+|--------|-------|-------|
+| `graph-get-node.sh` | `<node_id>` | dump one node's YAML |
+| `graph-update-status.sh` | `<node_id> <status>` | state-machine-checked status change |
+| `graph-traverse.sh` | `<node_id> [upstream\|both] [depth]` | walk neighbors (downstream default) |
 
-```bash
-# 下游遍历（默认）
-.pi/skills/plumber-tools/scripts/graph-traverse.sh task_001
+Protocol scripts (claim/checkpoint/report) live in **plumber-flow** (`~/.pi/agent/skills/plumber-flow/scripts/`) — see that skill.
 
-# 上游遍历
-.pi/skills/plumber-tools/scripts/graph-traverse.sh task_001 upstream
+## MCP Tools (9) — the full capability surface
 
-# 双向遍历，深度 5
-.pi/skills/plumber-tools/scripts/graph-traverse.sh task_001 both 5
-```
+| Tool | Purpose | Required args | Watch out |
+|------|---------|---------------|-----------|
+| `graph_get_node` | read node tarball | `id` | — |
+| `graph_create_node` | create node | `id, label` | duplicate id → error, never overwrite |
+| `graph_update_node_status` | transition; **claim: `status:"running"` + `claim_by`** | `id, status` | must follow state machine order |
+| `graph_update_checkpoint` | report checkpoint progress | `node_id, checkpoint_id, status` | one at a time, as you finish |
+| `graph_update_execution_report` | submit handoff | `node_id, summary` | + `artifacts, blockers, notes` |
+| `graph_delete_node` | soft delete | `id` | nonexistent id → error, not fake success |
+| `graph_get_graph` | full topology + adjacency | — | — |
+| `graph_traverse` | walk neighbors | `node_id` | `direction: downstream\|upstream\|both`, `max_depth` |
+| `graph_search` | filter nodes | — | `query, status, type, assigned_to` |
 
-## MCP 工具（高级）
+**NEVER fake a node state without the corresponding tool call** (e.g. don't hand-edit YAML to mark a node passed). **NEVER claim a node that isn't `ready`.**
 
-如果 `graph-mcp` 服务器正在运行，可以通过 MCP 协议直接调用拓扑工具。MCP 工具自带参数校验，比 CLI 更安全、更快。
-
-```bash
-# 启动 MCP 服务器（后台运行，在工作目录启动，作用于该目录的 .graph/）
-graph-mcp
-```
-
-启动后，agent 通过 MCP 客户端直接调用工具（参数名与 inputSchema 一致）。
-
-可用 MCP 工具（9 个）：
-| 工具 | 功能 | 必填参数 |
-|------|------|----------|
-| `graph_get_node` | 读取单个节点 | id |
-| `graph_create_node` | 创建节点 | id, label |
-| `graph_update_node_status` | 更新节点状态（claim语义：status=running时传claim_by） | id, status |
-| `graph_update_checkpoint` | 执行agent上报checkpoint进度 | node_id, checkpoint_id, status |
-| `graph_update_execution_report` | 执行agent填写交接单 | node_id, summary |
-| `graph_delete_node` | 软删除节点 | id |
-| `graph_get_graph` | 获取完整图拓扑 | — |
-| `graph_traverse` | 遍历相邻节点 | node_id |
-| `graph_search` | 按条件搜索节点 | — |
-
-### MCP 参数校验行为
-
-所有工具由 zod schema 驱动校验。**非法或缺参调用返回协议错误** `MCP error -32602: Input validation error`（isError=true），LLM 能读到错误并自纠。常见失败：
-- 缺必填参数 → `expected string, received undefined at <field>`
-- 非法枚举 → 如 status 传了 `bogus`，direction 传了 `sideways`
-- 类型错误 → 如 summary 传了数字而非字符串
-
-## 执行 agent 协作协议（claim → checkpoint → report → 裁决）
-
-拓扑工作流由**执行 agent**（干活）和 **Super Mario**（裁决）协作驱动。职责分离：执行 agent 只报进度，Super Mario 裁决节点状态。
-
-```
-执行 agent:  claim(ready→running) → 干活 → 逐个报 checkpoint → 填 execution_report
-Super Mario: 读取 execution_report → 抽查 artifacts → 裁决 passed/failed/blocked
-```
-
-### 执行 agent 的操作序列
-
-1. **认领**：`graph_update_node_status {id, status: "running", claim_by: "<agent名>"}`
-   - 自动记录 assigned_to + execution_report.started_at
-2. **干活**：按节点 plan / checkpoints 执行任务
-3. **报进度**：每个子步骤完成即调用 `graph_update_checkpoint {node_id, checkpoint_id, status}`
-   - checkpoint 状态：pending → running → passed/failed/skipped
-   - **做完一个就报一个，不要攒到结束**（渐进式同步，防止丢失进度）
-4. **填交接单**：`graph_update_execution_report {node_id, summary, artifacts, blockers, notes}`
-   - artifacts 列出产物路径（Super Mario 据此抽查）
-   - blockers 说明阻塞原因
-5. **召唤裁决**：通知 Super Mario 检查 execution_report 并裁决
-
-### Super Mario 的裁决依据
-
-1. checkpoint 聚合：全部 passed 才进入抽查；任一 failed → 节点 failed
-2. 输出抽查：检查 `execution_report.artifacts` 中的产物是否真实存在、是否满足 `expected_outcome.definition_of_done`
-3. 裁决：passed → 推进下游；failed → 重试管理（attempts < max_attempts 则重试，否则人工介入）
-
-## 节点状态机
+## State Machine (7 states)
 
 ```
 pending → ready → running → passed → blocked
-                         ↘ failed → pending (重试)
-                                   → cancelled
-        任意状态 → cancelled
+                         ↘ failed → pending (retry)
+        any state → cancelled (terminal)
         blocked → ready / failed / cancelled
 ```
 
-## 边类型
+- `ready→running` = **claim** (records `assigned_to` + `started_at`); `passed`/`failed` records `completed_at`; `failed→pending` increments `attempts` (stops at `max_attempts`).
+- A rejected transition is the machine protecting you — fix the order, don't force it.
 
-| 类型 | 含义 | 参与拓扑排序 |
-|------|------|:----------:|
-| depends_on | 顺序依赖 | ✅ |
-| validates | 验证关系 | ✅ |
-| shares_context | 上下文共享 | ❌ |
-| fallback | 回退 | ❌ |
-| iterates | 迭代优化 | ❌ |
+## Edge Types (7)
+
+| Type | Meaning | Participates in topo sort |
+|------|---------|:---:|
+| `depends_on` | sequential dependency | ✅ |
+| `validates` | validation relationship | ✅ |
+| `shares_context` | shared context | ❌ |
+| `fan_out` | parallel dispatch | ❌ |
+| `fan_in` | fan-in merge | ❌ |
+| `fallback` | failure fallback | ❌ |
+| `iterates` | iterative optimization | ❌ |
+
+## Error Handling — read errors, then act
+
+| You see | Meaning | Fix |
+|---------|---------|-----|
+| `MCP error -32602: Input validation error` + `expected string, received undefined at <field>` | missing required arg | pass the field |
+| `-32602 ... expected one of "pending"\|"ready"\|...` | invalid enum | use a listed value |
+| `Invalid transition: X → Y. Allowed: [...]` | state machine order violated | go through the allowed path |
+| `ENOENT ... .graph/graph.yaml` | not initialized (or wrong cwd) | `graph init` / cd to the right dir |
+| `Node X not found` | nonexistent id | check with `graph_search` / `graph status` |
+| `Node X already exists` / `Edge X already exists` | duplicate id | choose a new id |
+
+**NEVER ignore a tool error and continue as if it succeeded.** A silent fake-success is worse than a loud failure.
+
+## Red Flags — STOP
+
+- Running a graph workflow using only CLI commands (claim/report are unreachable)
+- Hand-editing node YAML to skip the state machine
+- `graph validate` failing and proceeding anyway
+- Inventing tool names/params instead of reading this table or `--help`
+
+## When NOT to use
+
+- Workflow planning/execution protocol → **plumber-flow** (REQUIRED for the 5-phase process)
+- Adjudicating node states → `super-mario` agent
