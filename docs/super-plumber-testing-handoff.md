@@ -66,7 +66,7 @@ node D:/LUKAWI/AI_project/projects/topological-tool/dist/mcp/server.js
 | 1 | **entry/exit 无 CLI 编辑命令** | 中 | graph.yaml 的 entry/exit 只能手改 YAML，agent 建图时无法用 CLI 设置入口/出口描述（validate 会报"描述为空"警告） |
 | 2 | **MCP 缺 graph_diff / graph_snapshot** | 低 | 需求 4.5 列出但 MVP 未实现；版本控制（snapshot/diff/branch/merge/rollback）整体未做，只有 Git 提交 |
 | 3 | CLI update-status 无 claim_by 参数 | 低 | claim 语义只在 MCP 和 `plumber-flow/scripts/graph-claim.mjs`，CLI 对齐缺口 |
-| 4 | plumber-tools 脚本用 `grep -oP` | 低 | git-bash 可用；macOS/BSD grep 不支持 -oP，跨平台声明（需求 7）存疑 |
+| 4 | plumber-flow 脚本（graph-get-node.sh 等）用 `grep -oP` | 低 | git-bash 可用；macOS/BSD grep 不支持 -oP，跨平台声明（需求 7）存疑 |
 | 5 | `graph-traverse.sh` DFS 递归 | 低 | 脚本层递归，超大图可能栈溢出（核心层已迭代化，脚本未同步） |
 | 6 | MCP 测试覆盖薄 | 中 | 只测 6 场景；缺 create_node 正常、search 过滤、traverse 正常、claim 完整链、delete 正常 的端到端断言 |
 | 7 | CLI 测试缺 serve/rebuild/validate 错误路径 | 中 | 12 个用例未覆盖 serve 端口占用、rebuild 缺 graph.yaml、validate 幽灵边等 |
@@ -151,7 +151,7 @@ node D:/LUKAWI/AI_project/projects/topological-tool/dist/mcp/server.js
 | E1 | `plumber-flow`（项目 `.pi/skills/plumber-flow/` + 全局 `~/.pi/agent/skills/plumber-flow/`） | 派 subagent 读 skill 后执行"拆解需求→建图→claim→checkpoint→report"全流程 | ①skill 路径引用是否有效 ②协议步骤能否全部执行 ③脚本是否可运行 ④有无过时命令/路径 |
 | E2 | `plumber-flow/scripts/graph-claim.mjs` | 直接跑 | ①ready→running+claim_by ②非 ready 节点被状态机拦截（报错内容）③npm root -g 解析是否指向 super-plumber（改名回归！） |
 | E3 | `graph-checkpoint.mjs` / `graph-report.mjs` | 直接跑 | 同上 + report 的 artifacts 列表解析 |
-| E4 | `plumber-tools`（项目 + 全局） | subagent 按中文指南操作 | ①命令示例是否仍有效（`graph` 全局可用）②脚本路径 ③MCP 工具表与实现一致（9 个） |
+| E4 | `plumber-flow/reference.md`（工具参考） | subagent 按参考文档操作 | ①命令示例是否仍有效（`graph` 全局可用）②脚本路径 ③MCP 工具表与实现一致（9 个）
 | E5 | 全局脚本（`~/.pi/agent/skills/plumber-flow/scripts/`） | 在**非项目目录**跑 | 改名后 `npm root -g` → `super-plumber/dist/core/node.js` 解析是否成功（回归！） |
 | E6 | agents（`.pi/agents/super-mario.md`、`graph-designer.md`） | 检查描述/工具列表与实际一致 | 无失效引用（如曾有的 graph-watchman 问题） |
 | E7 | prompts（`~/.pi/agent/prompts/design-topology.md` 等 4 个） | 逐个检查引用的 agent 名存在 | 无失效 agent 引用（回归：曾引用已删除的 graph-watchman） |
@@ -239,14 +239,14 @@ node D:/LUKAWI/AI_project/projects/topological-tool/dist/mcp/server.js
 1. **entry/exit CLI 命令**（`graph set-entry --desc` / `graph set-exit --desc`）——补齐问题 4.1
 2. **MCP graph_diff / graph_snapshot**——需求 4.5 版本控制第一步
 3. **CLI claim 参数**：`update-status -s running --claim-by` 对齐 MCP
-4. **脚本跨平台化**：plumber-tools 脚本 `grep -oP` → 兼容写法；traverse DFS 迭代化
+4. **脚本跨平台化**：plumber-flow 脚本 `grep -oP` → 兼容写法；traverse DFS 迭代化
 5. **测试补齐**：MCP 全工具端到端断言、CLI serve/rebuild 错误路径、大图 UI 帧率
 6. **npm publish 发布**（包名已确权）
 
 ## 9. Suggested Skills（新会话应加载）
 
 - **plumber-flow** —— 测试 skills 功能时按协议操作拓扑图（本会话产物，含协议脚本）
-- **plumber-tools** —— CLI/MCP 工具中文参考
+- **plumber-flow**（含 reference.md）—— 工具参考 + 协议
 - **systematic-debugging** —— 测试发现 bug 后先找根因再修（Iron Law：无根因不修复）
 - **test-driven-development** —— 任何修复前先写失败测试
 - **verification-before-completion** —— 宣称测试完成/修复前必须跑证据（tsc/vitest/build）

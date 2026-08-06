@@ -1,13 +1,8 @@
----
-name: plumber-tools
-description: Use when operating the super-plumber workflow topology tool — running graph CLI commands, calling graph_* MCP tools, using helper scripts, or checking node status, state machine transitions, or edge types. Also use when debugging tool errors (MCP -32602, ENOENT, Invalid transition) while working with a .graph/ topology. Reference companion to plumber-flow; do NOT use for the workflow protocol itself — that is plumber-flow.
----
-
-# Plumber Tools — Super Plumber Reference
+# Plumber Reference — Tools of Super Plumber
 
 ## Overview
 
-Super Plumber (`graph`) is a file-based workflow topology tool: nodes are YAML files, edges are typed dependencies, statuses follow a state machine. This skill is the **tool reference** — what exists, how to call it, and how to read its errors. The workflow protocol (decompose → design → execute → report) lives in **plumber-flow** — use that for process, this for tools.
+Super Plumber (`graph`) is a file-based workflow topology tool: nodes are YAML files, edges are typed dependencies, statuses follow a state machine. This skill is the **tool reference** — what exists, how to call it, and how to read its errors. This is the reference file of the **plumber-flow** skill. For the workflow protocol (decompose → design → execute → report), read plumber-flow SKILL.md — this file is for tools.
 
 **One rule governs everything: tools validate. Errors are signals, never suggestions to bypass.**
 
@@ -49,7 +44,7 @@ graph validate
 
 ## Helper Scripts
 
-From `~/.pi/agent/skills/plumber-tools/scripts/` (project: `.pi/skills/plumber-tools/scripts/`):
+From `~/.pi/agent/skills/plumber-flow/scripts/` (project: `.pi/skills/plumber-flow/scripts/`):
 
 | Script | Usage | Notes |
 |--------|-------|-------|
@@ -119,7 +114,8 @@ pending → ready → running → passed → blocked
 - `graph validate` failing and proceeding anyway
 - Inventing tool names/params instead of reading this table or `--help`
 
-## When NOT to use
+## Scope
 
-- Workflow planning/execution protocol → **plumber-flow** (REQUIRED for the 5-phase process)
+- This file: CLI commands, MCP tools, scripts, state machine, edge types, error handling
+- Workflow planning/execution protocol (the 5 phases) → read plumber-flow SKILL.md
 - Adjudicating node states → `super-mario` agent

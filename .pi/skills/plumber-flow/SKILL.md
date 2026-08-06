@@ -54,17 +54,12 @@ $GRAPH update-status -i l1_register -s running  # state machine enforced
 $GRAPH export --mermaid -o flow.mmd             # visualize
 ```
 
-**Common helper scripts** — plumber-tools (read-only + status; from `.pi/skills/plumber-tools/scripts/`):
+**All scripts** (read/status + protocol executors; from `~/.pi/agent/skills/plumber-flow/scripts/` — project: `.pi/skills/plumber-flow/scripts/`). Thin wrappers over the core engine — use when no MCP client is available:
 
 ```bash
 ./graph-get-node.sh <node_id>            # read one node's full content
 ./graph-traverse.sh <node_id> [upstream|both] [depth]   # walk neighbors
 ./graph-update-status.sh <node_id> <status>  # status change w/ state machine check
-```
-
-**Protocol scripts** — plumber-flow (Phase 4 executor actions; from `.pi/skills/plumber-flow/scripts/`). Thin wrappers over the core engine — use these when no MCP client is available:
-
-```bash
 node graph-claim.mjs <node_id> <claim_by>      # Phase 4 step 1: ready→running, records assigned_to + started_at
 node graph-checkpoint.mjs <node_id> <cp_id> <status>   # Phase 4 step 3: report one checkpoint as you finish it
 node graph-report.mjs <node_id> <summary> [artifacts.csv] [blockers.csv] [notes]  # Phase 4 step 4: handoff
@@ -149,4 +144,4 @@ pending → ready → running → passed → blocked
 ## When NOT to use
 
 - Pure todo/task-list tracking without dependencies or lifecycle — use a todo list.
-- Reading an existing graph without executing it — use plumber-tools reference only.
+- Reading an existing graph without executing it — read `reference.md` in this skill directory.
