@@ -36,7 +36,7 @@ The topological-tool (`graph`) is a workflow topology manager: nodes are tasks, 
 
 | Task | Use |
 |------|-----|
-| Initialize graph, create nodes/edges, bulk edits | **CLI** (`node D:/LUKAWI/AI_project/projects/topological-tool/dist/cli/index.js`) |
+| Initialize graph, create nodes/edges, bulk edits | **CLI** (`graph` — globally installed via `npm link` / `npm install -g`) |
 | Everything else: read node, claim, checkpoint, execution report, search, traverse | **MCP** (9 tools, zod-validated) or helper scripts |
 
 > **NEVER treat MCP as optional.** The CLI is a SUBSET of the MCP tools. Claim, checkpoint, and execution_report exist ONLY via MCP/scripts — the CLI has no such commands. If you only use the CLI, you lose half the protocol.
@@ -44,7 +44,7 @@ The topological-tool (`graph`) is a workflow topology manager: nodes are tasks, 
 **Common CLI commands:**
 
 ```bash
-GRAPH="node D:/LUKAWI/AI_project/projects/topological-tool/dist/cli/index.js"
+GRAPH="graph"   # globally installed — `npm link` / `npm install -g topological-tool`
 $GRAPH init -l "项目名"                       # create .graph/ skeleton
 $GRAPH create-node -i l1_register -l "注册模块" -t task --level 1 --plan-desc "..." --dod "完成标准A" --dod "完成标准B"
 $GRAPH add-edge -i e1 -s l1_login -t l2_auth --type depends_on
