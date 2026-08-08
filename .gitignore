@@ -2,4 +2,5 @@ node_modules/
 dist/
 web-ui/node_modules/
 web-ui/dist/
-.graph/index/
+.graph/          # 运行时目录（graph init 生成），不入库
+.graph-example/index/   # 示例图派生索引（rebuild 产物）

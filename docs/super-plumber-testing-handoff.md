@@ -40,7 +40,7 @@ node D:/LUKAWI/AI_project/projects/topological-tool/dist/mcp/server.js
 1. **路径盘符**：bash 的 `/tmp` = `C:\Users\liujiayu\AppData\Local\Temp`；node 进程的 `/tmp` 按**当前盘符**解析（cwd 在 C 盘 → `C:\tmp`，在 D 盘 → `D:\tmp`）。测试目录统一用 `C:/Users/liujiayu/AppData/Local/Temp/<name>` 显式路径，别用 `/tmp`。
 2. **Windows cmd 引号**：`execSync` 走 cmd.exe，单引号不识别、双引号内 `\"` 会被剥除。CLI 测试传 JSON 参数用 `spawnSync(args 数组)` 绕开（见 `tests/cli/commands.test.ts` 的 add-checkpoint 测试写法）。
 3. **biome 自动格式化**：用 edit 工具改 .ts 文件后，biome auto-fix 会把缩进改成 **tab**（项目规范是 2 空格），导致 diff 爆炸。修复：`perl -pi -e 's/^\t+/"  " x length($&)/e' <file>`。
-4. **测试环境隔离**：所有功能测试在临时目录 `graph init` 起全新环境，**严禁污染示例 `.graph/`**（20 节点 36 边示例数据是验收依据）。
+4. **测试环境隔离**：所有功能测试在临时目录 `graph init` 起全新环境，**严禁污染示例 `.graph-example/`**（20 节点 36 边示例数据是验收依据）。
 5. 全局安装是 `npm link`（符号链接指向项目 dist），**改 src 后必须 `npx tsc` 重新构建**，dist 才会更新（MCP server 名实测就因此滞后过一次）。
 
 ## 3. 已知基线（已通过，新会话不用重测，除非怀疑回归）
