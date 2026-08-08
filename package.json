@@ -1,5 +1,5 @@
 {
-  "name": "super-plumber",
+  "name": "@lukawi/super-plumber",
   "version": "0.1.0",
   "description": "工作流拓扑图管理工具（Super Plumber）— 将任务文档重构为 agent 可原生理解的拓扑结构",
   "type": "module",
@@ -12,6 +12,7 @@
     "./core": "./dist/core/types.js"
   },
   "files": ["dist/", "web-ui/dist/"],
+  "publishConfig": { "access": "public" },
   "license": "MIT",
   "keywords": ["topology", "workflow", "graph", "yaml", "mcp", "agent"],
   "scripts": {

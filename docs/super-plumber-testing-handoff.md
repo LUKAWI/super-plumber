@@ -11,7 +11,7 @@
 | 项 | 值 |
 |----|----|
 | 项目目录 | `D:/LUKAWI/AI_project/projects/topological-tool/`（目录名未改，仅品牌名改了） |
-| 品牌名 / npm 包名 | **super-plumber**（CLI 命令 `graph` / `graph-mcp` 不变） |
+| 品牌名 / npm 包名 | **@lukawi/super-plumber**（产品名 Super Plumber，CLI 命令 `graph` / `graph-mcp` 不变） |
 | Git | master 分支，可回滚点 `mvp-checkpoint` tag；最新提交 `04e18e4`（改名） |
 | 测试基线 | **96/96 通过**（8 个测试文件），`npx tsc --noEmit` 零错误，`vite build` 无警告 |
 

@@ -6,7 +6,7 @@
 > **中文版:** [README.md](README.md)
 
 ```bash
-npm install -g super-plumber
+npm install -g @lukawi/super-plumber
 ```
 
 ---

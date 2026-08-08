@@ -44,7 +44,7 @@ The super-plumber (`graph`) is a workflow topology manager: nodes are tasks, edg
 **Common CLI commands:**
 
 ```bash
-GRAPH="graph"   # globally installed — `npm link` / `npm install -g super-plumber`
+GRAPH="graph"   # globally installed — `npm link` / `npm install -g @lukawi/super-plumber`
 $GRAPH init -l "项目名"                       # create .graph/ skeleton
 $GRAPH create-node -i l1_register -l "注册模块" -t task --level 1 --plan-desc "..." --dod "完成标准A" --dod "完成标准B"
 $GRAPH add-edge -i e1 -s l1_login -t l2_auth --type depends_on

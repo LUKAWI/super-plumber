@@ -7,7 +7,7 @@ import { execSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 const GLOBAL_CORE = pathToFileURL(
-  path.join(execSync("npm root -g").toString().trim(), "super-plumber/dist/core/node.js"),
+  path.join(execSync("npm root -g").toString().trim(), "@lukawi/super-plumber/dist/core/node.js"),
 ).href;
 const { updateExecutionReport } = await import(GLOBAL_CORE);
 

@@ -6,7 +6,7 @@
 > **English:** [README.en.md](README.en.md)
 
 ```bash
-npm install -g super-plumber
+npm install -g @lukawi/super-plumber
 ```
 
 ---

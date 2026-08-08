@@ -1,7 +1,7 @@
 # CONTEXT — Super Plumber（工作流拓扑图管理工具，"轮子"）
 
 > 项目通用语言（Ubiquitous Language）。本文档仅定义领域术语，不含实现细节。
-> 品牌名：Super Plumber（npm 包名 `super-plumber`，CLI 命令 `graph`）
+> 品牌名：Super Plumber（npm 包名 `@lukawi/super-plumber`，CLI 命令 `graph`）
 
 ---
 
