@@ -39,7 +39,7 @@ todo: "build a registration module"  →   entry → l1_register → l1_login �
 | 🤖 **Native MCP** | 9 `graph_*` tools with zod-validated params, ready for Claude Code / opencode agents |
 | 🌐 **Web visualization** | Force-directed graph, per-edge-type colors, flow dots on `running` nodes, checkpoint progress bars, WebSocket delta push |
 | 📁 **File-first storage** | One YAML file per node/edge, Git as the single source of truth, human-editable, no database |
-| 🧩 **Agent collaboration protocol** | Built-in `plumber-flow` skill (5-phase protocol) + 2 dedicated subagents (designer / adjudicator) |
+| 🧩 **Agent collaboration protocol** | Built-in `plumber-design` (topology design + preview review) and `plumber-execute` (topology execution + 3-layer acceptance) skills + 2 dedicated subagents (designer / adjudicator) |
 
 ---
 
@@ -237,10 +237,10 @@ Option 1 · MCP tools (requires an agent wired up, see the MCP section below):
 // graph_update_execution_report: { node_id: "l1_register", summary: "Registration done", artifacts: ["dist/register.js"] }
 ```
 
-Option 2 · skill scripts (shipped with the `plumber-flow` skill — for pi users at `~/.pi/agent/skills/plumber-flow/scripts/`, or project-local `.pi/skills/plumber-flow/scripts/`):
+Option 2 · skill scripts (shipped with the `plumber-execute` skill — for pi users at `~/.pi/agent/skills/plumber-execute/scripts/`, or project-local `.pi/skills/plumber-execute/scripts/`):
 
 ```bash
-SCRIPTS=~/.pi/agent/skills/plumber-flow/scripts
+SCRIPTS=~/.pi/agent/skills/plumber-execute/scripts
 
 # Claim a ready node (records claim_by + started_at; non-ready nodes are rejected by the state machine)
 node $SCRIPTS/sp-claim.mjs l1_register backend-agent
@@ -411,14 +411,14 @@ graph serve
 
 ## Pi Agent Ecosystem: subagents + skill
 
-The repo includes 2 dedicated subagents (`.pi/agents/`) and 1 skill (`.pi/skills/plumber-flow/`):
+The repo includes 2 dedicated subagents (`.pi/agents/`) and 2 phased skills (`.pi/skills/plumber-design/` + `.pi/skills/plumber-execute/`):
 
 | Agent | Role | Responsibilities |
 |-------|------|------------------|
 | `sp-designer` | Topology designer | Decompose requirements into a structured topology; author each node's plan and definition of done |
 | `super-mario` | Topology controller | Node lifecycle adjudication (checkpoint aggregation + output spot-checks), retry management, status monitoring |
 
-The `plumber-flow` skill defines a **5-phase execution protocol** (decompose → design → build → execute → verify) with 6 helper scripts (read/status/claim/checkpoint/report/traverse) — so agents operate the graph by protocol, never out-of-band or with fake progress.
+**Two-phase skill protocol**: `plumber-design` owns the **design phase** (decompose requirements → build the topology → `graph validate` + a design check script prove it's bug-free → `graph serve` opens a browser preview → request user approval; approval is a hard gate). Once approved, `plumber-execute` owns the **execution phase** (claim → checkpoint-by-checkpoint reporting → execution_report → passed; fan_out/fan_in structure plus a condition check decide when to dispatch parallel subagents; when all task nodes pass, run the 3-layer acceptance: status all-green + `graph validate` 0 errors + acceptance criteria checked one-by-one against real artifacts). Scripts: `sp-check-design.mjs` (design check) on the design side; 6 on the execute side (read/status/claim/checkpoint/report/traverse) — agents operate the graph by protocol, never out-of-band or with fake progress.
 
 ---
 

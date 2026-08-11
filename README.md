@@ -39,7 +39,7 @@ todo: "做个注册模块"            →     entry → l1_register → l1_login
 | 🤖 **MCP 原生接入** | 9 个 `graph_*` 工具，zod 参数校验，供 Claude Code / opencode 等 agent 直接调用 |
 | 🌐 **Web 可视化** | 力导向图 + 边类型着色 + running 节点光点流动 + checkpoint 进度条，WebSocket 增量推送 |
 | 📁 **纯文件存储** | 每个节点/边一个 YAML 文件，Git 是唯一真相源，人类可直接编辑，无数据库 |
-| 🧩 **agent 协作协议** | 内置 `plumber-flow` skill（5 阶段协议）+ 2 个专用 subagent（拆解 / 裁决） |
+| 🧩 **agent 协作协议** | 内置 `plumber-design`（拓扑设计+预览审核）与 `plumber-execute`（拓扑执行+三层验收）双阶段 skill + 2 个专用 subagent（拆解 / 裁决） |
 
 ---
 
@@ -237,10 +237,10 @@ graph update-status -i l1_login -s running
 // graph_update_execution_report: { node_id: "l1_register", summary: "注册功能完成", artifacts: ["dist/register.js"] }
 ```
 
-方式二 · skill 脚本（脚本随 `plumber-flow` skill 提供，pi 用户位于 `~/.pi/agent/skills/plumber-flow/scripts/`，项目内为 `.pi/skills/plumber-flow/scripts/`）：
+方式二 · skill 脚本（脚本随 `plumber-execute` skill 提供，pi 用户位于 `~/.pi/agent/skills/plumber-execute/scripts/`，项目内为 `.pi/skills/plumber-execute/scripts/`）：
 
 ```bash
-SCRIPTS=~/.pi/agent/skills/plumber-flow/scripts
+SCRIPTS=~/.pi/agent/skills/plumber-execute/scripts
 
 # 认领 ready 节点（记录 claim_by + started_at；非 ready 节点会被状态机拦截）
 node $SCRIPTS/sp-claim.mjs l1_register backend-agent
@@ -411,14 +411,14 @@ graph serve
 
 ## Pi Agent 生态：subagent + skill
 
-项目内置 2 个专用 subagent（`.pi/agents/`）与 1 个 skill（`.pi/skills/plumber-flow/`）：
+项目内置 2 个专用 subagent（`.pi/agents/`）与 2 个阶段化 skill（`.pi/skills/plumber-design/` + `.pi/skills/plumber-execute/`）：
 
 | Agent | 角色 | 职责 |
 |-------|------|------|
 | `sp-designer` | 拓扑图设计师 | 把需求拆解为结构化拓扑，为每个节点制定 plan 和 definition_of_done |
 | `super-mario` | 拓扑主控 | 节点生命周期裁决（checkpoint 聚合 + 输出抽查）、重试管理、状态监测 |
 
-`plumber-flow` skill 定义了 **5 阶段执行协议**（拆解 → 设计 → 建图 → 执行 → 验证），配套 6 个脚本（read/status/claim/checkpoint/report/traverse），保证 agent 按协议操作拓扑图、不越权、不假报进度。
+**两阶段 skill 协议**：`plumber-design` 负责**设计期**（需求拆解 → 拓扑图 → `graph validate` + 体检脚本验证无 bug → `graph serve` 打开浏览器预览 → 请求用户审核，审核是硬性 gate）；用户批准后 `plumber-execute` 负责**执行期**（claim → 逐 checkpoint 上报 → execution_report → passed，fan_out/fan_in 结构 + 条件判断决定何时派 subagent 并行，全部 task 节点 passed 后做三层验收：状态层全绿 + 结构层 validate 0 error + 成果层逐条对照 exit 验收标准与真实 artifact）。配套脚本：design 侧 `sp-check-design.mjs`（设计体检），execute 侧 6 个（read/status/claim/checkpoint/report/traverse），保证 agent 按协议操作拓扑图、不越权、不假报进度。
 
 ---
 
