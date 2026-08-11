@@ -5,7 +5,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@lukawi/super-plumber)](https://www.npmjs.com/package/@lukawi/super-plumber)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-96%2F96-green)](https://github.com/LUKAWI/super-plumber/actions)
+[![Tests](https://img.shields.io/badge/tests-97%2F97-green)](https://github.com/LUKAWI/super-plumber/actions)
 [![GitHub](https://img.shields.io/badge/GitHub-LUKAWI%2Fsuper--plumber-black)](https://github.com/LUKAWI/super-plumber)
 
 **English:** [README.en.md](README.en.md) · **npm:** [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)
@@ -431,7 +431,7 @@ cd super-plumber
 npm install
 npm run build && npm --prefix web-ui run build
 
-# 测试（96 个用例：状态机/拓扑/CLI/MCP 协议）
+# 测试（97 个用例：状态机/拓扑/CLI/MCP 协议）
 npm test
 
 # 本地链接全局（开发调试用）
@@ -459,7 +459,7 @@ graph --version
 ## 项目状态
 
 ```text
-Tests: 96/96 ✅ | CLI: 11 命令 | MCP: 9 工具 | 状态机: 7 态 14 转换 | 边类型: 7 种 | Web UI: Svelte 5 + D3.js
+Tests: 97/97 ✅ | CLI: 11 命令 | MCP: 9 工具 | 状态机: 7 态 14 转换 | 边类型: 7 种 | Web UI: Svelte 5 + D3.js
 ```
 
 - **npm**: [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)

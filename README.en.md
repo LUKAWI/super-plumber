@@ -5,7 +5,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@lukawi/super-plumber)](https://www.npmjs.com/package/@lukawi/super-plumber)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-96%2F96-green)](https://github.com/LUKAWI/super-plumber/actions)
+[![Tests](https://img.shields.io/badge/tests-97%2F97-green)](https://github.com/LUKAWI/super-plumber/actions)
 [![GitHub](https://img.shields.io/badge/GitHub-LUKAWI%2Fsuper--plumber-black)](https://github.com/LUKAWI/super-plumber)
 
 **中文版:** [README.md](README.md) · **npm:** [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)
@@ -431,7 +431,7 @@ cd super-plumber
 npm install
 npm run build && npm --prefix web-ui run build
 
-# Tests (96 cases: state machine / topology / CLI / MCP protocol)
+# Tests (97 cases: state machine / topology / CLI / MCP protocol)
 npm test
 
 # Link globally for local dev
@@ -459,7 +459,7 @@ graph --version
 ## Project Status
 
 ```text
-Tests: 96/96 ✅ | CLI: 11 commands | MCP: 9 tools | State machine: 7 states / 14 transitions | Edge types: 7 | Web UI: Svelte 5 + D3.js
+Tests: 97/97 ✅ | CLI: 11 commands | MCP: 9 tools | State machine: 7 states / 14 transitions | Edge types: 7 | Web UI: Svelte 5 + D3.js
 ```
 
 - **npm**: [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)
