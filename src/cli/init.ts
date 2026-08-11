@@ -20,7 +20,7 @@ export const initCommand = new Command("init").alias("i")
     }
     const graph = {
       id: `graph_${Date.now()}`,
-      version: "0.1.0",
+      version: "0.1.1",
       label: options.label,
       entry: {
         description: "",

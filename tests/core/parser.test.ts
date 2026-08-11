@@ -72,7 +72,7 @@ describe("Parser", () => {
   it("写入和读取图根文件", () => {
     writeGraph(tmpDir, {
       id: "graph_001",
-      version: "0.1.0",
+      version: "0.1.1",
       label: "test",
       entry: { description: "entry", defined_by: "human", level: 0 },
       exit: {
@@ -101,7 +101,7 @@ describe("Parser", () => {
   it("软删除后 graph.yaml 引用列表同步移除", () => {
     writeGraph(tmpDir, {
       id: "graph_001",
-      version: "0.1.0",
+      version: "0.1.1",
       label: "test",
       entry: { description: "entry", defined_by: "human", level: 0 },
       exit: {

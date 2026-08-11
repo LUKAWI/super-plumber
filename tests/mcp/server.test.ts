@@ -17,7 +17,7 @@ async function connectServer(cwd: string) {
     args: [serverJs],
     cwd,
   });
-  const client = new Client({ name: "test", version: "0.1.0" });
+  const client = new Client({ name: "test", version: "0.1.1" });
   await client.connect(transport);
   return client;
 }

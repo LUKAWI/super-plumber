@@ -70,7 +70,7 @@ npm install -g @lukawi/super-plumber
 ### 2. 验证安装
 
 ```bash
-graph --version     # 输出 0.1.0 即成功
+graph --version     # 输出 0.1.1 即成功
 graph --help        # 查看全部 11 个命令
 which graph         # 确认命令位置（Windows: where graph）
 ```

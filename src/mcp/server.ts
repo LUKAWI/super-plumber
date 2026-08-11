@@ -21,7 +21,7 @@ const rootDir = process.cwd();
 
 const server = new McpServer({
   name: "super-plumber",
-  version: "0.1.0",
+  version: "0.1.1",
 });
 
 // zod 4.x 中 z.nativeEnum deprecated，用 z.enum 显式枚举

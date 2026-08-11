@@ -18,7 +18,7 @@ const program = new Command();
 program
   .name("graph")
   .description("工作流拓扑图管理工具")
-  .version("0.1.0");
+  .version("0.1.1");
 
 program.addCommand(initCommand);
 program.addCommand(createNodeCommand);
