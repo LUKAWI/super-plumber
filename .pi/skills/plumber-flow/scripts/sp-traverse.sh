@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 从指定节点遍历相邻节点
-# Usage: graph-traverse.sh <node_id> [direction] [max_depth]
+# Usage: sp-traverse.sh <node_id> [direction] [max_depth]
 # direction: downstream (默认) | upstream | both
 set -euo pipefail
 START_NODE="$1"

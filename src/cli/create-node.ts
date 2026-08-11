@@ -5,7 +5,7 @@ import { NodeType } from "../core/types.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-export const createNodeCommand = new Command("create-node")
+export const createNodeCommand = new Command("create-node").alias("cn")
   .description("创建新节点")
   .requiredOption("-i, --id <id>", "节点 ID")
   .requiredOption("-l, --label <label>", "节点标签")

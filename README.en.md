@@ -243,13 +243,13 @@ Option 2 · skill scripts (shipped with the `plumber-flow` skill — for pi user
 SCRIPTS=~/.pi/agent/skills/plumber-flow/scripts
 
 # Claim a ready node (records claim_by + started_at; non-ready nodes are rejected by the state machine)
-node $SCRIPTS/graph-claim.mjs l1_register backend-agent
+node $SCRIPTS/sp-claim.mjs l1_register backend-agent
 
 # Report each checkpoint as you finish it (finished-but-unreported progress is lost)
-node $SCRIPTS/graph-checkpoint.mjs l1_register cp1 passed
+node $SCRIPTS/sp-checkpoint.mjs l1_register cp1 passed
 
 # Submit the handoff (summary + artifacts + blockers + notes)
-node $SCRIPTS/graph-report.mjs l1_register "Registration done" "dist/register.js,test/register.test.js" "" "bcrypt for passwords"
+node $SCRIPTS/sp-report.mjs l1_register "Registration done" "dist/register.js,test/register.test.js" "" "bcrypt for passwords"
 ```
 
 ### Step 6 — Visualize and share
@@ -278,6 +278,21 @@ graph serve                           # open http://localhost:8934 for the force
 | `graph serve` | Start the Web UI | `-p <port>` (default 8934) |
 
 > Not sure about flags? Every command has `--help`: `graph create-node --help`.
+
+### Shortcuts (aliases)
+
+Common commands accept 1-2 character aliases; full names still work (equivalent):
+
+| Full command | Alias | Full command | Alias |
+|--------------|-------|--------------|-------|
+| `graph init` | `graph i` | `graph update-node` | `graph un` |
+| `graph create-node` | `graph cn` | `graph delete-node` | `graph dn` |
+| `graph add-edge` | `graph ae` | `graph status` | `graph s` |
+| `graph update-status` | `graph us` | `graph validate` | `graph v` |
+| `graph rebuild` | `graph rb` | `graph export --mermaid` | `graph x --mermaid` |
+| `graph serve` | `graph sv` | | |
+
+E.g. `graph cn -i t1 -l "Task 1"` ≡ `graph create-node -i t1 -l "Task 1"`.
 
 ---
 
@@ -400,7 +415,7 @@ The repo includes 2 dedicated subagents (`.pi/agents/`) and 1 skill (`.pi/skills
 
 | Agent | Role | Responsibilities |
 |-------|------|------------------|
-| `graph-designer` | Topology designer | Decompose requirements into a structured topology; author each node's plan and definition of done |
+| `sp-designer` | Topology designer | Decompose requirements into a structured topology; author each node's plan and definition of done |
 | `super-mario` | Topology controller | Node lifecycle adjudication (checkpoint aggregation + output spot-checks), retry management, status monitoring |
 
 The `plumber-flow` skill defines a **5-phase execution protocol** (decompose → design → build → execute → verify) with 6 helper scripts (read/status/claim/checkpoint/report/traverse) — so agents operate the graph by protocol, never out-of-band or with fake progress.

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Claim a node: ready → running, records assigned_to + started_at.
 // Thin wrapper over the core engine (dist/core/node.js) — does NOT reimplement the state machine.
-// Usage: node graph-claim.mjs <node_id> <claim_by>
+// Usage: node sp-claim.mjs <node_id> <claim_by>
 // Run from the project directory that contains .graph/
 import { execSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
@@ -13,7 +13,7 @@ const { updateNodeStatus } = await import(GLOBAL_CORE);
 
 const [id, claimBy] = process.argv.slice(2);
 if (!id || !claimBy) {
-	console.error("Usage: node graph-claim.mjs <node_id> <claim_by>");
+	console.error("Usage: node sp-claim.mjs <node_id> <claim_by>");
 	process.exit(1);
 }
 

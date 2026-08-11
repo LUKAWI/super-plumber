@@ -4,7 +4,7 @@ import { listNodes } from "../core/node.js";
 import { listEdges } from "../core/edge.js";
 import { topologicalSort, detectCycles } from "../core/graph.js";
 
-export const validateCommand = new Command("validate")
+export const validateCommand = new Command("validate").alias("v")
   .description("校验整个拓扑图的结构完整性")
   .action(() => {
     const rootDir = process.cwd();

@@ -48,9 +48,9 @@ From `~/.pi/agent/skills/plumber-flow/scripts/` (project: `.pi/skills/plumber-fl
 
 | Script | Usage | Notes |
 |--------|-------|-------|
-| `graph-get-node.sh` | `<node_id>` | dump one node's YAML |
-| `graph-update-status.sh` | `<node_id> <status>` | state-machine-checked status change |
-| `graph-traverse.sh` | `<node_id> [upstream\|both] [depth]` | walk neighbors (downstream default) |
+| `sp-get-node.sh` | `<node_id>` | dump one node's YAML |
+| `sp-update-status.sh` | `<node_id> <status>` | state-machine-checked status change |
+| `sp-traverse.sh` | `<node_id> [upstream\|both] [depth]` | walk neighbors (downstream default) |
 
 Protocol scripts (claim/checkpoint/report) live in **plumber-flow** (`~/.pi/agent/skills/plumber-flow/scripts/`) — see that skill.
 

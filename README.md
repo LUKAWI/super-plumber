@@ -243,13 +243,13 @@ graph update-status -i l1_login -s running
 SCRIPTS=~/.pi/agent/skills/plumber-flow/scripts
 
 # 认领 ready 节点（记录 claim_by + started_at；非 ready 节点会被状态机拦截）
-node $SCRIPTS/graph-claim.mjs l1_register backend-agent
+node $SCRIPTS/sp-claim.mjs l1_register backend-agent
 
 # 每完成一个检查点就上报一次（报告完的进度不会丢）
-node $SCRIPTS/graph-checkpoint.mjs l1_register cp1 passed
+node $SCRIPTS/sp-checkpoint.mjs l1_register cp1 passed
 
 # 交付交接单（summary + artifacts + blockers + notes）
-node $SCRIPTS/graph-report.mjs l1_register "注册功能完成" "dist/register.js,test/register.test.js" "" "密码加密采用 bcrypt"
+node $SCRIPTS/sp-report.mjs l1_register "注册功能完成" "dist/register.js,test/register.test.js" "" "密码加密采用 bcrypt"
 ```
 
 ### 第 6 步：可视化与分享
@@ -278,6 +278,21 @@ graph serve                           # 打开 http://localhost:8934 看力导�
 | `graph serve` | 启动 Web UI | `-p <port>`（默认 8934） |
 
 > 参数拿不准？每个命令都有 `--help`：`graph create-node --help`。
+
+### 快捷指令（别名）
+
+常用命令支持 1-2 字符别名，完整命令照常可用（两者等价）：
+
+| 完整命令 | 别名 | 完整命令 | 别名 |
+|----------|------|----------|------|
+| `graph init` | `graph i` | `graph update-node` | `graph un` |
+| `graph create-node` | `graph cn` | `graph delete-node` | `graph dn` |
+| `graph add-edge` | `graph ae` | `graph status` | `graph s` |
+| `graph update-status` | `graph us` | `graph validate` | `graph v` |
+| `graph rebuild` | `graph rb` | `graph export --mermaid` | `graph x --mermaid` |
+| `graph serve` | `graph sv` | | |
+
+例如：`graph cn -i t1 -l "任务1"` ≡ `graph create-node -i t1 -l "任务1"`。
 
 ---
 
@@ -400,7 +415,7 @@ graph serve
 
 | Agent | 角色 | 职责 |
 |-------|------|------|
-| `graph-designer` | 拓扑图设计师 | 把需求拆解为结构化拓扑，为每个节点制定 plan 和 definition_of_done |
+| `sp-designer` | 拓扑图设计师 | 把需求拆解为结构化拓扑，为每个节点制定 plan 和 definition_of_done |
 | `super-mario` | 拓扑主控 | 节点生命周期裁决（checkpoint 聚合 + 输出抽查）、重试管理、状态监测 |
 
 `plumber-flow` skill 定义了 **5 阶段执行协议**（拆解 → 设计 → 建图 → 执行 → 验证），配套 6 个脚本（read/status/claim/checkpoint/report/traverse），保证 agent 按协议操作拓扑图、不越权、不假报进度。

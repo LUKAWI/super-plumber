@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 更新节点状态（含状态机校验）
-# Usage: graph-update-status.sh <node_id> <new_status>
+# Usage: sp-update-status.sh <node_id> <new_status>
 set -euo pipefail
 NODE_FILE=".graph/nodes/$1.yaml"
 if [ ! -f "$NODE_FILE" ]; then

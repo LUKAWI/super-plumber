@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 读取单个节点的全部内容
-# Usage: graph-get-node.sh <node_id>
+# Usage: sp-get-node.sh <node_id>
 set -euo pipefail
 NODE_FILE=".graph/nodes/$1.yaml"
 if [ ! -f "$NODE_FILE" ]; then

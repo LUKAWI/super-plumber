@@ -3,7 +3,7 @@ import { readGraph } from "../core/parser.js";
 import { buildGraphIndex } from "../core/graph.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
-export const rebuildCommand = new Command("rebuild")
+export const rebuildCommand = new Command("rebuild").alias("rb")
   .description("从源文件重建 index/ 派生索引")
   .action(() => {
     const rootDir = process.cwd();

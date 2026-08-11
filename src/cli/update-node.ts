@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { getNode, updateNodeContent } from "../core/node.js";
 
-export const updateNodeCommand = new Command("update-node")
+export const updateNodeCommand = new Command("update-node").alias("un")
   .description("更新节点的详细内容（plan、expected_outcome、checkpoints 等）")
   .requiredOption("-i, --id <id>", "节点 ID")
   .option("--plan-desc <text>", "设置构建计划描述")

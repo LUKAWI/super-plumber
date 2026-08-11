@@ -132,4 +132,17 @@ describe("CLI commands", () => {
     expect(content).toContain("cp1");
     expect(content).toContain("cp2");
   });
+
+  it("短别名与完整命令等价（cn/ae/s/v）", () => {
+    run("i -l alias-test");
+    run("cn -i a1 -l \"任务A\" -t task --level 1");
+    run("cn -i a2 -l \"任务B\" -t task --level 1");
+    run("ae -i e1 -s a1 -t a2 --type depends_on");
+    // 状态概览（别名 s ≡ status）能看到两个节点
+    const out = run("s");
+    expect(out).toContain("节点数: 2");
+    expect(out).toContain("边数: 1");
+    // 校验（别名 v ≡ validate）0 错误
+    expect(run("v")).toContain("0 错误");
+  });
 });

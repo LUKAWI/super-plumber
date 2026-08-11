@@ -5,7 +5,7 @@ import { listNodes } from "../core/node.js";
 import { listEdges } from "../core/edge.js";
 import { topologicalSort } from "../core/graph.js";
 
-export const statusCommand = new Command("status")
+export const statusCommand = new Command("status").alias("s")
   .description("显示当前拓扑图状态")
   .action(() => {
     const rootDir = process.cwd();

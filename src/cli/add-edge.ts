@@ -4,7 +4,7 @@ import { createEdge } from "../core/edge.js";
 import { listNodes } from "../core/node.js";
 import { EdgeType } from "../core/types.js";
 
-export const addEdgeCommand = new Command("add-edge")
+export const addEdgeCommand = new Command("add-edge").alias("ae")
   .description("在节点之间添加边")
   .requiredOption("-i, --id <id>", "边 ID")
   .requiredOption("-s, --source <source>", "源节点 ID")

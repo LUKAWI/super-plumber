@@ -126,7 +126,7 @@ cat .graph/nodes/<node_id>.yaml | grep -E "attempts|max_attempts"
 |-------|------|
 | **主 agent** | 每轮决策前召唤你做进度同步检查；你只报拓扑状态，不替主 agent 做任务决策 |
 | **执行 agent** | 它报 checkpoint（`graph_update_checkpoint`）+ 填 execution_report（`graph_update_execution_report`），你据此裁决 |
-| **graph-designer** | 计划阶段用 designer 设计拓扑，执行阶段你用 designer 生成的 plan 作为验证依据 |
+| **sp-designer** | 计划阶段用 designer 设计拓扑，执行阶段你用 designer 生成的 plan 作为验证依据 |
 
 ## 重要约束
 

@@ -4,7 +4,7 @@ import { writeGraph } from "../core/parser.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-export const initCommand = new Command("init")
+export const initCommand = new Command("init").alias("i")
   .description("在当前目录初始化 .graph/ 结构")
   .option("-l, --label <label>", "图名称", "untitled")
   .option("-f, --force", "已初始化时强制覆盖（慎用，会重置引用列表）")

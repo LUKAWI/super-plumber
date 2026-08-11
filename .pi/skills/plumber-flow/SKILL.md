@@ -57,12 +57,12 @@ $GRAPH export --mermaid -o flow.mmd             # visualize
 **All scripts** (read/status + protocol executors; from `~/.pi/agent/skills/plumber-flow/scripts/` — project: `.pi/skills/plumber-flow/scripts/`). Thin wrappers over the core engine — use when no MCP client is available:
 
 ```bash
-./graph-get-node.sh <node_id>            # read one node's full content
-./graph-traverse.sh <node_id> [upstream|both] [depth]   # walk neighbors
-./graph-update-status.sh <node_id> <status>  # status change w/ state machine check
-node graph-claim.mjs <node_id> <claim_by>      # Phase 4 step 1: ready→running, records assigned_to + started_at
-node graph-checkpoint.mjs <node_id> <cp_id> <status>   # Phase 4 step 3: report one checkpoint as you finish it
-node graph-report.mjs <node_id> <summary> [artifacts.csv] [blockers.csv] [notes]  # Phase 4 step 4: handoff
+./sp-get-node.sh <node_id>            # read one node's full content
+./sp-traverse.sh <node_id> [upstream|both] [depth]   # walk neighbors
+./sp-update-status.sh <node_id> <status>  # status change w/ state machine check
+node sp-claim.mjs <node_id> <claim_by>      # Phase 4 step 1: ready→running, records assigned_to + started_at
+node sp-checkpoint.mjs <node_id> <cp_id> <status>   # Phase 4 step 3: report one checkpoint as you finish it
+node sp-report.mjs <node_id> <summary> [artifacts.csv] [blockers.csv] [notes]  # Phase 4 step 4: handoff
 ```
 
 > The state machine is enforced in these scripts — claiming a non-ready node throws `Invalid transition`, never fake-success.

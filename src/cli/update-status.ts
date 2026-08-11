@@ -2,7 +2,7 @@ import { Command } from "commander";
 import { updateNodeStatus } from "../core/node.js";
 import { NodeStatus } from "../core/types.js";
 
-export const updateStatusCommand = new Command("update-status")
+export const updateStatusCommand = new Command("update-status").alias("us")
   .description("更新节点状态（状态机校验）")
   .requiredOption("-i, --id <id>", "节点 ID")
   .requiredOption(

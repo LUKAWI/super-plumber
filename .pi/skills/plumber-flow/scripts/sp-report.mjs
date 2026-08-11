@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Submit the execution report (handoff) BEFORE the node may be marked passed.
 // Thin wrapper over the core engine.
-// Usage: node graph-report.mjs <node_id> <summary> [artifacts.csv] [blockers.csv] [notes]
+// Usage: node sp-report.mjs <node_id> <summary> [artifacts.csv] [blockers.csv] [notes]
 //   artifacts/blockers: comma-separated lists (optional)
 import { execSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
@@ -15,7 +15,7 @@ const [nodeId, summary, artifactsCsv, blockersCsv, notes] =
 	process.argv.slice(2);
 if (!nodeId || !summary) {
 	console.error(
-		"Usage: node graph-report.mjs <node_id> <summary> [artifacts.csv] [blockers.csv] [notes]",
+		"Usage: node sp-report.mjs <node_id> <summary> [artifacts.csv] [blockers.csv] [notes]",
 	);
 	process.exit(1);
 }

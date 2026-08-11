@@ -18,7 +18,7 @@ function statusClass(status: string): string {
   return map[status] ?? "fill:#e2e8f0,stroke:#cbd5e1";
 }
 
-export const exportMermaidCommand = new Command("export")
+export const exportMermaidCommand = new Command("export").alias("x")
   .description("导出拓扑图为 Mermaid 流程图")
   .option("--mermaid", "导出为 Mermaid 格式")
   .option("-o, --output <file>", "输出文件路径", "topology.mmd")
