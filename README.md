@@ -1,4 +1,4 @@
-# Super Plumber 🚰 — 工作流拓扑图管理工具
+# Super Plumber 🚰 — AI Agent工作流拓扑图管理工具
 
 > 把"任务文档"变成 **agent 能原生理解的拓扑图**：节点是任务、边是依赖、状态机管生命周期。
 > 一条命令装好，CLI / MCP / Web UI 三层访问，纯 YAML 文件存储（无数据库、无服务端）。
