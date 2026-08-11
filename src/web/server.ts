@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import * as http from "node:http";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -21,7 +22,34 @@ function classifyEvent(file: string): "node" | "edge" | "graph" | "other" {
   return "other";
 }
 
-export function startServer(rootDir: string, port: number = 8934) {
+/** 自动打开默认浏览器（平台分发；spawn 失败静默，不阻塞服务） */
+export function openBrowser(
+  url: string,
+  platform: NodeJS.Platform = process.platform,
+  spawnFn: typeof spawn = spawn,
+) {
+  const cmd =
+    platform === "win32"
+      ? { file: "cmd", args: ["/c", "start", "", url] } // 空引号是 Windows start 的标题占位，必需
+      : platform === "darwin"
+        ? { file: "open", args: [url] }
+        : { file: "xdg-open", args: [url] };
+  try {
+    const child = spawnFn(cmd.file, cmd.args, { detached: true, stdio: "ignore" });
+    child.on("error", () => {
+      /* 无浏览器/无头环境：静默 */
+    });
+    child.unref();
+  } catch {
+    /* 平台命令不可用（如无 xdg-open）：静默，服务照常 */
+  }
+}
+
+export function startServer(
+  rootDir: string,
+  port: number = 8934,
+  options: { open?: boolean } = {},
+) {
   const server = http.createServer((req, res) => {
     if (req.url === "/api/graph") {
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -125,8 +153,10 @@ export function startServer(rootDir: string, port: number = 8934) {
   });
 
   server.listen(port, () => {
-    console.log(`🌐 拓扑图可视化服务: http://localhost:${port}`);
+    const url = `http://localhost:${port}`;
+    console.log(`🌐 拓扑图可视化服务: ${url}`);
     console.log(`📁 监控目录: ${path.join(rootDir, ".graph")}`);
+    if (options.open !== false) openBrowser(url);
   });
 
   return { server, wss, watcher };

@@ -109,7 +109,7 @@ graph status
 graph validate
 
 # 6. 可视化
-graph serve    # 浏览器打开 http://localhost:8934
+graph serve    # 启动服务并自动打开浏览器（无头环境用 graph serve --no-open）
 ```
 
 ---
@@ -275,7 +275,7 @@ graph serve                           # 打开 http://localhost:8934 看力导�
 | `graph validate` | 完整性校验（引用 + 拓扑 + 环） | — |
 | `graph rebuild` | 重建 `index/` 派生索引 | — |
 | `graph export --mermaid` | 导出 Mermaid 图 | `-o <file>` |
-| `graph serve` | 启动 Web UI | `-p <port>`（默认 8934） |
+| `graph serve` | 启动 Web UI（自动打开浏览器） | `-p <port>`（默认 8934）；`--no-open` 不自动打开 |
 
 > 参数拿不准？每个命令都有 `--help`：`graph create-node --help`。
 
@@ -375,7 +375,7 @@ graph-mcp
 
 ```bash
 graph serve
-# 打开 http://localhost:8934
+# 自动打开默认浏览器访问 http://localhost:8934；CI/无头环境用 `graph serve --no-open`
 ```
 
 - **力导向图**：缩放 / 平移 / 自动适配，按节点状态着色

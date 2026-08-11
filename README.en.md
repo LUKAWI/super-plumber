@@ -109,7 +109,7 @@ graph status
 graph validate
 
 # 6. Visualize
-graph serve    # open http://localhost:8934
+graph serve    # starts the service and auto-opens the browser (headless: graph serve --no-open)
 ```
 
 ---
@@ -275,7 +275,7 @@ graph serve                           # open http://localhost:8934 for the force
 | `graph validate` | Integrity check (references + topo sort + cycles) | — |
 | `graph rebuild` | Rebuild `index/` derived indexes | — |
 | `graph export --mermaid` | Export a Mermaid diagram | `-o <file>` |
-| `graph serve` | Start the Web UI | `-p <port>` (default 8934) |
+| `graph serve` | Start the Web UI (auto-opens browser) | `-p <port>` (default 8934); `--no-open` to skip |
 
 > Not sure about flags? Every command has `--help`: `graph create-node --help`.
 
@@ -375,7 +375,7 @@ graph-mcp
 
 ```bash
 graph serve
-# open http://localhost:8934
+# auto-opens the default browser at http://localhost:8934; CI/headless: `graph serve --no-open`
 ```
 
 - **Force-directed graph**: zoom / pan / auto-fit, colored by node status
