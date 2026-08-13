@@ -188,3 +188,41 @@ export function writeEdge(rootDir: string, edge: EdgeSchema): void {
   const content = yaml.dump(edge, { indent: 2, lineWidth: 120 });
   fs.writeFileSync(edgeFilePath(rootDir, edge.id), content, "utf-8");
 }
+
+// ── 图级字段编辑（entry/exit/label/root_context，需求 4.2 创建图 + P2-1）──
+export type UpdateGraphParams = {
+  label?: string;
+  entry_description?: string;
+  exit_description?: string;
+  add_criteria?: string[];
+  clear_criteria?: boolean;
+  root_context?: Record<string, unknown>;
+};
+
+export function updateGraph(
+  rootDir: string,
+  params: UpdateGraphParams,
+): GraphSchema {
+  const graph = readGraph(rootDir); // 未初始化/schema 损坏直接报错
+  if (params.label !== undefined) graph.label = params.label;
+  if (params.entry_description !== undefined) {
+    graph.entry.description = params.entry_description;
+  }
+  if (params.exit_description !== undefined) {
+    graph.exit.description = params.exit_description;
+  }
+  if (params.clear_criteria) {
+    graph.exit.acceptance_criteria = [];
+  }
+  if (params.add_criteria && params.add_criteria.length > 0) {
+    graph.exit.acceptance_criteria = [
+      ...graph.exit.acceptance_criteria,
+      ...params.add_criteria,
+    ];
+  }
+  if (params.root_context !== undefined) {
+    graph.root_context = params.root_context;
+  }
+  writeGraph(rootDir, graph);
+  return graph;
+}

@@ -3,8 +3,9 @@ import { readGraph } from "../core/parser.js";
 import { buildGraphIndex } from "../core/graph.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
+
 export const rebuildCommand = new Command("rebuild").alias("rb")
-  .description("从源文件重建 index/ 派生索引")
+  .description("从源文件重建 index/ 派生索引（graph.json 完整数据 + meta.json + topology.dot）")
   .action(() => {
     const rootDir = process.cwd();
 
@@ -21,25 +22,11 @@ export const rebuildCommand = new Command("rebuild").alias("rb")
     // 确保 index/ 目录存在
     fs.mkdirSync(indexPath, { recursive: true });
 
-    // 重建 graph.json
+    // 重建 graph.json（完整节点/边数据 + 邻接表，供 MCP/Web 新鲜度缓存直接加载）
     const index = buildGraphIndex(rootDir);
     const graphJson = {
-      nodes: index.nodes.map((n) => ({
-        id: n.id,
-        type: n.type,
-        label: n.label,
-        level: n.level,
-        status: n.status,
-        assigned_to: n.assigned_to,
-        attempts: n.attempts,
-        max_attempts: n.max_attempts,
-      })),
-      edges: index.edges.map((e) => ({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        type: e.type,
-      })),
+      nodes: index.nodes,
+      edges: index.edges,
       adjacency: Object.fromEntries(index.adjacency),
       reverseAdj: Object.fromEntries(index.reverseAdj),
     };
@@ -49,6 +36,19 @@ export const rebuildCommand = new Command("rebuild").alias("rb")
     console.log(
       `✅ 已重建: ${jsonPath} (${index.nodes.length} 节点, ${index.edges.length} 边)`,
     );
+
+    // topology.dot（Graphviz 导出，需求 4.7 存储结构）
+    const dotPath = path.join(indexPath, "topology.dot");
+    const dotLines: string[] = ["digraph topology {"];
+    for (const n of index.nodes) {
+      dotLines.push(`  "${n.id}" [label="${n.label}\\n${n.status}", shape=box];`);
+    }
+    for (const e of index.edges) {
+      dotLines.push(`  "${e.source}" -> "${e.target}" [label="${e.type}"];`);
+    }
+    dotLines.push("}");
+    fs.writeFileSync(dotPath, dotLines.join("\n") + "\n", "utf-8");
+    console.log(`✅ 已重建: ${dotPath}`);
 
     // 尝试读取 graph.yaml 补充信息
     try {

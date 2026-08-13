@@ -42,5 +42,44 @@ export const initCommand = new Command("init").alias("i")
     for (const d of ["nodes", "edges", "snapshots", "index"]) {
       fs.mkdirSync(path.join(rootDir, ".graph", d), { recursive: true });
     }
+    // schema.yaml：人类可读的 schema 说明（需求 4.7 存储结构；运行时校验在 core/schema.ts）
+    fs.writeFileSync(
+      path.join(rootDir, ".graph", "schema.yaml"),
+      SCHEMA_DOC,
+      "utf-8",
+    );
     console.log(`✅ 已初始化 .graph/ 目录: ${rootDir}`);
   });
+
+// 人类可读 schema 说明（校验的文档化对应物，随版本更新）
+const SCHEMA_DOC = `# Super Plumber — 节点/边/图 schema 说明（v${VERSION}）
+# 本文件是文档性说明，运行时校验由 core/schema.ts 强制执行（graph validate 可查）。
+
+# ── 节点（nodes/*.yaml）──
+# 必填: id (string), label (string)
+# 可选: type: task|checkpoint|decision|gate   （默认 task）
+#       level: number ≥ 0                      （默认 1）
+#       status: pending|ready|running|passed|failed|blocked|cancelled
+#       assigned_to: string
+#       attempts: number ≥ 0 | max_attempts: number ≥ 0（0 = 不限重试）
+#       plan: { description, input_from[], required_context[], output_to[] }
+#       expected_outcome: { definition_of_done[], quality_gates[] }
+#       checkpoints: [{ id, label, status: pending|running|passed|failed|skipped,
+#                       verifier: auto|cross_review|human }]
+#       execution_report: { summary, artifacts[], blockers[], notes,
+#                           started_at, completed_at,
+#                           verification: { verdict: pending|passed|failed, note } }
+#       created_at / updated_at: string
+
+# ── 边（edges/*.yaml）──
+# 必填: id, source, target
+# 可选: type: depends_on|validates|shares_context|fan_out|fan_in|fallback|iterates
+#       contract: { produces, consumed_by[], validation }
+
+# ── 图（graph.yaml）──
+# 必填: id, label
+# entry/exit: { description, defined_by: human|llm, level }
+# exit.acceptance_criteria: string[]
+# nodes/edges: [{ file }] | root_context: object
+`;
+

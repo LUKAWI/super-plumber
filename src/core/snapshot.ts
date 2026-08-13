@@ -1,0 +1,245 @@
+// src/core/snapshot.ts
+// 版本控制原语（需求 4.3）：文件级 Snapshot / Diff / Rollback。
+// Branch / Merge 由 Git 承担（文件即真相源），本模块只做三个文件级原语。
+// 快照布局：.graph/snapshots/<id>/{manifest.yaml, graph.yaml, nodes/*, edges/*}
+// rollback 前自动备份当前状态（pre-rollback 快照），且必须显式 confirm。
+import * as crypto from "node:crypto";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as yaml from "js-yaml";
+import { GRAPH_DIR } from "./types.js";
+import { listNodeFileNames, listEdgeFileNames } from "./schema.js";
+
+export interface SnapshotFileEntry {
+  file: string; // 相对 .graph/ 的路径（正斜杠）
+  sha256: string;
+}
+
+export interface SnapshotManifest {
+  id: string;
+  created_at: string;
+  message?: string;
+  files: SnapshotFileEntry[];
+}
+
+export interface StatusChange {
+  node: string;
+  from: string;
+  to: string;
+}
+
+export interface DiffResult {
+  from: string; // 快照 id 或 "working"
+  to: string; // 快照 id 或 "working"
+  added: string[];
+  removed: string[];
+  modified: string[];
+  status_changes: StatusChange[];
+}
+
+const SNAPSHOTS_DIR = "snapshots";
+const MANIFEST = "manifest.yaml";
+
+function snapshotsDir(rootDir: string): string {
+  return path.join(rootDir, GRAPH_DIR, SNAPSHOTS_DIR);
+}
+
+function snapPath(rootDir: string, id: string): string {
+  return path.join(snapshotsDir(rootDir), id);
+}
+
+function readManifest(rootDir: string, id: string): SnapshotManifest | null {
+  const f = path.join(snapPath(rootDir, id), MANIFEST);
+  if (!fs.existsSync(f)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(f, "utf-8")) as SnapshotManifest;
+  } catch {
+    return null;
+  }
+}
+
+export function listSnapshots(rootDir: string): SnapshotManifest[] {
+  const dir = snapshotsDir(rootDir);
+  if (!fs.existsSync(dir)) return [];
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => readManifest(rootDir, e.name))
+    .filter((m): m is SnapshotManifest => m !== null)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at));
+}
+
+function hashFile(file: string): string {
+  return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+}
+
+/** 收集当前 .graph/ 下全部真相源文件（相对 .graph/ 的路径） */
+function collectSourceFiles(rootDir: string): string[] {
+  const files: string[] = ["graph.yaml"];
+  for (const f of listNodeFileNames(rootDir)) files.push(`nodes/${f}`);
+  for (const f of listEdgeFileNames(rootDir)) files.push(`edges/${f}`);
+  return files;
+}
+
+export function createSnapshot(
+  rootDir: string,
+  message?: string,
+): SnapshotManifest {
+  const now = new Date();
+  const id = `${now.toISOString().replace(/[:.]/g, "-")}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+  const target = snapPath(rootDir, id);
+  fs.mkdirSync(target, { recursive: true });
+  const files: SnapshotFileEntry[] = [];
+  for (const rel of collectSourceFiles(rootDir)) {
+    const src = path.join(rootDir, GRAPH_DIR, rel);
+    const dest = path.join(target, rel);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(src, dest);
+    files.push({ file: rel.replace(/\\/g, "/"), sha256: hashFile(src) });
+  }
+  const manifest: SnapshotManifest = {
+    id,
+    created_at: now.toISOString(),
+    ...(message ? { message } : {}),
+    files,
+  };
+  fs.writeFileSync(
+    path.join(target, MANIFEST),
+    JSON.stringify(manifest, null, 2),
+    "utf-8",
+  );
+  return manifest;
+}
+
+/** 读取某侧（working 或快照）的节点 status：rel 形如 nodes/x.yaml */
+function nodeStatusOf(
+  rootDir: string,
+  fromId: string | null,
+  rel: string,
+): string | null {
+  let file: string;
+  if (fromId === null) {
+    file = path.join(rootDir, GRAPH_DIR, rel);
+  } else {
+    file = path.join(snapPath(rootDir, fromId), rel);
+  }
+  try {
+    const data = yaml.load(fs.readFileSync(file, "utf-8")) as {
+      status?: string;
+    };
+    return data?.status ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function diffSnapshot(
+  rootDir: string,
+  fromId: string | null, // null = working
+  toId: string | null, // null = working
+): DiffResult {
+  const fromLabel = fromId ?? "working";
+  const toLabel = toId ?? "working";
+
+  const fromFiles = new Map<string, string>(); // rel → sha
+  for (const rel of sideFiles(rootDir, fromId)) {
+    fromFiles.set(rel, shaOf(rootDir, fromId, rel));
+  }
+  const toFiles = new Map<string, string>();
+  for (const rel of sideFiles(rootDir, toId)) {
+    toFiles.set(rel, shaOf(rootDir, toId, rel));
+  }
+
+  const added: string[] = [];
+  const removed: string[] = [];
+  const modified: string[] = [];
+  const status_changes: StatusChange[] = [];
+
+  for (const [rel, sha] of toFiles) {
+    if (!fromFiles.has(rel)) {
+      added.push(rel);
+    } else if (fromFiles.get(rel) !== sha) {
+      modified.push(rel);
+      if (rel.startsWith("nodes/")) {
+        const fromStatus = nodeStatusOf(rootDir, fromId, rel);
+        const toStatus = nodeStatusOf(rootDir, toId, rel);
+        if (fromStatus !== null && toStatus !== null && fromStatus !== toStatus) {
+          status_changes.push({
+            node: rel.replace(/^nodes\//, "").replace(/\.yaml$/, ""),
+            from: fromStatus,
+            to: toStatus,
+          });
+        }
+      }
+    }
+  }
+  for (const rel of fromFiles.keys()) {
+    if (!toFiles.has(rel)) removed.push(rel);
+  }
+
+  return { from: fromLabel, to: toLabel, added, removed, modified, status_changes };
+}
+
+function sideFiles(rootDir: string, id: string | null): string[] {
+  if (id !== null) {
+    const snap = readManifest(rootDir, id);
+    if (!snap) throw new Error(`Snapshot ${id} not found`);
+    return snap.files.map((f) => f.file);
+  }
+  return collectSourceFiles(rootDir);
+}
+
+function shaOf(rootDir: string, id: string | null, rel: string): string {
+  const file =
+    id === null
+      ? path.join(rootDir, GRAPH_DIR, rel)
+      : path.join(snapPath(rootDir, id), rel);
+  try {
+    return hashFile(file);
+  } catch {
+    return "missing";
+  }
+}
+
+export function rollbackToSnapshot(
+  rootDir: string,
+  id: string,
+  opts: { confirm?: boolean } = {},
+): { restored: SnapshotManifest; backup: SnapshotManifest } {
+  if (!opts.confirm) {
+    throw new Error(
+      `rollback 会覆盖当前 .graph/ 内容，请显式加 --confirm（自动备份当前状态）`,
+    );
+  }
+  const snap = readManifest(rootDir, id);
+  if (!snap) throw new Error(`Snapshot ${id} not found`);
+
+  // 1. 自动备份当前状态（pre-rollback 快照，可再回滚）
+  const backup = createSnapshot(rootDir, `pre-rollback-to-${id}`);
+
+  // 2. 删除当前源文件（保留 .deleted 历史）
+  const nodesDir = path.join(rootDir, GRAPH_DIR, "nodes");
+  const edgesDir = path.join(rootDir, GRAPH_DIR, "edges");
+  if (fs.existsSync(nodesDir)) {
+    for (const f of listNodeFileNames(rootDir)) {
+      fs.rmSync(path.join(nodesDir, f), { force: true });
+    }
+  }
+  if (fs.existsSync(edgesDir)) {
+    for (const f of listEdgeFileNames(rootDir)) {
+      fs.rmSync(path.join(edgesDir, f), { force: true });
+    }
+  }
+
+  // 3. 从快照恢复
+  for (const entry of snap.files) {
+    const src = path.join(snapPath(rootDir, id), entry.file);
+    const dest = path.join(rootDir, GRAPH_DIR, entry.file);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(src, dest);
+  }
+
+  return { restored: snap, backup };
+}
