@@ -1,5 +1,6 @@
 import { Command } from "commander";
-import { getNode, updateNodeContent } from "../core/node.js";
+import { getNode, updateNodeContent, buildNodeUpdates } from "../core/node.js";
+import { CHECKPOINT_STATUSES } from "../core/checkpoint.js";
 
 export const updateNodeCommand = new Command("update-node").alias("un")
   .description("更新节点的详细内容（plan、expected_outcome、checkpoints 等）")
@@ -19,6 +20,8 @@ export const updateNodeCommand = new Command("update-node").alias("un")
     [] as string[],
   )
   .option("--set-assigned <agent>", "分配给哪个 agent")
+  .option("--label <text>", "重命名节点标签")
+  .option("--max-attempts <n>", "最大重试次数（0 = 不限）")
   .option("--show", "显示当前节点内容")
   .action((options) => {
     const rootDir = process.cwd();
@@ -31,45 +34,13 @@ export const updateNodeCommand = new Command("update-node").alias("un")
       }
 
       const node = getNode(rootDir, options.id);
-      const updates: Record<string, any> = {};
 
-      // 更新 plan.description
-      if (options.planDesc) {
-        updates.plan = {
-          ...(node.plan
-            ? {
-                input_from: node.plan.input_from,
-                output_to: node.plan.output_to,
-                required_context: node.plan.required_context,
-              }
-            : {}),
-          description: options.planDesc,
-        };
-      }
-
-      // 更新 expected_outcome
-      if (options.clearDod) {
-        updates.expected_outcome = { definition_of_done: [] };
-      }
-      if (options.addDod.length > 0) {
-        const existing = node.expected_outcome?.definition_of_done ?? [];
-        updates.expected_outcome = {
-          ...(node.expected_outcome
-            ? { quality_gates: node.expected_outcome.quality_gates }
-            : {}),
-          definition_of_done: [...existing, ...options.addDod],
-        };
-      }
-
-      // 更新 assigned_to
-      if (options.setAssigned) {
-        updates.assigned_to = options.setAssigned;
-      }
-
-      // 追加 checkpoint（可多次）
+      // 解析 checkpoints（CLI 传 JSON 字符串，逐项校验）
+      let checkpoints:
+        | { id: string; label: string; status?: never; verifier?: never }[]
+        | undefined;
       if (options.addCheckpoint.length > 0) {
-        const existing = node.checkpoints ?? [];
-        const parsed: { id: string; label: string; status?: string }[] = [];
+        checkpoints = [];
         for (const raw of options.addCheckpoint) {
           let cp: any;
           try {
@@ -81,16 +52,9 @@ export const updateNodeCommand = new Command("update-node").alias("un")
             process.exit(1);
           }
           // 校验 status 枚举（合法则保留，非法报错，不再静默强制 pending）
-          const CP_STATUSES = [
-            "pending",
-            "running",
-            "passed",
-            "failed",
-            "skipped",
-          ];
-          if (cp.status !== undefined && !CP_STATUSES.includes(cp.status)) {
+          if (cp.status !== undefined && !CHECKPOINT_STATUSES.includes(cp.status)) {
             console.error(
-              `❌ 非法 checkpoint 状态: ${cp.status}。允许的值: ${CP_STATUSES.join(", ")}`,
+              `❌ 非法 checkpoint 状态: ${cp.status}。允许的值: ${CHECKPOINT_STATUSES.join(", ")}`,
             );
             process.exit(1);
           }
@@ -100,25 +64,32 @@ export const updateNodeCommand = new Command("update-node").alias("un")
             );
             process.exit(1);
           }
-          parsed.push(cp);
+          checkpoints.push(cp);
         }
-        updates.checkpoints = [
-          ...existing,
-          ...parsed.map((cp) => ({
-            id: cp.id,
-            label: cp.label,
-            status: cp.status ?? ("pending" as const),
-            verifier: "auto" as const,
-          })),
-        ];
       }
+
+      const updates = buildNodeUpdates(node, {
+        ...(options.planDesc !== undefined
+          ? { plan_description: options.planDesc }
+          : {}),
+        ...(options.addDod.length > 0 ? { add_dod: options.addDod } : {}),
+        ...(options.clearDod ? { clear_dod: true } : {}),
+        ...(checkpoints ? { add_checkpoints: checkpoints } : {}),
+        ...(options.setAssigned !== undefined
+          ? { set_assigned_to: options.setAssigned }
+          : {}),
+        ...(options.label !== undefined ? { label: options.label } : {}),
+        ...(options.maxAttempts !== undefined
+          ? { max_attempts: parseInt(options.maxAttempts, 10) }
+          : {}),
+      });
 
       if (Object.keys(updates).length === 0) {
         console.log("⚠️  没有指定任何更新项");
         return;
       }
 
-      updateNodeContent(rootDir, options.id, updates as any);
+      updateNodeContent(rootDir, options.id, updates);
       console.log(`✅ 已更新节点: ${options.id}`);
     } catch (err: any) {
       if (err?.message?.includes("not found")) {

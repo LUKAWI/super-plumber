@@ -51,6 +51,13 @@ describe("checkReadyGate", () => {
     const gate = checkReadyGate(tmpDir, "b");
     expect(gate.unmet.map((u) => u.edgeType)).toEqual(["depends_on"]);
   });
+
+  it("fan_out 也参与门禁（A 完成后下游才可并行）", () => {
+    createNode(tmpDir, { id: "c", type: NodeType.Task, label: "C" });
+    createEdge(tmpDir, { id: "e2", source: "c", target: "b", type: EdgeType.FanOut });
+    const gate = checkReadyGate(tmpDir, "b");
+    expect(gate.unmet.some((u) => u.id === "c" && u.edgeType === "fan_out")).toBe(true);
+  });
 });
 
 describe("ready gate in updateNodeStatus", () => {
@@ -106,12 +113,11 @@ describe("ready gate in updateNodeStatus", () => {
   });
 
   it("幽灵前驱（文件不存在）→ 阻塞并标记 missing", () => {
-    createEdge(tmpDir, { id: "e9", source: "ghost", target: "b", type: EdgeType.DependsOn });
-    try {
-      updateNodeStatus(tmpDir, "b", NodeStatus.Ready, undefined, { force: true });
-    } catch {
-      // force 成功则无错误；这里检查 gate 输出
-    }
+    // 核心层已拦截幽灵边创建，这里模拟手工编辑写入的幽灵边文件
+    fs.writeFileSync(
+      path.join(tmpDir, ".graph/edges/e9.yaml"),
+      "id: e9\nsource: ghost\ntarget: b\ntype: depends_on\n",
+    );
     const gate = checkReadyGate(tmpDir, "b");
     expect(gate.unmet.some((u) => u.id === "ghost" && u.status === "missing")).toBe(true);
   });

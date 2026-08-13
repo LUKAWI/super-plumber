@@ -75,13 +75,16 @@ export function getNode(rootDir: string, id: string): NodeSchema {
 }
 
 // ── ready 前置门禁 ──
-// 进入 ready / 认领(running) 前，所有门控入边（depends_on / validates / fan_in）的
-// 前驱必须全部 passed。cancelled 前驱视为阻塞并点名。--force 可绕过（仅人类运维）。
+// 进入 ready / 认领(running) 前，所有门控入边的前驱必须全部 passed。
+// 门控边类型：depends_on（顺序依赖）、validates（验证）、fan_in（汇聚，全部上游完成）、
+// fan_out（"A 完成后 B/C 可并行"——完成语义同样构成前置）。
+// cancelled 前驱视为阻塞并点名。--force 可绕过（仅人类运维）。
 
 export const GATE_EDGE_TYPES: readonly string[] = [
   "depends_on",
   "validates",
   "fan_in",
+  "fan_out",
 ];
 
 export interface GateUnmet {
@@ -260,4 +263,90 @@ export function listNodes(rootDir: string): NodeSchema[] {
   return listNodeFileNames(rootDir).map((f) =>
     readNode(rootDir, f.replace(/\.yaml$/, "")),
   );
+}
+
+// ── 节点内容更新（CLI update-node 与 MCP graph_update_node 共享同一语义）──
+
+export interface NodeUpdateParams {
+  plan_description?: string;
+  add_dod?: string[];
+  clear_dod?: boolean;
+  add_checkpoints?: {
+    id: string;
+    label: string;
+    status?: Checkpoint["status"];
+    verifier?: Checkpoint["verifier"];
+  }[];
+  set_assigned_to?: string;
+  label?: string;
+  max_attempts?: number;
+}
+
+export function buildNodeUpdates(
+  node: NodeSchema,
+  params: NodeUpdateParams,
+): Partial<
+  Pick<
+    NodeSchema,
+    "plan" | "expected_outcome" | "checkpoints" | "assigned_to" | "label" | "max_attempts"
+  >
+> {
+  const updates: Record<string, unknown> = {};
+
+  if (params.plan_description !== undefined) {
+    updates.plan = {
+      ...(node.plan
+        ? {
+            input_from: node.plan.input_from,
+            output_to: node.plan.output_to,
+            required_context: node.plan.required_context,
+          }
+        : {}),
+      description: params.plan_description,
+    };
+  }
+  if (params.clear_dod) {
+    updates.expected_outcome = {
+      ...(node.expected_outcome
+        ? { quality_gates: node.expected_outcome.quality_gates }
+        : {}),
+      definition_of_done: [],
+    };
+  }
+  if (params.add_dod && params.add_dod.length > 0) {
+    const existing = node.expected_outcome?.definition_of_done ?? [];
+    updates.expected_outcome = {
+      ...(node.expected_outcome
+        ? { quality_gates: node.expected_outcome.quality_gates }
+        : {}),
+      definition_of_done: [...existing, ...params.add_dod],
+    };
+  }
+  if (params.add_checkpoints && params.add_checkpoints.length > 0) {
+    const existing = node.checkpoints ?? [];
+    updates.checkpoints = [
+      ...existing,
+      ...params.add_checkpoints.map((cp) => ({
+        id: cp.id,
+        label: cp.label,
+        status: cp.status ?? ("pending" as const),
+        verifier: cp.verifier ?? ("auto" as const),
+      })),
+    ];
+  }
+  if (params.set_assigned_to !== undefined) {
+    updates.assigned_to = params.set_assigned_to;
+  }
+  if (params.label !== undefined) {
+    updates.label = params.label;
+  }
+  if (params.max_attempts !== undefined) {
+    updates.max_attempts = params.max_attempts;
+  }
+  return updates as Partial<
+    Pick<
+      NodeSchema,
+      "plan" | "expected_outcome" | "checkpoints" | "assigned_to" | "label" | "max_attempts"
+    >
+  >;
 }
