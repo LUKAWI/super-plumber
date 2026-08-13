@@ -22,7 +22,7 @@ import {
   listNodes,
 } from "../core/node.js";
 import { createEdge as createEdgeOp, listEdges } from "../core/edge.js";
-import { deleteNode, deleteEdge, updateGraph } from "../core/parser.js";
+import { deleteNode, deleteEdge, updateGraph, rebuildGraphRefs } from "../core/parser.js";
 import {
   buildGraphIndex,
   computeNextActions,
@@ -318,28 +318,37 @@ server.registerTool(
       };
     }
 
-    // 2. 写盘
+    // 2. 写盘（跳过逐次引用同步，最后一次性重建 graph.yaml 引用列表：O(n²) → O(n)）
     for (const n of nodes) {
-      createNodeOp(rootDir, {
-        id: n.id,
-        label: n.label,
-        type: n.type as NodeType,
-        level: n.level,
-        plan_description: n.plan_description,
-        definition_of_done: n.definition_of_done,
-        checkpoints: n.checkpoints as never,
-        assigned_to: n.assigned_to,
-        max_attempts: n.max_attempts,
-      });
+      createNodeOp(
+        rootDir,
+        {
+          id: n.id,
+          label: n.label,
+          type: n.type as NodeType,
+          level: n.level,
+          plan_description: n.plan_description,
+          definition_of_done: n.definition_of_done,
+          checkpoints: n.checkpoints as never,
+          assigned_to: n.assigned_to,
+          max_attempts: n.max_attempts,
+        },
+        { syncRef: false },
+      );
     }
     for (const e of edges) {
-      createEdgeOp(rootDir, {
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        type: e.type as EdgeType,
-      });
+      createEdgeOp(
+        rootDir,
+        {
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          type: e.type as EdgeType,
+        },
+        { syncRef: false },
+      );
     }
+    rebuildGraphRefs(rootDir);
     return jsonText({ ok: true, nodes: nodes.length, edges: edges.length });
   },
 );

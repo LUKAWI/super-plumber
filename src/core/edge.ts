@@ -16,6 +16,7 @@ export type CreateEdgeParams = {
 export function createEdge(
   rootDir: string,
   params: CreateEdgeParams,
+  opts: { syncRef?: boolean } = {},
 ): EdgeSchema {
   return withLockSync(rootDir, params.id, () => {
     // 重复 id 检查（锁内）：不静默覆盖已有边，并发创建也只有一个成功
@@ -37,7 +38,7 @@ export function createEdge(
       ...(params.contract ? { contract: params.contract } : {}),
     };
     writeEdge(rootDir, edge);
-    addGraphRef(rootDir, "edge", edge.id);
+    if (opts.syncRef !== false) addGraphRef(rootDir, "edge", edge.id);
     return edge;
   });
 }

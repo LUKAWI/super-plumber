@@ -14,6 +14,7 @@ import {
   loadEdgeFile,
   loadGraphFile,
   listEdgeFileNames,
+  listNodeFileNames,
   SchemaValidationError,
   formatIssues,
 } from "./schema.js";
@@ -105,6 +106,24 @@ export function addGraphRef(
   id: string,
 ): void {
   syncGraphRef(rootDir, kind, id, false);
+}
+
+/**
+ * 从 nodes/edges 目录一次性重建 graph.yaml 引用列表。
+ * 批量创建（graph_batch_create / 脚本）时配合 syncRef:false 使用，
+ * 避免每个节点/边创建都重写一次 graph.yaml（O(n²) → O(n)）。
+ */
+export function rebuildGraphRefs(rootDir: string): void {
+  let graph: GraphSchema;
+  try {
+    graph = readGraph(rootDir);
+  } catch (err: any) {
+    if (err?.code === "ENOENT") return; // 图未初始化
+    throw err;
+  }
+  graph.nodes = listNodeFileNames(rootDir).map((f) => ({ file: `nodes/${f}` }));
+  graph.edges = listEdgeFileNames(rootDir).map((f) => ({ file: `edges/${f}` }));
+  writeGraph(rootDir, graph);
 }
 
 function removeGraphRef(

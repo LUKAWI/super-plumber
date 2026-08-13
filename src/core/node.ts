@@ -31,6 +31,7 @@ export type CreateNodeParams = {
 export function createNode(
   rootDir: string,
   params: CreateNodeParams,
+  opts: { syncRef?: boolean } = {},
 ): NodeSchema {
   return withLockSync(rootDir, params.id, () => {
     // 重复 id 检查（锁内）：不静默覆盖已有节点，并发创建也只有一个成功
@@ -58,7 +59,7 @@ export function createNode(
       ...(params.checkpoints ? { checkpoints: params.checkpoints } : {}),
     };
     writeNode(rootDir, node);
-    addGraphRef(rootDir, "node", node.id);
+    if (opts.syncRef !== false) addGraphRef(rootDir, "node", node.id);
     return node;
   });
 }
