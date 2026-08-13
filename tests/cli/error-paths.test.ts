@@ -228,4 +228,139 @@ describe("CLI error paths (regression)", () => {
       });
     });
   });
+
+  it("GATE-01 前驱未完成时 pending→ready → exit 1 且点名前驱", () => {
+    init();
+    run(["create-node", "--id", "a", "--label", "A"]);
+    run(["create-node", "--id", "b", "--label", "B"]);
+    run(["add-edge", "--id", "e1", "--source", "a", "--target", "b"]);
+    const r = run(["update-status", "--id", "b", "--status", "ready"]);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("前置未满足");
+    expect(r.stderr).toContain("a(pending");
+  });
+
+  it("GATE-02 --force 绕过 ready 门禁", () => {
+    init();
+    run(["create-node", "--id", "a", "--label", "A"]);
+    run(["create-node", "--id", "b", "--label", "B"]);
+    run(["add-edge", "--id", "e1", "--source", "a", "--target", "b"]);
+    const r = run(["update-status", "--id", "b", "--status", "ready", "--force"]);
+    expect(r.status).toBe(0);
+  });
+
+  it("GATE-03 update-status --claim-by 记录认领者", () => {
+    init();
+    run(["create-node", "--id", "a", "--label", "A"]);
+    run(["update-status", "--id", "a", "--status", "ready"]);
+    const r = run([
+      "update-status",
+      "--id",
+      "a",
+      "--status",
+      "running",
+      "--claim-by",
+      "agent-1",
+    ]);
+    expect(r.status).toBe(0);
+    const content = fs.readFileSync(
+      path.join(tmpDir, ".graph/nodes/a.yaml"),
+      "utf-8",
+    );
+    expect(content).toContain("agent-1");
+    expect(content).toContain("started_at");
+  });
+
+  it("ATT-01 failed→pending 超过 max_attempts → exit 1", () => {
+    init();
+    run(["create-node", "--id", "a", "--label", "A"]);
+    // 快速走完 3 次失败（attempts 0→3）
+    for (let i = 0; i < 3; i++) {
+      run(["update-status", "--id", "a", "--status", "ready"]);
+      run(["update-status", "--id", "a", "--status", "running"]);
+      run(["update-status", "--id", "a", "--status", "failed"]);
+      run(["update-status", "--id", "a", "--status", "pending"]);
+    }
+    const r = run(["update-status", "--id", "a", "--status", "ready"]);
+    expect(r.status).toBe(0); // ready 不受限
+    run(["update-status", "--id", "a", "--status", "running"]);
+    run(["update-status", "--id", "a", "--status", "failed"]);
+    const blocked = run(["update-status", "--id", "a", "--status", "pending"]);
+    expect(blocked.status).toBe(1);
+    expect(blocked.stderr).toContain("最大重试次数");
+  });
+
+  it("ATT-02 --force 覆盖 max_attempts 拦截", () => {
+    init();
+    run(["create-node", "--id", "a", "--label", "A"]);
+    for (let i = 0; i < 3; i++) {
+      run(["update-status", "--id", "a", "--status", "ready"]);
+      run(["update-status", "--id", "a", "--status", "running"]);
+      run(["update-status", "--id", "a", "--status", "failed"]);
+      run(["update-status", "--id", "a", "--status", "pending"]);
+    }
+    run(["update-status", "--id", "a", "--status", "ready"]);
+    run(["update-status", "--id", "a", "--status", "running"]);
+    run(["update-status", "--id", "a", "--status", "failed"]);
+    const r = run(["update-status", "--id", "a", "--status", "pending", "--force"]);
+    expect(r.status).toBe(0);
+  });
+
+  it("DEL-01 delete-node 有引用边 → exit 1 并列出边", () => {
+    init();
+    run(["create-node", "--id", "a", "--label", "A"]);
+    run(["create-node", "--id", "b", "--label", "B"]);
+    run(["add-edge", "--id", "e1", "--source", "a", "--target", "b"]);
+    const r = run(["delete-node", "--id", "a"]);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("e1");
+    // 节点未被删除
+    expect(fs.existsSync(path.join(tmpDir, ".graph/nodes/a.yaml"))).toBe(true);
+  });
+
+  it("DEL-02 delete-node --cascade 连同引用边软删除", () => {
+    init();
+    run(["create-node", "--id", "a", "--label", "A"]);
+    run(["create-node", "--id", "b", "--label", "B"]);
+    run(["add-edge", "--id", "e1", "--source", "a", "--target", "b"]);
+    const r = run(["delete-node", "--id", "a", "--cascade"]);
+    expect(r.status).toBe(0);
+    expect(fs.existsSync(path.join(tmpDir, ".graph/nodes/a.yaml"))).toBe(false);
+    expect(fs.existsSync(path.join(tmpDir, ".graph/nodes/a.deleted.yaml"))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, ".graph/edges/e1.yaml"))).toBe(false);
+    expect(fs.existsSync(path.join(tmpDir, ".graph/edges/e1.deleted.yaml"))).toBe(true);
+    // validate 不报悬挂引用
+    const v = run(["validate"]);
+    expect(v.stdout).toContain("0 错误");
+  });
+
+  it("DEL-03 delete-edge 正常软删除 + 不存在报错", () => {
+    init();
+    run(["create-node", "--id", "a", "--label", "A"]);
+    run(["create-node", "--id", "b", "--label", "B"]);
+    run(["add-edge", "--id", "e1", "--source", "a", "--target", "b"]);
+    const ok = run(["delete-edge", "--id", "e1"]);
+    expect(ok.status).toBe(0);
+    expect(fs.existsSync(path.join(tmpDir, ".graph/edges/e1.deleted.yaml"))).toBe(true);
+    const missing = run(["delete-edge", "--id", "ghost"]);
+    expect(missing.status).toBe(1);
+    expect(missing.stderr).toContain("not found");
+  });
+
+  it("SCH-01 手改 YAML 拼错 status → validate exit 1 且报 schema 错误", () => {
+    init();
+    run(["create-node", "--id", "a", "--label", "A"]);
+    fs.writeFileSync(
+      path.join(tmpDir, ".graph/nodes/a.yaml"),
+      "id: a\nlabel: A\nstatus: runnig\nattempts: 0\nmax_attempts: 3\n",
+    );
+    const r = run(["validate"]);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("nodes/a.yaml");
+    expect(r.stderr).toContain("status");
+    // 其他命令读取该节点时也应得到可读错误而非崩溃
+    const g = run(["update-node", "--id", "a", "--show"]);
+    expect(g.status).toBe(1);
+    expect(g.stderr).toContain("schema");
+  });
 });

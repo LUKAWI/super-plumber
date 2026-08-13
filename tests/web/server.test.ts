@@ -7,6 +7,9 @@ import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import { startServer } from "../../src/web/server.js";
+import { createNode } from "../../src/core/node.js";
+import { createEdge } from "../../src/core/edge.js";
+import { NodeType, EdgeType } from "../../src/core/types.js";
 
 let tmpDir: string;
 let server: ReturnType<typeof startServer>;
@@ -15,6 +18,15 @@ let port: number;
 beforeAll(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "topo-web-test-"));
   fs.mkdirSync(path.join(tmpDir, ".graph"), { recursive: true });
+  // 造两个节点 + 一条边，让 /api/graph 的 adjacency 非空（历史 bug：Map 直出变成 {}）
+  createNode(tmpDir, { id: "a", type: NodeType.Task, label: "A" });
+  createNode(tmpDir, { id: "b", type: NodeType.Task, label: "B" });
+  createEdge(tmpDir, {
+    id: "e1",
+    source: "a",
+    target: "b",
+    type: EdgeType.DependsOn,
+  });
   server = startServer(tmpDir, 0, { open: false });
   await new Promise<void>((resolve) => server.server.once("listening", resolve));
   const addr = server.server.address();
@@ -66,8 +78,11 @@ describe("web server static serving", () => {
     expect(Array.isArray(body.edges)).toBe(true);
     expect(typeof body.adjacency).toBe("object");
     expect(body.adjacency).not.toBe(null);
-    // 历史 bug：Map 直接 stringify → {}，键全部丢失
-    expect(JSON.stringify(body.adjacency)).not.toBe("{}");
+    // 历史 bug：Map 直接 stringify → {}，键全部丢失；现在应包含 a → ["b"]（b 为空邻接）
+    expect(JSON.parse(JSON.stringify(body.adjacency))).toEqual({
+      a: ["b"],
+      b: [],
+    });
   });
 
   it("路径穿越 /../package.json 被拒绝（403）", async () => {

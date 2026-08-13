@@ -19,11 +19,28 @@ export function getAllowedTransitions(status: NodeStatus): NodeStatus[] {
   return [...(TRANSITIONS[status] ?? [])];
 }
 
-export function transition(node: NodeSchema, to: NodeStatus): NodeSchema {
+export function transition(
+  node: NodeSchema,
+  to: NodeStatus,
+  opts: { force?: boolean } = {},
+): NodeSchema {
   if (!canTransition(node.status, to)) {
     throw new Error(
       `Invalid transition: ${node.status} → ${to}. ` +
       `Allowed: [${getAllowedTransitions(node.status).join(", ")}]`
+    );
+  }
+  // max_attempts 硬拦截：failed → pending 重试前检查次数上限（max_attempts=0 表示不限）
+  if (
+    node.status === NodeStatus.Failed &&
+    to === NodeStatus.Pending &&
+    !opts.force &&
+    node.max_attempts > 0 &&
+    node.attempts >= node.max_attempts
+  ) {
+    throw new Error(
+      `Node ${node.id} 已达最大重试次数 (${node.attempts}/${node.max_attempts})，` +
+        `请人工介入。确需强制重试请使用 --force（仅人类运维）`,
     );
   }
   return {

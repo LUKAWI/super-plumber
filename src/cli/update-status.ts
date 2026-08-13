@@ -3,11 +3,19 @@ import { updateNodeStatus } from "../core/node.js";
 import { NodeStatus } from "../core/types.js";
 
 export const updateStatusCommand = new Command("update-status").alias("us")
-  .description("更新节点状态（状态机校验）")
+  .description("更新节点状态（状态机校验 + ready 前置门禁）")
   .requiredOption("-i, --id <id>", "节点 ID")
   .requiredOption(
     "-s, --status <status>",
     "新状态: pending|ready|running|passed|failed|blocked|cancelled",
+  )
+  .option(
+    "--claim-by <agent>",
+    "认领者（status=running 时记录 assigned_to + started_at）",
+  )
+  .option(
+    "--force",
+    "跳过 ready 前置门禁 / max_attempts 拦截（仅人类运维使用，agent 禁用）",
   )
   .action((options) => {
     const rootDir = process.cwd();
@@ -19,7 +27,9 @@ export const updateStatusCommand = new Command("update-status").alias("us")
       process.exit(1);
     }
     try {
-      const node = updateNodeStatus(rootDir, options.id, status);
+      const node = updateNodeStatus(rootDir, options.id, status, options.claimBy, {
+        force: !!options.force,
+      });
       console.log(`✅ ${options.id}: ${node.status}`);
     } catch (err: any) {
       if (err?.code === "ENOENT") {

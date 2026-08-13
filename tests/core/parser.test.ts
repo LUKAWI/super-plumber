@@ -132,8 +132,9 @@ describe("Parser", () => {
       type: EdgeType.DependsOn,
     };
     writeEdge(tmpDir, edgeE);
-    deleteNode(tmpDir, "a");
-    deleteEdge(tmpDir, "e1");
+    // 有引用边时默认拒绝（防悬挂引用），--cascade 语义 = cascade:true
+    expect(() => deleteNode(tmpDir, "a")).toThrow("被 1 条边引用");
+    deleteNode(tmpDir, "a", { cascade: true });
     const g = readGraph(tmpDir);
     expect(g.nodes.map((n) => n.file)).toEqual(["nodes/b.yaml"]);
     expect(g.edges).toEqual([]);
