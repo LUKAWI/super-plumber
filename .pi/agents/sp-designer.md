@@ -11,7 +11,9 @@ model: opencode-go/qwen3.7-plus
 
 ## 你的工具
 
-项目目录下已有 `graph` CLI（通过 `node dist/cli/index.js` 调用）。所有操作都在当前工作目录进行。
+全局 `graph` CLI 可用（`npm i -g @lukawi/super-plumber` 安装；如全局不可用，回退 `node <repo>/dist/cli/index.js`，<repo> 为 super-plumber 仓库路径）。所有操作都在含 `.graph/` 的工作目录进行。
+
+> v0.2 起可用 `graph update-graph` 定义 entry/exit（不再手写 graph.yaml）；`graph batch_create` 由 MCP 提供（`graph_batch_create`），CLI 侧循环 `create-node`/`add-edge` 即可。
 
 ## 工作流程
 
@@ -30,7 +32,7 @@ model: opencode-go/qwen3.7-plus
 
 ```bash
 # 每个节点创建时就要带上计划描述和完成标准
-node dist/cli/index.js create-node --id node_001 --type task --label "节点名称" --level 1 \
+graph create-node --id node_001 --type task --label "节点名称" --level 1 \
   --plan-desc "这个节点具体要做什么，详细的构建计划" \
   --dod "完成标准条目1" \
   --dod "完成标准条目2" \
@@ -45,7 +47,7 @@ node dist/cli/index.js create-node --id node_001 --type task --label "节点名�
 #### 1.3 添加依赖边
 
 ```bash
-node dist/cli/index.js add-edge --id e001 --source node_001 --target node_002 --type depends_on
+graph add-edge --id e001 --source node_001 --target node_002 --type depends_on
 ```
 
 ### 第二阶段：丰富节点详情
@@ -55,9 +57,9 @@ node dist/cli/index.js add-edge --id e001 --source node_001 --target node_002 --
 对每个节点，将其拆解为 2-4 个可执行的 checkpoints：
 
 ```bash
-node dist/cli/index.js update-node --id node_001 \
+graph update-node --id node_001 \
   --add-checkpoint '{"id":"cp_01","label":"第一步做什么"}'
-node dist/cli/index.js update-node --id node_001 \
+graph update-node --id node_001 \
   --add-checkpoint '{"id":"cp_02","label":"第二步做什么"}'
 ```
 
@@ -69,7 +71,7 @@ Checkpoint 是 Mario 验证 agent 跳跃检查的最小单元。每个 checkpoin
 #### 2.2 验证拓扑完整性
 
 ```bash
-node dist/cli/index.js validate
+graph validate
 ```
 
 ### 输出规范
@@ -95,31 +97,31 @@ L1 主干:
 
 ```bash
 # 1. 初始化
-node dist/cli/index.js init -l "用户登录功能"
+graph init -l "用户登录功能"
 
 # 2. 编辑 graph.yaml 设置入口/出口
 
 # 3. 创建主干节点（带详细描述）
-node dist/cli/index.js create-node --id phase_design --type task --label "UI设计" --level 1 \
+graph create-node --id phase_design --type task --label "UI设计" --level 1 \
   --plan-desc "设计登录页面的UI界面，包括用户名/密码输入框、登录按钮、忘记密码链接" \
   --dod "Figma设计稿完成" \
   --dod "用户评审通过"
 
 # 4. 添加子节点
-node dist/cli/index.js create-node --id task_form --type task --label "登录表单组件" --level 2 \
+graph create-node --id task_form --type task --label "登录表单组件" --level 2 \
   --plan-desc "实现登录表单组件，包含表单验证、错误提示、加载状态" \
   --dod "表单验证完整" \
   --dod "错误状态覆盖"
 
 # 5. 追加 checkpoints
-node dist/cli/index.js update-node --id task_form \
+graph update-node --id task_form \
   --add-checkpoint '{"id":"cp_validate","label":"实现表单验证逻辑"}'
-node dist/cli/index.js update-node --id task_form \
+graph update-node --id task_form \
   --add-checkpoint '{"id":"cp_error","label":"实现错误状态处理"}'
 
 # 6. 添加边
-node dist/cli/index.js add-edge --id e001 --source phase_design --target task_form --type depends_on
+graph add-edge --id e001 --source phase_design --target task_form --type depends_on
 
 # 7. 验证
-node dist/cli/index.js validate
+graph validate
 ```

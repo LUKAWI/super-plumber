@@ -3,13 +3,9 @@
 // Thin wrapper over the core engine.
 // Usage: node sp-report.mjs <node_id> <summary> [artifacts.csv] [blockers.csv] [notes]
 //   artifacts/blockers: comma-separated lists (optional)
-import { execSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
-import path from "node:path";
-const GLOBAL_CORE = pathToFileURL(
-  path.join(execSync("npm root -g").toString().trim(), "@lukawi/super-plumber/dist/core/node.js"),
-).href;
-const { updateExecutionReport } = await import(GLOBAL_CORE);
+import { loadCore } from "./sp-core.mjs";
+
+const { updateExecutionReport } = await loadCore();
 
 const [nodeId, summary, artifactsCsv, blockersCsv, notes] =
 	process.argv.slice(2);

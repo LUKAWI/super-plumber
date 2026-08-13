@@ -27,27 +27,27 @@ model: opencode-go/qwen3.7-plus
 ### ① 进度同步检查（主 agent 决策前）
 
 ```bash
-# 列出所有节点状态分布
-node dist/cli/index.js status
+# 调度决策 + 疑似卡住一屏拿完（推荐）
+graph next --stale-ms 1800000
 
-# 扫描 running 节点，检查 execution_report.started_at 距今多久
-ls .graph/nodes/*.yaml
-grep -l "^status: running" .graph/nodes/*.yaml
+# 或 JSON 输出（供解析）
+graph next --json
 ```
 
-对每个 running 节点：
-- 读取 `execution_report.started_at`，若超过**阈值（建议 30 分钟）**无 checkpoint 更新 → 标记"疑似卡住"，提醒主 agent
+对每个 stale_running 节点：
+- 超过**阈值（建议 30 分钟）**无 checkpoint 更新 → 标记"疑似卡住"，提醒主 agent
 - 输出：`⏳ 节点 X 已运行 N 分钟无更新，建议检查或重新调度`
 
 ### ② 裁决一个节点（执行 agent 报完后）
 
-**步骤 1：读取节点全部内容（解压压缩包）**
+**步骤 1：读取节点全部内容（解压压缩包）+ 聚合态/门禁**
 
 ```bash
-cat .graph/nodes/<node_id>.yaml
+graph get-node -i <node_id> --json
+# 输出含 node + allowed_transitions + checkpoint_aggregate + ready_gate
 ```
 
-**步骤 2：checkpoint 聚合检查**
+**步骤 2：checkpoint 聚合检查**（`checkpoint_aggregate` 字段；或 `graph validate` 的逐节点聚合行）
 
 | 聚合结果 | 判定 |
 |----------|------|
@@ -71,31 +71,32 @@ ls -la <artifact_path> 2>/dev/null || echo "❌ 产物缺失: <path>"
 
 ```bash
 # 全部通过 → passed
-node dist/cli/index.js update-status --id <node_id> --status passed
+graph update-status --id <node_id> --status passed
 
 # 有缺陷 → failed
-node dist/cli/index.js update-status --id <node_id> --status failed
+graph update-status --id <node_id> --status failed
 
-# 在 execution_report.verification 记录裁决结论
-node dist/cli/index.js update-node --id <node_id> --show
+# 记录裁决结论（v0.2 专用命令，不再手改 YAML；MCP: graph_update_execution_report 带 verification）
+graph verdict --id <node_id> --verdict passed --note "产物抽查通过"
+graph verdict --id <node_id> --verdict failed --note "产物缺失: dist/x.js"
 ```
 
 **步骤 5：收尾**
-- passed → 检查下游节点：若所有前置 passed，置 ready（或保持 blocked 等待）
+- passed → 检查下游节点：若所有前置 passed，置 ready（`graph update-status --id <下流> --status ready`；核心层 ready 门禁会再次校验，不会放行错依赖）
 - failed → 重试管理（见 ⑤）
 
 ### ⑤ 重试管理
 
 ```bash
 # 读取节点，检查 attempts / max_attempts
-cat .graph/nodes/<node_id>.yaml | grep -E "attempts|max_attempts"
+graph get-node -i <node_id> --json
 ```
 
 | 条件 | 动作 |
 |------|------|
-| `attempts < max_attempts` 且失败可修复 | 置回 pending（attempts+1），等待重新调度 |
-| `attempts >= max_attempts` | 🔴 标记需人工介入，不再自动重试 |
-| 失败因 plan 设计错误 | 建议修改 plan 后重置 attempts=0 |
+| `attempts < max_attempts` 且失败可修复 | 置回 pending（attempts 自动 +1），等待重新调度 |
+| `attempts >= max_attempts(>0)` | 🔴 核心层会拦截重试，标记需人工介入（`max_attempts=0` 不限） |
+| 失败因 plan 设计错误 | 用 `graph update-node --plan-desc "修正后的计划"` 修改——attempts 自动重置为 0 |
 
 ### ⑥ 全局监测报告
 

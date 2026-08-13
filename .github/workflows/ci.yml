@@ -23,13 +23,19 @@ jobs:
         run: npm ci
       - name: Build backend (dist/ required by CLI/MCP tests)
         run: npm run build
-      - name: Typecheck
+      - name: Typecheck backend
         run: npm run typecheck
-      - name: Unit tests
+      - name: Backend unit tests
         run: npm test
       - name: Install web-ui deps
         run: npm ci
         working-directory: web-ui
+      - name: Typecheck web-ui (svelte-check)
+        run: npm run typecheck
+        working-directory: web-ui
       - name: Build web-ui
         run: npm run build
+        working-directory: web-ui
+      - name: Web-ui unit tests
+        run: npm test
         working-directory: web-ui

@@ -12,22 +12,27 @@ import * as fs from "node:fs";
 const ROOT = path.resolve(process.argv[2] ?? process.cwd());
 const JSON_OUT = process.argv.includes("--json");
 
-// 与全局安装的 super-plumber 核心保持一致（与 sp-claim/sp-report 同款加载方式）
-let CORE;
-try {
-  CORE = pathToFileURL(
-    path.join(
-      execSync("npm root -g").toString().trim(),
-      "@lukawi/super-plumber/dist/core/parser.js",
-    ),
-  ).href;
-} catch {
-  console.error(
-    "❌ 无法定位全局 super-plumber 核心。请先安装: npm install -g @lukawi/super-plumber",
-  );
-  process.exit(1);
+// 与 sp-core.mjs 同款加载：优先本地安装，回退全局安装的公开桶
+async function loadCore() {
+  try {
+    return await import("@lukawi/super-plumber/core");
+  } catch {
+    try {
+      const globalRoot = execSync("npm root -g").toString().trim();
+      return await import(
+        pathToFileURL(
+          path.join(globalRoot, "@lukawi/super-plumber/dist/core/index.js"),
+        ).href,
+      );
+    } catch {
+      console.error(
+        "❌ 无法定位 super-plumber 核心。请先安装: npm install -g @lukawi/super-plumber",
+      );
+      process.exit(1);
+    }
+  }
 }
-const { readGraph, readNode, readEdge } = await import(CORE);
+const { readGraph, readNode, readEdge } = await loadCore();
 
 const TOPO_TYPES = new Set(["depends_on", "validates"]);
 const EDGE_TYPES = new Set([

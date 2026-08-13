@@ -5,7 +5,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@lukawi/super-plumber)](https://www.npmjs.com/package/@lukawi/super-plumber)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-97%2F97-green)](https://github.com/LUKAWI/super-plumber/actions)
+[![Tests](https://img.shields.io/badge/tests-216%2F12-green)](https://github.com/LUKAWI/super-plumber/actions)
 [![GitHub](https://img.shields.io/badge/GitHub-LUKAWI%2Fsuper--plumber-black)](https://github.com/LUKAWI/super-plumber)
 
 **中文版:** [README.md](README.md) · **npm:** [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)
@@ -71,7 +71,7 @@ npm install -g @lukawi/super-plumber
 
 ```bash
 graph --version     # prints 0.2.0 on success
-graph --help        # lists all 11 commands
+graph --help        # lists all 19 commands
 which graph         # confirm location (Windows: where graph)
 ```
 
@@ -261,7 +261,7 @@ graph serve                           # open http://localhost:8934 for the force
 
 ---
 
-## CLI Reference (11 commands)
+## CLI Reference (19 commands)
 
 | Command | Purpose | Key flags |
 |---------|---------|-----------|
@@ -353,7 +353,7 @@ graph-mcp
 
 > Prefer an absolute path: `"command": "node D:/path/to/dist/mcp/server.js"` and set `cwd` to the directory holding your graph.
 
-### The 9 tools
+### The 18 tools
 
 | Tool | Purpose | Required params |
 |------|---------|-----------------|
@@ -431,7 +431,7 @@ cd super-plumber
 npm install
 npm run build && npm --prefix web-ui run build
 
-# Tests (97 cases: state machine / topology / CLI / MCP protocol)
+# Tests (216 backend + 12 frontend cases)
 npm test
 
 # Link globally for local dev
@@ -459,7 +459,7 @@ graph --version
 ## Project Status
 
 ```text
-Tests: 97/97 ✅ | CLI: 11 commands | MCP: 9 tools | State machine: 7 states / 14 transitions | Edge types: 7 | Web UI: Svelte 5 + D3.js
+Tests: 216 backend + 12 frontend ✅ | CLI: 19 commands | MCP: 18 tools | State machine: 7 states + ready gate + max_attempts | Edge types: 7 | Versioning: snapshot/diff/rollback | Web UI: Svelte 5 + D3.js
 ```
 
 - **npm**: [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)

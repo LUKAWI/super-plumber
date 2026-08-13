@@ -63,6 +63,13 @@
 | blocked | 下游等待中（前置已完成但系统尚未调度） | ready, failed, cancelled |
 | cancelled | 被用户或系统取消 | —（终止态）|
 
+**两条硬规则（v0.2 起由核心层强制）**：
+- **ready 门禁**：进入 `ready` 与认领（`ready → running`）前，所有门控入边
+  （`depends_on` / `validates` / `fan_in` / `fan_out`）的前驱必须全部 `passed`；
+  不满足时报错并点名前驱。`--force` 仅人类运维可用。
+- **max_attempts 上限**：`attempts ≥ max_attempts(>0)` 后禁止重试（提示人工介入）；
+  `max_attempts = 0` 表示不限。
+
 ### 构建计划（Plan）
 
 节点要做什么、输入是什么、输出是什么的结构化描述。
@@ -73,11 +80,15 @@
 
 ### 检查点（Checkpoint）
 
-节点内部的子步骤。每个 checkpoint 有独立的 ID、标签、状态和验证方式。状态：`pending | running | passed | failed | skipped`。
+节点内部的子步骤。每个 checkpoint 有独立的 ID、标签、状态和验证方式。
+状态：`pending | running | passed | failed | skipped`。
+状态机：`pending → running|passed|failed|skipped`、`running → passed|failed`、
+`passed|failed|skipped → pending`（重开）；同状态重复上报幂等。
 
 ### 尝试次数（Attempts）
 
-节点从执行失败状态重试的次数。因执行内容失败时累加；因修改计划后重试时重置为 0。超过 max_attempts 后不再允许重试。
+节点从执行失败状态重试的次数。因执行内容失败时累加（`failed → pending` 自动 +1）；
+因修改计划（plan.description 变化）后重试时重置为 0；达到 max_attempts 后核心层拒绝重试。
 
 ---
 
@@ -142,15 +153,28 @@ YAML 文件（`graph.yaml`、`nodes/*.yaml`、`edges/*.yaml`）是唯一真相�
 
 ### 认领（Claim）
 
-执行 agent 将节点从 ready 置为 running 的动作。通过扩展后的 update_node_status 完成，自动记录 assigned_to 和 started_at。状态机原子性保证同一节点不可被重复认领。
+执行 agent 将节点从 ready 置为 running 的动作。通过 update_node_status 完成，自动记录 assigned_to 和 started_at。
+**锁内二次校验实现原子性**：并发认领同一节点只有一个成功，其余收到"已被认领"错误；同一认领者重复 claim 幂等成功。
 
 ### 执行报告（Execution Report）
 
-执行 agent 写给 Super Mario 的"交接单"，存储在节点的 execution_report 字段中。包含 summary（执行摘要）、artifacts（产物路径，供抽查）、blockers（阻塞原因）、notes（补充说明）。
+执行 agent 写给 Super Mario 的"交接单"，存储在节点的 execution_report 字段中。包含 summary（执行摘要）、artifacts（产物路径，供抽查）、blockers（阻塞原因）、notes（补充说明）与 verification（裁决结论：verdict + note + checked_at）。
+
+### 裁决（Verdict）
+
+Super Mario 在 checkpoint 聚合 + 输出抽查后写入的验证结论（`verification.verdict: pending|passed|failed`）。CLI 命令 `graph verdict`，MCP 为 `graph_update_execution_report` 的 verification 参数。
+
+### 调度决策（Next Actions）
+
+agent 规划循环的一站式工具（`graph next` / `graph_get_next_actions`）：一次返回可认领（ready）、等依赖（blocked，附未满足前驱）、执行中（running，附时长）与疑似卡住（stale_running）清单。
+
+### 版本快照（Snapshot / Diff / Rollback）
+
+版本控制三原语（需求 4.3）：快照复制 .graph 真相源文件到 snapshots/<id>/（可选联动 git commit）；diff 对比任意两个快照或快照 vs 工作区（增删改文件 + 状态变化）；rollback 恢复指定快照（自动备份当前状态，必须显式 confirm）。Branch/Merge 由 Git 承担。
 
 ### 进度同步检查（Progress Sync Check）
 
-主 agent 每轮决策前，调用 Super Mario 对 running 节点做快速扫描，识别长时间无更新的"疑似卡住"节点并提醒。这是"提醒 agent 做完即同步"的强制机制。
+主 agent 每轮决策前，调用 `graph next --stale-ms` 对 running 节点做快速扫描，识别长时间无更新的"疑似卡住"节点并提醒。这是"提醒 agent 做完即同步"的强制机制。
 
 ---
 

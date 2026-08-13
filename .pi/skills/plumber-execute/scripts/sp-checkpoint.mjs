@@ -2,16 +2,9 @@
 // Report a checkpoint progress update (report-as-you-go).
 // Thin wrapper over the core engine — one checkpoint at a time, per the protocol.
 // Usage: node sp-checkpoint.mjs <node_id> <checkpoint_id> <pending|running|passed|failed|skipped>
-import { execSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
-import path from "node:path";
-const GLOBAL_CORE = pathToFileURL(
-	path.join(
-		execSync("npm root -g").toString().trim(),
-		"@lukawi/super-plumber/dist/core/node.js",
-	),
-).href;
-const { updateCheckpoint } = await import(GLOBAL_CORE);
+import { loadCore } from "./sp-core.mjs";
+
+const { updateCheckpoint } = await loadCore();
 
 const [nodeId, cpId, status] = process.argv.slice(2);
 if (!nodeId || !cpId || !status) {

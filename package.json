@@ -12,7 +12,8 @@
   },
   "exports": {
     ".": "./dist/index.js",
-    "./core": "./dist/core/types.js"
+    "./core": "./dist/core/index.js",
+    "./core/types": "./dist/core/types.js"
   },
   "files": [
     "dist/",

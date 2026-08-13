@@ -35,9 +35,12 @@ todo: "做个注册模块"            →     entry → l1_register → l1_login
 | 能力 | 说明 |
 |------|------|
 | 🧭 **类型化拓扑** | 7 种边类型：`depends_on` / `validates` 参与拓扑排序，`shares_context` / `fan_out` / `fan_in` / `fallback` / `iterates` 表达运行时控制流 |
-| 🔄 **状态机强制** | 7 态 14 个合法转换（`pending → ready → running → passed/…`），非法跳步直接报错，绝不静默 |
-| 🤖 **MCP 原生接入** | 9 个 `graph_*` 工具，zod 参数校验，供 Claude Code / opencode 等 agent 直接调用 |
-| 🌐 **Web 可视化** | 力导向图 + 边类型着色 + running 节点光点流动 + checkpoint 进度条，WebSocket 增量推送 |
+| 🔄 **状态机强制** | 7 态 + 两条硬规则：ready 门禁（门控前驱必须 passed，fan_out/fan_in 也参与）与 max_attempts 上限（修改 plan 自动重置）；并发认领锁内原子 |
+| 🛡️ **Schema 校验** | 读入层逐文件校验 YAML（枚举/类型/必填），手改拼错即时报可读错误，`graph validate` 逐文件定位 |
+| 🗂️ **版本控制** | `snapshot` / `diff` / `rollback` 三原语（回滚自动备份、必须确认），Branch/Merge 由 Git 承担 |
+| 🤖 **MCP 原生接入** | 18 个 `graph_*` 工具：设计期（批量建图/建边/编辑 entry-exit）、执行期（原子 claim/checkpoint/report）、裁决（verdict）、版本（snapshot/diff/rollback）全流程覆盖，zod 参数校验 |
+| 🎯 **调度决策** | `graph next` / `graph_get_next_actions` 一屏返回可认领/等依赖/执行中/疑似卡住，agent 规划循环首选 |
+| 🌐 **Web 可视化** | 力导向图 + 边类型着色 + running 光点流动 + checkpoint 进度条 + 执行报告面板 + 层级过滤/搜索 + 版本 diff 视图，WebSocket 增量推送 + 断线自动重连 |
 | 📁 **纯文件存储** | 每个节点/边一个 YAML 文件，Git 是唯一真相源，人类可直接编辑，无数据库 |
 | 🧩 **agent 协作协议** | 内置 `plumber-design`（拓扑设计+预览审核）与 `plumber-execute`（拓扑执行+三层验收）双阶段 skill + 2 个专用 subagent（拆解 / 裁决） |
 
@@ -71,7 +74,7 @@ npm install -g @lukawi/super-plumber
 
 ```bash
 graph --version     # 输出 0.2.0 即成功
-graph --help        # 查看全部 11 个命令
+graph --help        # 查看全部 19 个命令
 which graph         # 确认命令位置（Windows: where graph）
 ```
 
@@ -265,15 +268,24 @@ graph serve                           # 打开 http://localhost:8934 看力导�
 
 | 命令 | 功能 | 常用参数 |
 |------|------|----------|
-| `graph init` | 初始化 `.graph/` 骨架 | `-l <label>` 图名称；`--force` 已初始化时强制重置 |
-| `graph create-node` | 创建节点 | `-i <id>` `-l <label>` `-t <type>`（task/checkpoint/decision/gate）`--level <n>` `--plan-desc <text>` `--dod <item>`（可多次）`--assigned-to <agent>` |
-| `graph add-edge` | 添加边 | `-i <id>` `-s <source>` `-t <target>` `--type <7种之一>` |
-| `graph update-status` | 状态流转（状态机校验） | `-i <id>` `-s <status>`（pending/ready/running/passed/failed/blocked/cancelled） |
-| `graph update-node` | 更新节点详情 | `-i <id>` `--plan-desc` `--add-dod <item>`（可多次）`--clear-dod` `--add-checkpoint '<JSON>'`（可多次）`--set-assigned <agent>` `--show` |
-| `graph delete-node` | 软删除节点 | `-i <id>`（保留 `.deleted.yaml` 历史） |
-| `graph status` | 状态概览 + 拓扑检查 | — |
-| `graph validate` | 完整性校验（引用 + 拓扑 + 环） | — |
-| `graph rebuild` | 重建 `index/` 派生索引 | — |
+| `graph init` | 初始化 `.graph/` 骨架（含 schema.yaml） | `-l <label>` 图名称；`--force` 已初始化时强制重置 |
+| `graph create-node` | 创建节点（一次可带完整压缩包） | `-i <id>` `-l <label>` `-t <type>`（task/checkpoint/decision/gate）`--level <n>` `--plan-desc <text>` `--dod <item>`（可多次）`--assigned-to <agent>` `--max-attempts <n>` |
+| `graph get-node` | 读取节点 + 合法转换 + 门禁状态 | `-i <id>`；`--json` 稳定输出 |
+| `graph add-edge` | 添加边（核心层校验端点存在） | `-i <id>` `-s <source>` `-t <target>` `--type <7种之一>` |
+| `graph update-status` | 状态流转（状态机 + ready 门禁 + max_attempts） | `-i <id>` `-s <status>`；`--claim-by <agent>` 认领；`--force` 仅人类运维 |
+| `graph update-node` | 更新节点详情 | `-i <id>` `--plan-desc` `--add-dod <item>`（可多次）`--clear-dod` `--add-checkpoint '<JSON>'`（可多次）`--set-assigned <agent>` `--label <text>` `--max-attempts <n>` `--show` |
+| `graph update-graph` | 编辑 entry/exit/验收标准/图名（不再手写 graph.yaml） | `--entry-desc` `--exit-desc` `--add-criteria <item>`（可多次）`--clear-criteria` `--label` `--set-context '<json>'` |
+| `graph delete-node` | 软删除节点；有引用边默认拒绝 | `-i <id>`；`--cascade` 连同引用边一起删 |
+| `graph delete-edge` | 软删除边 | `-i <id>` |
+| `graph status` | 状态概览 + 拓扑检查 | `--json` |
+| `graph validate` | schema + 引用 + 拓扑 + 环（逐文件定位） | `--json` |
+| `graph next` | 调度决策：可认领/等依赖/执行中/疑似卡住 | `--stale-ms <ms>`（默认 30 分钟）；`--json` |
+| `graph verdict` | 记录裁决结论（Super Mario 用） | `-i <id>` `--verdict passed\|failed\|pending` `--note <text>` |
+| `graph snapshot` | 创建版本快照 | `-m <msg>`；`--git` 同时 git commit |
+| `graph snapshots` | 快照列表 | `--json` |
+| `graph diff` | 差异对比（默认最新快照 vs 当前） | `--from <id>` `--to <id>`；`--json` |
+| `graph rollback` | 回滚（自动备份当前状态） | `<snapshot-id>` `--confirm`（必须显式确认） |
+| `graph rebuild` | 重建 `index/` 派生索引（graph.json + topology.dot） | — |
 | `graph export --mermaid` | 导出 Mermaid 图 | `-o <file>` |
 | `graph serve` | 启动 Web UI（自动打开浏览器） | `-p <port>`（默认 8934）；`--no-open` 不自动打开 |
 
@@ -287,16 +299,20 @@ graph serve                           # 打开 http://localhost:8934 看力导�
 |----------|------|----------|------|
 | `graph init` | `graph i` | `graph update-node` | `graph un` |
 | `graph create-node` | `graph cn` | `graph delete-node` | `graph dn` |
-| `graph add-edge` | `graph ae` | `graph status` | `graph s` |
-| `graph update-status` | `graph us` | `graph validate` | `graph v` |
-| `graph rebuild` | `graph rb` | `graph export --mermaid` | `graph x --mermaid` |
-| `graph serve` | `graph sv` | | |
+| `graph get-node` | `graph gn` | `graph delete-edge` | `graph de` |
+| `graph add-edge` | `graph ae` | `graph update-graph` | `graph ug` |
+| `graph update-status` | `graph us` | `graph next` | `graph n` |
+| `graph verdict` | `graph vd` | `graph diff` | `graph d` |
+| `graph snapshot` | `graph sp` | `graph snapshots` | `graph sps` |
+| `graph rollback` | `graph rol` | `graph status` | `graph s` |
+| `graph validate` | `graph v` | `graph export --mermaid` | `graph x --mermaid` |
+| `graph rebuild` | `graph rb` | `graph serve` | `graph sv` |
 
 例如：`graph cn -i t1 -l "任务1"` ≡ `graph create-node -i t1 -l "任务1"`。
 
 ---
 
-## 状态机（7 态 14 转换）
+## 状态机（7 态 + 两条硬规则）
 
 ```text
 pending ──► ready ──► running ──► passed ──► blocked
@@ -351,23 +367,21 @@ graph-mcp
 }
 ```
 
-> 也可以直接用绝对路径：`"command": "node D:/path/to/dist/mcp/server.js"`，并设 `cwd` 为你的图所在目录。
+> 也可以直接用绝对路径：`"command": "node D:/path/to/dist/mcp/server.js"`，并设 `cwd` 为你的图所在目录；或 `"command": "graph-mcp --root /path/to/graph"` 显式指定图目录。
 
-### 9 个工具
+### 18 个工具
 
-| 工具 | 作用 | 必填参数 |
-|------|------|----------|
-| `graph_get_node` | 读取节点完整内容 | `id` |
-| `graph_create_node` | 创建节点 | `id, label` |
-| `graph_update_node_status` | 状态流转；**`status=running` 时传 `claim_by` 完成认领** | `id, status` |
-| `graph_update_checkpoint` | 执行中上报检查点进度 | `node_id, checkpoint_id, status` |
-| `graph_update_execution_report` | 填写交接单（供验收方抽查） | `node_id, summary` |
-| `graph_delete_node` | 软删除 | `id` |
-| `graph_get_graph` | 获取完整拓扑（节点+边+邻接表） | — |
-| `graph_traverse` | 从某节点出发遍历相邻节点 | `node_id` |
-| `graph_search` | 多条件搜索节点 | `query/status/type/assigned_to` |
+**调度**：`graph_get_next_actions` — 一次返回可认领（ready）/ 等依赖（blocked，附未满足前驱）/ 执行中（running，附时长）/ 疑似卡住（stale_running），是 agent 规划循环的首选。
 
-**可靠性设计**：所有参数经 zod schema 校验——缺参、非法枚举返回 `-32602` 协议错误；不存在的节点/边返回 `isError=true` 和可读的错误消息；非法状态转换明确报错。**工具永远不静默失败**。
+**读取**：`graph_get_node`（节点 + 合法转换 + checkpoint 聚合 + 门禁状态）、`graph_get_graph`（全拓扑 + 邻接）、`graph_traverse`、`graph_search`（query/status/type/assigned_to/level）。
+
+**设计期写入**：`graph_create_node`（一次带 plan/DoD/checkpoints 完整压缩包）、`graph_batch_create`（批量 nodes+edges，先全量预校验报全部冲突）、`graph_add_edge`、`graph_update_node`、`graph_update_graph`（entry/exit/验收标准）、`graph_delete_node`（有引用边默认拒绝，`cascade` 连删）、`graph_delete_edge`。
+
+**执行期写入**：`graph_update_node_status`（`status=running` 传 `claim_by` 完成**原子认领**，并发只有第一个成功）、`graph_update_checkpoint`（checkpoint 状态机 + 幂等）、`graph_update_execution_report`（交接单 + `verification` 裁决结论）。
+
+**版本**：`graph_snapshot` / `graph_diff` / `graph_rollback`（必须 `confirm: true`）。
+
+**可靠性设计**：所有参数经 zod schema 校验——缺参、非法枚举返回 `-32602` 协议错误；不存在的节点/边返回 `isError=true` 和可读的错误消息；非法状态转换/门禁/次数上限明确报错。**工具永远不静默失败**。
 
 ---
 
@@ -378,12 +392,14 @@ graph serve
 # 自动打开默认浏览器访问 http://localhost:8934；CI/无头环境用 `graph serve --no-open`
 ```
 
-- **力导向图**：缩放 / 平移 / 自动适配，按节点状态着色
-- **边类型可视化**：7 种边类型不同颜色，悬停高亮
+- **力导向图**：缩放 / 平移 / 适应视图（修复版）/ 固定布局开关，按节点状态着色
+- **边类型可视化**：7 种边类型不同颜色，悬停高亮，**点击边查看语义与合约**
 - **光点流动**：`running` 节点的下游边有光点沿边流动（"血管"隐喻）
-- **checkpoint 进度条**：节点下方展示子步骤完成进度
+- **checkpoint 进度条**：节点下方展示子步骤完成进度；详情面板含**执行报告（交接单 + 裁决徽标）**
 - **执行者标签**：`running` 节点旁显示 `assigned_to`
-- **WebSocket 增量推送**：节点变更推送 `node:updated` 增量（非全量重推），断线自动 HTTP 回退
+- **分层钻取与搜索**：L0–L5 层级 chips 高亮过滤 + id/label 搜索 + 状态摘要条
+- **版本 diff 视图**：快照列表 → 画布上新增（绿）/ 删除（红）/ 修改（黄）着色 + 状态变化明细
+- **WebSocket 增量推送**：节点变更推送 `node:updated` 增量（非全量重推）；边变更只更新边层不重排布局；**断线指数退避自动重连**（HTTP 兜底刷新）
 
 ---
 
@@ -392,10 +408,11 @@ graph serve
 ```text
 .graph/                    # 运行时目录（graph init 生成，已在 .gitignore）
 ├── graph.yaml             # 图定义：入口/出口/根上下文 + 节点/边引用列表
+├── schema.yaml            # 人类可读的 schema 说明（运行时校验在 core/schema.ts）
 ├── nodes/*.yaml           # 节点文件：plan / checkpoints / expected_outcome / execution_report
 ├── edges/*.yaml           # 边文件：source / target / type / contract
-├── snapshots/             # 版本快照（预留）
-└── index/                 # 派生索引（graph.json / meta.json，可删可重建）
+├── snapshots/<id>/        # 版本快照：manifest + 完整文件副本（graph snapshot）
+└── index/                 # 派生索引（graph.json / meta.json / topology.dot，可删可重建）
 ```
 
 **设计理念：**
@@ -451,15 +468,21 @@ graph --version
 | `❌ Invalid transition: ...` | 跳过了状态机允许的路径。按 `Allowed: [...]` 提示走合法转换 |
 | `❌ MCP error -32602: ...` | 调用 MCP 工具缺参数或传了非法枚举，按提示补参数/改枚举 |
 | `❌ 节点不存在: x` | 该节点不存在（可能是软删除或 id 写错），用 `graph status` / `graph_search` 确认 |
+| `❌ Node x 前置未满足，不能进入 ready/running` | ready 门禁拦截（前驱未全部 passed）。先完成前驱，**不要用 --force**（仅人类运维） |
+| `❌ Node x already claimed by y` | 并发认领竞争失败（原子保护）。换一个 ready 节点 |
+| `❌ Node x 已达最大重试次数` | attempts 用尽。人工介入，或 `graph update-node --plan-desc` 改计划（attempts 自动归零） |
+| `❌ Node x 被 N 条边引用` | 删除会留悬挂引用。`--cascade` 或先 `delete-edge` |
+| `❌ schema 校验失败: ...` | 手改 YAML 拼错字段。`graph validate` 逐文件定位修正 |
 | 改完代码全局命令没变化 | 全局是发布包的快照。`npm version patch && npm publish && npm i -g @lukawi/super-plumber` |
 | `graph serve` 后页面是空图 | 检查 cwd 是否是图所在目录；空图时 UI 会显示空状态引导 |
+| UI 断线不更新 | v0.2 起自动重连（指数退避 + HTTP 兜底）；如服务已退出请重新 `graph serve` |
 
 ---
 
 ## 项目状态
 
 ```text
-Tests: 97/97 ✅ | CLI: 11 命令 | MCP: 9 工具 | 状态机: 7 态 14 转换 | 边类型: 7 种 | Web UI: Svelte 5 + D3.js
+Tests: 216（后端）+ 12（前端）✅ | CLI: 19 命令 | MCP: 18 工具 | 状态机: 7 态 + ready 门禁 + max_attempts | 边类型: 7 种 | 版本控制: snapshot/diff/rollback | Web UI: Svelte 5 + D3.js
 ```
 
 - **npm**: [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)

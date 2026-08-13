@@ -28,14 +28,17 @@ description: Use when 拓扑图已设计并审核通过、需要执行 .graph/ �
 
 ## 执行协议（每个节点，严格按序）
 
+0. **PLAN** — 每轮决策前先 `graph_get_next_actions`（或 CLI `graph next --json`）：一次拿到 ready / blocked(带未满足前驱) / running(带时长) / 疑似卡住清单，不要用 graph_get_graph + graph_search 手工拼。
 1. **CLAIM** — 挑一个 `ready` 节点：`graph_update_node_status {id, status: "running", claim_by: "<你的agent名>"}`。原子记录 `assigned_to` + `started_at`。
-   - **绝不 claim 非 ready 节点**——状态机会拒绝（`Invalid transition`），先 `graph_search {status: ready}` 或 `graph_get_graph` 确认。
+   - **绝不 claim 非 ready 节点**——状态机/门禁会拒绝（`Invalid transition` 或 `前置未满足`），先用 `graph_get_next_actions` 确认 ready。
+   - 并发 claim 是原子的：拿到 `already claimed by X` 说明别的 agent 抢先了——换节点，别重试同节点。
+   - `force` 参数仅人类运维可用，**agent 绝不传**。
 2. **WORK** — 执行 `plan.description`；把 `checkpoints` 当你的清单逐条完成。
-3. **REPORT AS YOU GO** — **每完成一个 checkpoint 立即上报** `graph_update_checkpoint {node_id, checkpoint_id, status}`。**绝不攒到结尾**——完成的未上报 = 丢失的进度。
+3. **REPORT AS YOU GO** — **每完成一个 checkpoint 立即上报** `graph_update_checkpoint {node_id, checkpoint_id, status}`。**绝不攒到结尾**——完成的未上报 = 丢失的进度。（checkpoint 状态机：pending→running→passed 等；同状态重复上报幂等）
 4. **HAND OFF** — 干完立刻 `graph_update_execution_report {node_id, summary, artifacts, blockers, notes}`。artifacts 填**真实文件路径**（验收时会抽查）。
 5. **passed** — 有 execution_report 之后才能标 `passed`。**无报告标 passed 是撒谎。**
 
-> 状态流转：`failed` → `pending` 重试（attempts 自动 +1，到 `max_attempts` 停）；`blocked` → 等依赖解除转 `ready`。见 reference.md 状态机全表。
+> 状态流转：`failed` → `pending` 重试（attempts 自动 +1，到 `max_attempts` 被拦截；修改 plan.description 自动归零）；`blocked` → 等依赖解除转 `ready`。见 reference.md 状态机全表。
 
 ---
 
@@ -43,10 +46,12 @@ description: Use when 拓扑图已设计并审核通过、需要执行 .graph/ �
 
 **两步决策：先看结构，再叠加条件。两条都过才并行。**
 
-### 第一步 · 看拓扑结构（fan_out 批 = 并行候选，fan_in 汇聚 = 强制汇合）
+### 第一步 · 看拓扑结构（`graph_get_next_actions` 直读；fan_out 批 = 并行候选，fan_in 汇聚 = 强制汇合）
 
+- **ready 列表** → 可认领（核心层已验证门禁，直接 claim）
+- **blocked 列表** → 带未满足前驱清单；补齐后自然放行
 - **fan_out 之后的一批节点**（同一上游发散出的多个子任务）→ 天然并行候选——它们互相无依赖，顺序无所谓
-- **fan_in 汇聚点**（多个节点汇入一个下游）→ 必须等**全部**上游 passed 且 execution_report 齐备才能执行汇聚节点——并行后的汇合门，不满足就等
+- **fan_in 汇聚点**（多个节点汇入一个下游）→ 必须等**全部**上游 passed 且 execution_report 齐备才能执行汇聚节点——并行后的汇合门，不满足就等（核心层门禁会拦截提前 claim）
 - 主链（depends_on/validates 串行段）→ 无并行空间，逐个来
 
 ### 第二步 · 叠加并行条件（全部满足才派 subagent）
@@ -93,8 +98,10 @@ entry → l1_discover → l1_extract ──fan_out×10──→ (10个 l2_*) ─
 
 | 错误 | 修正 |
 |------|------|
-| claim 非 ready 节点 | 先 graph_search 确认 ready 再 claim |
+| claim 非 ready 节点 | 先 graph_get_next_actions 确认 ready 再 claim |
 | pending → running 一步到位 | 状态机拒绝。先 ready 再 running |
+| 用 force 绕开门禁/次数上限 | force 仅人类运维，agent 禁用 |
+| 拿到 already claimed 还重试同节点 | 原子认领保护，换节点 |
 | checkpoint 攒到结尾批量报 | 每完成一个立即上报 |
 | 无 execution_report 标 passed | 协议第 5 步，绝不 |
 | 明明可并行却串行（或反之） | 并行决策两步走：结构 + 条件 |

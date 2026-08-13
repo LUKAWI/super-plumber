@@ -1,15 +1,11 @@
 #!/usr/bin/env node
 // Claim a node: ready → running, records assigned_to + started_at.
-// Thin wrapper over the core engine (dist/core/node.js) — does NOT reimplement the state machine.
+// Thin wrapper over the core engine — does NOT reimplement the state machine.
 // Usage: node sp-claim.mjs <node_id> <claim_by>
 // Run from the project directory that contains .graph/
-import { execSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
-import path from "node:path";
-const GLOBAL_CORE = pathToFileURL(
-  path.join(execSync("npm root -g").toString().trim(), "@lukawi/super-plumber/dist/core/node.js"),
-).href;
-const { updateNodeStatus } = await import(GLOBAL_CORE);
+import { loadCore } from "./sp-core.mjs";
+
+const { updateNodeStatus } = await loadCore();
 
 const [id, claimBy] = process.argv.slice(2);
 if (!id || !claimBy) {

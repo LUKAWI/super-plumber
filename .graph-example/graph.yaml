@@ -6,10 +6,10 @@ entry:
   defined_by: human
   level: 0
 exit:
-  description: '可用的MVP：CLI管理图拓扑 + MCP供agent调用 + Web UI可视化 + 纯文件YAML存储'
+  description: '可用的工具：CLI(19命令)管理图拓扑 + MCP(18工具)供agent调用 + Web UI可视化(含diff视图) + 纯文件YAML存储 + 版本快照'
   acceptance_criteria:
-    - CLI 11命令可用
-    - MCP 7工具可用
+    - CLI 19命令可用
+    - MCP 18工具可用
     - Web UI实时可视化
     - YAML文件存储，纯文件系统
   defined_by: human
