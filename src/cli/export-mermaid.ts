@@ -6,16 +6,17 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 function statusClass(status: string): string {
+  // 与 web-ui/index.html CSS 变量、web-ui/src/lib/types.ts 同一调色板
   const map: Record<string, string> = {
-    pending: "fill:#94a3b8,stroke:#475569",
-    ready: "fill:#3b82f6,stroke:#1d4ed8",
-    running: "fill:#f59e0b,stroke:#b45309",
-    passed: "fill:#22c55e,stroke:#16a34a",
-    failed: "fill:#ef4444,stroke:#dc2626",
-    blocked: "fill:#8b5cf6,stroke:#7c3aed",
-    cancelled: "fill:#6b7280,stroke:#4b5563",
+    pending: "fill:#8a8f98,stroke:#5b5f66",
+    ready: "fill:#4a93e8,stroke:#2f6fbc",
+    running: "fill:#f0a73a,stroke:#c07f1d",
+    passed: "fill:#34c964,stroke:#1f9c46",
+    failed: "fill:#e5504f,stroke:#b93231",
+    blocked: "fill:#a574e6,stroke:#7d4fc0",
+    cancelled: "fill:#5b5f66,stroke:#3d4147",
   };
-  return map[status] ?? "fill:#e2e8f0,stroke:#cbd5e1";
+  return map[status] ?? "fill:#8a8f98,stroke:#5b5f66";
 }
 
 export const exportMermaidCommand = new Command("export").alias("x")

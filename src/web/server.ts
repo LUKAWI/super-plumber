@@ -6,7 +6,9 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
 import { buildGraphIndex, type GraphIndex } from "../core/graph.js";
 import { getNode } from "../core/node.js";
+import { readGraph } from "../core/parser.js";
 import { createWatcher, type FileChangeEvent } from "./watcher.js";
+import { listSnapshots, diffSnapshot } from "../core/snapshot.js";
 
 // 静态资源根目录：dist/web/server.js → ../../web-ui/dist
 // 用 fileURLToPath 而非 import.meta.dirname，兼容 Node 20.0–20.10
@@ -15,9 +17,20 @@ const WEB_UI_DIR = fileURLToPath(new URL("../../web-ui/dist", import.meta.url));
 /**
  * 邻接表 Map → 可 JSON 序列化的普通对象。
  * Map 直接 JSON.stringify 会变成 {}，MCP 侧用 Object.fromEntries，Web 侧保持一致。
+ * 传入 rootDir 时附带图元信息（label/id/version，UI 头部展示用；读取失败静默降级）。
  */
-export function serializeGraphIndex(index: GraphIndex) {
+export function serializeGraphIndex(index: GraphIndex, rootDir?: string) {
+  let meta: { id?: string; label?: string; version?: string } = {};
+  if (rootDir) {
+    try {
+      const g = readGraph(rootDir);
+      meta = { id: g.id, label: g.label, version: g.version };
+    } catch {
+      /* graph.yaml 不可读：元信息留空 */
+    }
+  }
   return {
+    ...meta,
     nodes: index.nodes,
     edges: index.edges,
     adjacency: Object.fromEntries(index.adjacency),
@@ -93,9 +106,44 @@ export function startServer(
   options: { open?: boolean } = {},
 ) {
   const server = http.createServer((req, res) => {
-    if (req.url === "/api/graph") {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const respondJson = (data: unknown) => {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(serializeGraphIndex(buildGraphIndex(rootDir))));
+      res.end(JSON.stringify(data));
+    };
+
+    if (url.pathname === "/api/graph") {
+      respondJson(serializeGraphIndex(buildGraphIndex(rootDir), rootDir));
+      return;
+    }
+    // 快照列表（UI diff 视图数据源）
+    if (url.pathname === "/api/snapshots") {
+      try {
+        respondJson(listSnapshots(rootDir));
+      } catch (err: any) {
+        res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end(err.message);
+      }
+      return;
+    }
+    // 拓扑差异：?against=<snapshot-id>（缺省 = 最新快照 vs 当前工作区）
+    if (url.pathname === "/api/diff") {
+      try {
+        const against = url.searchParams.get("against") ?? undefined;
+        let fromId: string | null = against ?? null;
+        if (fromId === null) {
+          const snaps = listSnapshots(rootDir);
+          fromId = snaps.length > 0 ? snaps[snaps.length - 1].id : null;
+        }
+        if (fromId === null) {
+          respondJson({ error: "no snapshots" });
+        } else {
+          respondJson(diffSnapshot(rootDir, fromId, null));
+        }
+      } catch (err: any) {
+        res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end(err.message);
+      }
       return;
     }
     serveStatic(req, res);
@@ -128,7 +176,7 @@ export function startServer(
     ws.send(
       JSON.stringify({
         type: "graph:full",
-        data: serializeGraphIndex(buildGraphIndex(rootDir)),
+        data: serializeGraphIndex(buildGraphIndex(rootDir), rootDir),
       }),
     );
   });
@@ -165,7 +213,7 @@ export function startServer(
       type: "graph:update",
       data: {
         ...event,
-        graph: serializeGraphIndex(buildGraphIndex(rootDir)),
+        graph: serializeGraphIndex(buildGraphIndex(rootDir), rootDir),
       },
     });
   });

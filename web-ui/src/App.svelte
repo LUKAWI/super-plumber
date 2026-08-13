@@ -2,6 +2,8 @@
   import { onMount, onDestroy } from "svelte";
   import GraphCanvas from "./components/GraphCanvas.svelte";
   import NodeDetail from "./components/NodeDetail.svelte";
+  import EdgeDetail from "./components/EdgeDetail.svelte";
+  import DiffPanel from "./components/DiffPanel.svelte";
   import { connectGraph } from "./lib/api";
   import { graphState } from "./lib/store.svelte";
 
@@ -15,18 +17,56 @@
         graphState.setGraph(g);
         connected = true;
       },
-      (nodeId, node) => graphState.patchNode(nodeId, node)
+      (nodeId, node) => graphState.patchNode(nodeId, node),
     );
   });
   onDestroy(() => disconnect?.());
+
+  // 层级过滤（L0–L5，P4-4 分层钻取）
+  const LEVELS = [0, 1, 2, 3, 4, 5];
+  const levelsPresent = $derived(
+    graphState.graph
+      ? [...new Set(graphState.graph.nodes.map((n) => n.level))].sort((a, b) => a - b)
+      : [],
+  );
+
+  const summary = $derived.by(() => {
+    const g = graphState.graph;
+    if (!g) return null;
+    const s = { total: g.nodes.length, passed: 0, running: 0, blocked: 0, failed: 0, ready: 0 };
+    for (const n of g.nodes) {
+      if (n.status === "passed") s.passed++;
+      else if (n.status === "running") s.running++;
+      else if (n.status === "blocked") s.blocked++;
+      else if (n.status === "failed") s.failed++;
+      else if (n.status === "ready") s.ready++;
+    }
+    return s;
+  });
 </script>
 
 <div class="app">
   <header class="header">
     <div class="brand">
       <span class="logo" aria-hidden="true">⬡</span>
-      <h1 class="title">TOPOGRAPH</h1>
+      <div class="brand-text">
+        <h1 class="title">SUPER PLUMBER</h1>
+        {#if graphState.graph}
+          <span class="graph-label">{graphState.graph.label}</span>
+        {/if}
+      </div>
     </div>
+
+    {#if summary}
+      <div class="status-bar" aria-label="状态摘要">
+        <span class="sb-item total">{summary.total}<span class="sb-unit">total</span></span>
+        <span class="sb-item ready">{summary.ready}<span class="sb-unit">ready</span></span>
+        <span class="sb-item running">{summary.running}<span class="sb-unit">running</span></span>
+        <span class="sb-item passed">{summary.passed}<span class="sb-unit">passed</span></span>
+        <span class="sb-item blocked">{summary.blocked}<span class="sb-unit">blocked</span></span>
+        <span class="sb-item failed">{summary.failed}<span class="sb-unit">failed</span></span>
+      </div>
+    {/if}
 
     <nav class="legend" aria-label="状态图例">
       {#each [
@@ -45,14 +85,43 @@
       {/each}
     </nav>
 
-    {#if graphState.graph}
-      <div class="stats">
-        <span class="stat">{graphState.graph.nodes.length}<span class="stat-unit">n</span></span>
-        <span class="stat-divider">·</span>
-        <span class="stat">{graphState.graph.edges.length}<span class="stat-unit">e</span></span>
-      </div>
-    {/if}
+    <div class="stats">
+      <span class="stat">{graphState.graph?.nodes.length ?? 0}<span class="stat-unit">n</span></span>
+      <span class="stat-divider">·</span>
+      <span class="stat">{graphState.graph?.edges.length ?? 0}<span class="stat-unit">e</span></span>
+      {#if !connected}
+        <span class="conn-off" title="连接中断，自动重连中">offline</span>
+      {/if}
+    </div>
   </header>
+
+  {#if graphState.graph && levelsPresent.length > 0}
+    <div class="filter-bar">
+      <div class="level-chips" role="group" aria-label="按层级过滤">
+        {#each LEVELS.filter((l) => levelsPresent.includes(l)) as l}
+          <button
+            class="level-chip {graphState.levelFilter?.includes(l) ? 'active' : ''}"
+            onclick={() => graphState.toggleLevel(l)}
+          >
+            L{l}
+          </button>
+        {/each}
+        {#if graphState.levelFilter}
+          <button class="level-chip clear" onclick={() => graphState.setLevelFilter(null)}>
+            清除
+          </button>
+        {/if}
+      </div>
+      <input
+        class="search-input"
+        type="search"
+        placeholder="搜索 id / label…"
+        value={graphState.query}
+        oninput={(e) => graphState.setQuery((e.currentTarget as HTMLInputElement).value)}
+        aria-label="搜索节点"
+      />
+    </div>
+  {/if}
 
   <main class="main">
     {#if !connected}
@@ -72,7 +141,7 @@
             <line x1="70" y1="35" x2="80" y2="55" class="skeleton-edge"/>
           </svg>
         </div>
-        <p class="loading-text">connecting to topology service...</p>
+        <p class="loading-text">connecting to topology service…</p>
       </div>
     {:else if graphState.graph && graphState.graph.nodes.length === 0}
       <div class="empty-state">
@@ -89,10 +158,12 @@
       </div>
     {:else}
       <GraphCanvas />
+      <DiffPanel />
     {/if}
   </main>
 
   <NodeDetail />
+  <EdgeDetail />
 </div>
 
 <style>
@@ -115,12 +186,19 @@
     background: var(--surface-1);
     user-select: none;
     flex-shrink: 0;
+    flex-wrap: wrap;
   }
 
   .brand {
     display: flex;
     align-items: center;
     gap: var(--sp-2);
+  }
+
+  .brand-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
   }
 
   .logo {
@@ -137,7 +215,53 @@
     margin: 0;
     color: var(--ink);
     text-transform: uppercase;
+    line-height: 1.2;
   }
+
+  .graph-label {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--ink-faint);
+    letter-spacing: var(--track-label);
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ── 状态摘要条 ── */
+  .status-bar {
+    display: flex;
+    gap: var(--sp-1);
+    margin-left: var(--sp-2);
+  }
+
+  .sb-item {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    padding: var(--sp-1) var(--sp-2);
+    border-radius: var(--r-sm);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    color: var(--ink-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sb-unit {
+    font-size: var(--text-2xs);
+    font-weight: 400;
+    color: var(--ink-faint);
+    margin-left: 3px;
+    text-transform: lowercase;
+  }
+
+  .sb-item.total { color: var(--ink); }
+  .sb-item.ready { color: var(--status-ready); }
+  .sb-item.running { color: var(--status-running); }
+  .sb-item.passed { color: var(--status-passed); }
+  .sb-item.blocked { color: var(--status-blocked); }
+  .sb-item.failed { color: var(--status-failed); }
 
   /* ── Legend ── */
   .legend {
@@ -183,6 +307,9 @@
     color: var(--ink-muted);
     font-variant-numeric: tabular-nums;
     letter-spacing: var(--track-label);
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
   }
 
   .stat {
@@ -196,8 +323,77 @@
   }
 
   .stat-divider {
-    margin: 0 var(--sp-2);
     color: var(--ink-faint);
+  }
+
+  .conn-off {
+    color: var(--status-failed);
+    font-size: var(--text-2xs);
+    border: 1px solid rgba(229, 80, 79, 0.5);
+    border-radius: var(--r-sm);
+    padding: 1px var(--sp-1);
+  }
+
+  /* ── Filter bar ── */
+  .filter-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: var(--sp-2) var(--sp-4);
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-1);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+
+  .level-chips {
+    display: flex;
+    gap: var(--sp-1);
+  }
+
+  .level-chip {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    padding: 2px var(--sp-2);
+    border-radius: var(--r-sm);
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--ink-muted);
+    cursor: pointer;
+    letter-spacing: var(--track-label);
+    transition: background 0.15s var(--ease-out-quart), color 0.15s var(--ease-out-quart), border-color 0.15s var(--ease-out-quart);
+  }
+
+  .level-chip:hover {
+    color: var(--ink);
+    border-color: var(--line-strong);
+  }
+
+  .level-chip.active {
+    background: var(--surface-3);
+    color: var(--ink);
+    border-color: var(--line-strong);
+  }
+
+  .level-chip.clear {
+    color: var(--ink-faint);
+  }
+
+  .search-input {
+    margin-left: auto;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    color: var(--ink);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    padding: var(--sp-1) var(--sp-2);
+    width: 200px;
+    outline: none;
+  }
+
+  .search-input:focus {
+    border-color: var(--line-strong);
   }
 
   /* ── Main ── */
@@ -337,11 +533,9 @@
       padding: var(--sp-2) var(--sp-3);
       gap: var(--sp-2);
     }
-    .legend {
-      display: none;
-    }
-    .title {
-      font-size: var(--text-xs);
-    }
+    .legend { display: none; }
+    .status-bar { display: none; }
+    .title { font-size: var(--text-xs); }
+    .search-input { width: 120px; }
   }
 </style>

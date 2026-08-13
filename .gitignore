@@ -2,6 +2,7 @@ node_modules/
 dist/
 web-ui/node_modules/
 web-ui/dist/
+web-ui/.npm-cache/
 
 # 运行时目录（graph init 生成），不入库
 .graph/

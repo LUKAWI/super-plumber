@@ -19,6 +19,7 @@ export type EdgeType =
 export interface Plan {
 	description: string;
 	input_from?: { node: string; artifact: string }[];
+	required_context?: { key: string; source: string }[];
 	output_to?: { node: string; artifact: string }[];
 }
 
@@ -66,16 +67,28 @@ export interface NodeSchema {
 	[key: string]: unknown;
 }
 
+export interface EdgeContract {
+	produces?: string;
+	consumed_by?: { artifact: string; used_as: string }[];
+	validation?: { required: boolean; method: string };
+}
+
 export interface EdgeSchema {
 	id: string;
 	source: string;
 	target: string;
 	type: EdgeType;
+	contract?: EdgeContract;
 }
 
 export interface GraphIndex {
+	id?: string;
+	label?: string;
+	version?: string;
 	nodes: NodeSchema[];
 	edges: EdgeSchema[];
+	adjacency?: Record<string, string[]>;
+	reverseAdj?: Record<string, string[]>;
 }
 
 export interface WsMessage {
@@ -108,12 +121,15 @@ export const EDGE_TYPE_LABELS: Record<EdgeType, string> = {
 	iterates: "迭代",
 };
 
+// 状态色单一来源（与 web-ui/index.html 的 CSS 变量、CLI export-mermaid 保持一致）：
+// pending #8a8f98 | ready #4a93e8 | running #f0a73a | passed #34c964
+// failed #e5504f | blocked #a574e6 | cancelled #5b5f66
 export const STATUS_COLORS: Record<NodeStatus, string> = {
-	pending: "#6b7280",
-	ready: "#3b82f6",
-	running: "#f59e0b",
-	passed: "#22c55e",
-	failed: "#ef4444",
-	blocked: "#8b5cf6",
-	cancelled: "#64748b",
+	pending: "#8a8f98",
+	ready: "#4a93e8",
+	running: "#f0a73a",
+	passed: "#34c964",
+	failed: "#e5504f",
+	blocked: "#a574e6",
+	cancelled: "#5b5f66",
 };

@@ -100,6 +100,40 @@
               <li>{item}</li>
             {/each}
           </ul>
+          {#if graphState.selectedNode.expected_outcome.quality_gates && graphState.selectedNode.expected_outcome.quality_gates.length > 0}
+            <div class="sub-list">
+              <span class="sub-label">quality gates:</span>
+              {#each graphState.selectedNode.expected_outcome.quality_gates as gate}
+                <span class="chip">{gate.check} · {gate.method}</span>
+              {/each}
+            </div>
+          {/if}
+        </section>
+      {/if}
+
+      <!-- Plan inputs / context -->
+      {#if (graphState.selectedNode.plan?.input_from && graphState.selectedNode.plan.input_from.length > 0) || (graphState.selectedNode.plan?.required_context && graphState.selectedNode.plan.required_context.length > 0)}
+        <section class="section">
+          <h3 class="section-title">
+            <span class="section-icon">▸</span>
+            INPUTS &amp; CONTEXT
+          </h3>
+          {#if graphState.selectedNode.plan?.input_from && graphState.selectedNode.plan.input_from.length > 0}
+            <div class="sub-list">
+              <span class="sub-label">input from:</span>
+              {#each graphState.selectedNode.plan.input_from as inp}
+                <span class="chip">{inp.node} · {inp.artifact}</span>
+              {/each}
+            </div>
+          {/if}
+          {#if graphState.selectedNode.plan?.required_context && graphState.selectedNode.plan.required_context.length > 0}
+            <div class="sub-list">
+              <span class="sub-label">context:</span>
+              {#each graphState.selectedNode.plan.required_context as ctx}
+                <span class="chip">{ctx.key} ← {ctx.source}</span>
+              {/each}
+            </div>
+          {/if}
         </section>
       {/if}
 
@@ -129,12 +163,71 @@
         </section>
       {/if}
 
+      <!-- Execution report（交接单，P4-3）-->
+      {#if graphState.selectedNode.execution_report}
+        <section class="section">
+          <h3 class="section-title">
+            <span class="section-icon">▸</span>
+            EXECUTION REPORT
+          </h3>
+          <p class="plan-desc">{graphState.selectedNode.execution_report.summary || '(no summary)'}</p>
+
+          {#if graphState.selectedNode.execution_report.verification}
+            <div class="verdict-row">
+              <span
+                class="verdict-badge {graphState.selectedNode.execution_report.verification.verdict}"
+              >
+                {graphState.selectedNode.execution_report.verification.verdict}
+              </span>
+              {#if graphState.selectedNode.execution_report.verification.note}
+                <span class="verdict-note">{graphState.selectedNode.execution_report.verification.note}</span>
+              {/if}
+            </div>
+          {/if}
+
+          {#if graphState.selectedNode.execution_report.artifacts && graphState.selectedNode.execution_report.artifacts.length > 0}
+            <div class="sub-list">
+              <span class="sub-label">artifacts:</span>
+              {#each graphState.selectedNode.execution_report.artifacts as art}
+                <span class="chip">{art}</span>
+              {/each}
+            </div>
+          {/if}
+          {#if graphState.selectedNode.execution_report.blockers && graphState.selectedNode.execution_report.blockers.length > 0}
+            <div class="sub-list">
+              <span class="sub-label">blockers:</span>
+              {#each graphState.selectedNode.execution_report.blockers as b}
+                <span class="chip chip-warn">{b}</span>
+              {/each}
+            </div>
+          {/if}
+          {#if graphState.selectedNode.execution_report.notes}
+            <div class="sub-list">
+              <span class="sub-label">notes:</span>
+              <span class="plan-desc">{graphState.selectedNode.execution_report.notes}</span>
+            </div>
+          {/if}
+        </section>
+      {/if}
+
       <!-- Footer info -->
       <div class="footer-info">
         <span>
           <span class="footer-label">attempts:</span>
           {graphState.selectedNode.attempts}/{graphState.selectedNode.max_attempts}
         </span>
+        {#if graphState.selectedNode.execution_report?.started_at}
+          <span>
+            <span class="footer-label">started:</span>
+            {new Date(graphState.selectedNode.execution_report.started_at).toLocaleString()}
+          </span>
+        {/if}
+        {#if graphState.selectedNode.execution_report?.completed_at}
+          <span>
+            <span class="footer-label">done:</span>
+            {new Date(graphState.selectedNode.execution_report.completed_at).toLocaleString()}
+          </span>
+        {/if}
         {#if graphState.selectedNode.created_at}
           <span>
             <span class="footer-label">created:</span>
@@ -507,11 +600,62 @@
     opacity: 0.7;
   }
 
+  /* Verdict（裁决徽标） */
+  .verdict-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    margin-bottom: var(--sp-3);
+  }
+
+  .verdict-badge {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: var(--track-caps);
+    padding: 3px var(--sp-2);
+    border-radius: var(--r-sm);
+  }
+
+  .verdict-badge.passed {
+    background: rgba(52, 201, 100, 0.14);
+    color: var(--status-passed);
+    border: 1px solid rgba(52, 201, 100, 0.4);
+  }
+
+  .verdict-badge.failed {
+    background: rgba(229, 80, 79, 0.14);
+    color: var(--status-failed);
+    border: 1px solid rgba(229, 80, 79, 0.4);
+  }
+
+  .verdict-badge.pending {
+    background: rgba(240, 167, 58, 0.14);
+    color: var(--status-running);
+    border: 1px solid rgba(240, 167, 58, 0.4);
+  }
+
+  .verdict-note {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--ink-muted);
+  }
+
+  .chip-warn {
+    color: var(--status-failed);
+    border-color: rgba(229, 80, 79, 0.4);
+  }
+
   /* Responsive */
   @media (max-width: 768px) {
     .detail-panel {
       width: 100%;
       max-width: 100%;
+    }
+    .footer-info {
+      flex-direction: column;
+      gap: var(--sp-1);
     }
   }
 
