@@ -1,4 +1,4 @@
-# Super Plumber 🚰 — Workflow Topology Graph Manager
+# Super Plumber 🚰 — AI Agent Workflow Topology Graph Manager
 
 > Turn "task documents" into **graphs agents can natively understand**: nodes are tasks, edges are dependencies, a state machine owns the lifecycle.
 > One install, three access layers (CLI / MCP / Web UI), pure YAML file storage (no database, no server).
