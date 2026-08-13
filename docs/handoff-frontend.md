@@ -1,3 +1,4 @@
+> ⚠️ 历史文档（v0.1.x 时代）：本文件是当时会话的交接记录，内容可能已过时。最新状态以 CHANGELOG.md、README.md 与 CONTEXT.md 为准。
 # Handoff：TopoGraph 前端修复
 
 > 下一阶段：独立修复和优化 Web UI（Svelte 5 + D3.js）前端的显示与样式。

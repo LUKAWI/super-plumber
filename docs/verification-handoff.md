@@ -1,3 +1,4 @@
+> ⚠️ 历史文档（v0.1.x 时代）：本文件是当时会话的交接记录，内容可能已过时。最新状态以 CHANGELOG.md、README.md 与 CONTEXT.md 为准。
 # Handoff：TopoGraph 项目独立验证校验清单
 
 > 下一阶段：派遣独立 agent 会话，验证产品是否达到计划的功能和性能要求，全面扫描代码做 debug 和测试。
