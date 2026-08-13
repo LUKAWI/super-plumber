@@ -2,24 +2,27 @@ import { spawn } from "node:child_process";
 import * as http from "node:http";
 import * as path from "node:path";
 import * as fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
-import { buildGraphIndex } from "../core/graph.js";
+import { buildGraphIndex, type GraphIndex } from "../core/graph.js";
 import { getNode } from "../core/node.js";
 import { createWatcher, type FileChangeEvent } from "./watcher.js";
 
-const WEB_UI_DIR = path.resolve(
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-  (import.meta as any).dirname ?? __dirname,
-  "../../web-ui/dist",
-);
+// 静态资源根目录：dist/web/server.js → ../../web-ui/dist
+// 用 fileURLToPath 而非 import.meta.dirname，兼容 Node 20.0–20.10
+const WEB_UI_DIR = fileURLToPath(new URL("../../web-ui/dist", import.meta.url));
 
-/** 从文件路径解析出事件类型（node 变更 / edge 变更 / 其他）。Windows 路径用反斜杠，统一正斜杠 */
-function classifyEvent(file: string): "node" | "edge" | "graph" | "other" {
-  const f = file.replace(/\\/g, "/");
-  if (f.startsWith(".graph/nodes/") && f.endsWith(".yaml")) return "node";
-  if (f.startsWith(".graph/edges/") && f.endsWith(".yaml")) return "edge";
-  if (f === ".graph/graph.yaml") return "graph";
-  return "other";
+/**
+ * 邻接表 Map → 可 JSON 序列化的普通对象。
+ * Map 直接 JSON.stringify 会变成 {}，MCP 侧用 Object.fromEntries，Web 侧保持一致。
+ */
+export function serializeGraphIndex(index: GraphIndex) {
+  return {
+    nodes: index.nodes,
+    edges: index.edges,
+    adjacency: Object.fromEntries(index.adjacency),
+    reverseAdj: Object.fromEntries(index.reverseAdj),
+  };
 }
 
 /** 自动打开默认浏览器（平台分发；spawn 失败静默，不阻塞服务） */
@@ -45,6 +48,45 @@ export function openBrowser(
   }
 }
 
+/**
+ * 静态文件服务：解码路径 → 归一化 → 强制约束在 WEB_UI_DIR 内。
+ * 防路径穿越：/../、%2e%2e、反斜杠变体统一拒绝（403）。
+ */
+function serveStatic(req: http.IncomingMessage, res: http.ServerResponse): void {
+  const rawPath = (req.url ?? "/").split("?")[0];
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(rawPath);
+  } catch {
+    res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("Bad Request");
+    return;
+  }
+
+  let filePath = path.normalize(path.join(WEB_UI_DIR, decoded));
+  const webRoot = path.resolve(WEB_UI_DIR);
+  if (filePath !== webRoot && !filePath.startsWith(webRoot + path.sep)) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("Forbidden");
+    return;
+  }
+
+  if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+    filePath = path.join(WEB_UI_DIR, "index.html");
+  }
+
+  const ext = path.extname(filePath);
+  const mime: Record<string, string> = {
+    ".html": "text/html",
+    ".js": "application/javascript",
+    ".css": "text/css",
+    ".json": "application/json",
+    ".svg": "image/svg+xml",
+  };
+  res.writeHead(200, { "Content-Type": mime[ext] ?? "application/octet-stream" });
+  res.end(fs.readFileSync(filePath));
+}
+
 export function startServer(
   rootDir: string,
   port: number = 8934,
@@ -53,28 +95,10 @@ export function startServer(
   const server = http.createServer((req, res) => {
     if (req.url === "/api/graph") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(buildGraphIndex(rootDir)));
+      res.end(JSON.stringify(serializeGraphIndex(buildGraphIndex(rootDir))));
       return;
     }
-    let filePath = path.join(
-      WEB_UI_DIR,
-      req.url === "/" ? "index.html" : req.url!,
-    );
-    if (!fs.existsSync(filePath)) {
-      filePath = path.join(WEB_UI_DIR, "index.html");
-    }
-    const ext = path.extname(filePath);
-    const mime: Record<string, string> = {
-      ".html": "text/html",
-      ".js": "application/javascript",
-      ".css": "text/css",
-      ".json": "application/json",
-      ".svg": "image/svg+xml",
-    };
-    res.writeHead(200, {
-      "Content-Type": mime[ext] ?? "application/octet-stream",
-    });
-    res.end(fs.readFileSync(filePath));
+    serveStatic(req, res);
   });
 
   const wss = new WebSocketServer({ server });
@@ -104,7 +128,7 @@ export function startServer(
     ws.send(
       JSON.stringify({
         type: "graph:full",
-        data: buildGraphIndex(rootDir),
+        data: serializeGraphIndex(buildGraphIndex(rootDir)),
       }),
     );
   });
@@ -139,7 +163,10 @@ export function startServer(
     // 边 / 图 / 其他变更 → 全量推送（低频事件，全量可接受）
     broadcast({
       type: "graph:update",
-      data: { ...event, graph: buildGraphIndex(rootDir) },
+      data: {
+        ...event,
+        graph: serializeGraphIndex(buildGraphIndex(rootDir)),
+      },
     });
   });
 
@@ -153,11 +180,22 @@ export function startServer(
   });
 
   server.listen(port, () => {
-    const url = `http://localhost:${port}`;
+    const addr = server.address();
+    const actualPort = typeof addr === "object" && addr !== null ? addr.port : port;
+    const url = `http://localhost:${actualPort}`;
     console.log(`🌐 拓扑图可视化服务: ${url}`);
     console.log(`📁 监控目录: ${path.join(rootDir, ".graph")}`);
     if (options.open !== false) openBrowser(url);
   });
 
   return { server, wss, watcher };
+}
+
+/** 从文件路径解析出事件类型（node 变更 / edge 变更 / 其他）。Windows 路径用反斜杠，统一正斜杠 */
+function classifyEvent(file: string): "node" | "edge" | "graph" | "other" {
+  const f = file.replace(/\\/g, "/");
+  if (f.startsWith(".graph/nodes/") && f.endsWith(".yaml")) return "node";
+  if (f.startsWith(".graph/edges/") && f.endsWith(".yaml")) return "edge";
+  if (f === ".graph/graph.yaml") return "graph";
+  return "other";
 }

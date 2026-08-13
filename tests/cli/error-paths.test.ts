@@ -100,6 +100,27 @@ describe("CLI error paths (regression)", () => {
     expect(r.stderr).toContain("未初始化");
   });
 
+  it("BUG-06b validate nodes 目录损坏（是文件非目录）→ exit 1 而非假成功", () => {
+    init();
+    run(["create-node", "--id", "a", "--label", "A"]);
+    // 把 nodes 目录换成同名文件 → listNodes readdirSync 抛错
+    fs.rmSync(path.join(tmpDir, ".graph/nodes"), { recursive: true, force: true });
+    fs.writeFileSync(path.join(tmpDir, ".graph/nodes"), "not a directory");
+    const r = run(["validate"]);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("无法读取 nodes/ 目录");
+  });
+
+  it("BUG-06c validate edges 目录损坏 → exit 1 而非假成功", () => {
+    init();
+    run(["create-node", "--id", "a", "--label", "A"]);
+    fs.rmSync(path.join(tmpDir, ".graph/edges"), { recursive: true, force: true });
+    fs.writeFileSync(path.join(tmpDir, ".graph/edges"), "not a directory");
+    const r = run(["validate"]);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("无法读取 edges/ 目录");
+  });
+
   it("BUG-07 rebuild 未 init → exit 1 且不自动创建 index", () => {
     const r = run(["rebuild"]);
     expect(r.status).toBe(1);

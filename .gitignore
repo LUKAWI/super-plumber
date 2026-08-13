@@ -7,3 +7,6 @@ web-ui/dist/
 .graph/
 # 示例图派生索引（rebuild 产物）
 .graph-example/index/
+
+# 公众号推文草稿（不入库）
+wechat-*.md

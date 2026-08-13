@@ -70,7 +70,7 @@ npm install -g @lukawi/super-plumber
 ### 2. Verify the install
 
 ```bash
-graph --version     # prints 0.1.1 on success
+graph --version     # prints 0.2.0 on success
 graph --help        # lists all 11 commands
 which graph         # confirm location (Windows: where graph)
 ```

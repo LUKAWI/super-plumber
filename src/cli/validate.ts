@@ -40,7 +40,7 @@ export const validateCommand = new Command("validate").alias("v")
       errors++;
       console.error(`❌  无法读取 nodes/ 目录`);
       console.log(`\n📊 结果: ${errors} 错误, ${warnings} 警告`);
-      return;
+      process.exit(1); // 错误路径必须非 0 退出，供脚本/CI 判断
     }
 
     if (nodes.length === 0) {
@@ -71,7 +71,7 @@ export const validateCommand = new Command("validate").alias("v")
       errors++;
       console.error(`❌  无法读取 edges/ 目录`);
       console.log(`\n📊 结果: ${errors} 错误, ${warnings} 警告`);
-      return;
+      process.exit(1); // 错误路径必须非 0 退出，供脚本/CI 判断
     }
 
     const nodeIds = new Set(nodes.map((n) => n.id));

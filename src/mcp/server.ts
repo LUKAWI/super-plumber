@@ -16,12 +16,13 @@ import {
 import { deleteNode } from "../core/parser.js";
 import { buildGraphIndex } from "../core/graph.js";
 import { NodeType, NodeStatus } from "../core/types.js";
+import { VERSION } from "../version.js";
 
 const rootDir = process.cwd();
 
 const server = new McpServer({
   name: "super-plumber",
-  version: "0.1.1",
+  version: VERSION,
 });
 
 // zod 4.x 中 z.nativeEnum deprecated，用 z.enum 显式枚举

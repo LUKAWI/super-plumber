@@ -1,8 +1,11 @@
 {
   "name": "@lukawi/super-plumber",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "工作流拓扑图管理工具（Super Plumber）— 将任务文档重构为 agent 可原生理解的拓扑结构",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "bin": {
     "graph": "./dist/cli/index.js",
     "graph-mcp": "./dist/mcp/server.js"
@@ -31,6 +34,7 @@
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
     "dev": "tsc --watch",
     "prepublishOnly": "npm test && npm run build && npm --prefix web-ui run build"
   },
@@ -39,7 +43,8 @@
     "chokidar": "^4.0.0",
     "commander": "^12.0.0",
     "js-yaml": "^4.1.0",
-    "ws": "^8.0.0"
+    "ws": "^8.0.0",
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.0",

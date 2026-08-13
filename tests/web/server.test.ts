@@ -1,0 +1,97 @@
+// tests/web/server.test.ts
+// Web 服务测试：静态文件服务、路径穿越防护（含 URL 编码与反斜杠变体）、
+// /api/graph 的 adjacency 必须序列化为普通对象（Map 直出会变成 {}）。
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import * as fs from "node:fs";
+import * as http from "node:http";
+import * as os from "node:os";
+import * as path from "node:path";
+import { startServer } from "../../src/web/server.js";
+
+let tmpDir: string;
+let server: ReturnType<typeof startServer>;
+let port: number;
+
+beforeAll(async () => {
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "topo-web-test-"));
+  fs.mkdirSync(path.join(tmpDir, ".graph"), { recursive: true });
+  server = startServer(tmpDir, 0, { open: false });
+  await new Promise<void>((resolve) => server.server.once("listening", resolve));
+  const addr = server.server.address();
+  if (addr === null || typeof addr === "string") throw new Error("no port");
+  port = addr.port;
+});
+
+afterAll(async () => {
+  await server.watcher.close();
+  await new Promise<void>((resolve) => server.wss.close(() => resolve()));
+  await new Promise<void>((resolve) => server.server.close(() => resolve()));
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+/** 原生 http 请求（fetch/undici 会预先把 /../ 归一化，无法测试服务端防护） */
+function rawRequest(pathname: string): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      { host: "127.0.0.1", port, path: pathname },
+      (res) => {
+        let body = "";
+        res.on("data", (c) => (body += c));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+describe("web server static serving", () => {
+  it("GET / 返回 index.html（SPA 兜底）", async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    expect(await res.text()).toContain("<!doctype html>");
+  });
+
+  it("GET /index.html 200", async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/index.html`);
+    expect(res.status).toBe(200);
+  });
+
+  it("GET /api/graph 返回 JSON，adjacency 是普通对象且可展开", async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/api/graph`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(Array.isArray(body.nodes)).toBe(true);
+    expect(Array.isArray(body.edges)).toBe(true);
+    expect(typeof body.adjacency).toBe("object");
+    expect(body.adjacency).not.toBe(null);
+    // 历史 bug：Map 直接 stringify → {}，键全部丢失
+    expect(JSON.stringify(body.adjacency)).not.toBe("{}");
+  });
+
+  it("路径穿越 /../package.json 被拒绝（403）", async () => {
+    const { status } = await rawRequest("/../package.json");
+    expect(status).toBe(403);
+  });
+
+  it("URL 编码穿越 /%2e%2e/package.json 被拒绝（403）", async () => {
+    const { status } = await rawRequest("/%2e%2e/package.json");
+    expect(status).toBe(403);
+  });
+
+  it("反斜杠穿越 /..%5c..%5cpackage.json 被拒绝（403）", async () => {
+    const { status } = await rawRequest("/..%5c..%5cpackage.json");
+    expect(status).toBe(403);
+  });
+
+  it("深层穿越 /%2e%2e/%2e%2e/%2e%2e/Windows/win.ini 被拒绝", async () => {
+    const { status } = await rawRequest("/%2e%2e/%2e%2e/%2e%2e/Windows/win.ini");
+    expect(status).toBe(403);
+  });
+
+  it("非法 URL 编码（%zz）返回 400 而非崩溃", async () => {
+    const { status } = await rawRequest("/%zz");
+    expect(status).toBe(400);
+  });
+});

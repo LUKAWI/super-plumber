@@ -1,6 +1,7 @@
 // src/cli/init.ts
 import { Command } from "commander";
 import { writeGraph } from "../core/parser.js";
+import { VERSION } from "../version.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -20,7 +21,7 @@ export const initCommand = new Command("init").alias("i")
     }
     const graph = {
       id: `graph_${Date.now()}`,
-      version: "0.1.1",
+      version: VERSION,
       label: options.label,
       entry: {
         description: "",

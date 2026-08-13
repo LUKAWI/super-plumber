@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // src/cli/index.ts
 import { Command } from "commander";
+import { VERSION } from "../version.js";
 import { initCommand } from "./init.js";
 import { createNodeCommand } from "./create-node.js";
 import { addEdgeCommand } from "./add-edge.js";
@@ -18,7 +19,7 @@ const program = new Command();
 program
   .name("graph")
   .description("工作流拓扑图管理工具")
-  .version("0.1.1");
+  .version(VERSION);
 
 program.addCommand(initCommand);
 program.addCommand(createNodeCommand);
