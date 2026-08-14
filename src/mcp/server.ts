@@ -19,6 +19,7 @@ import {
   updateNodeContent,
   buildNodeUpdates,
   checkReadyGate,
+  reclaimNode,
   listNodes,
 } from "../core/node.js";
 import { createEdge as createEdgeOp, listEdges } from "../core/edge.js";
@@ -80,19 +81,42 @@ server.registerTool(
   {
     description:
       "读取单个节点的完整内容（解压压缩包）。Use when you need a node's plan, checkpoints, definition_of_done or execution state. " +
-      "Returns the node plus allowed_transitions (legal next statuses), checkpoint_aggregate, and ready_gate (whether its predecessors have passed) — one call answers \"what can I do next with this node\".",
-    inputSchema: { id: z.string().describe("节点 ID") },
+      "Returns the node plus allowed_transitions (legal next statuses), checkpoint_aggregate, and ready_gate (whether its predecessors have passed) — one call answers \"what can I do next with this node\". " +
+      "include_neighbors=up/down 附加拓扑相邻节点紧凑列表（基于索引缓存，零额外文件扫描），需要局部拓扑时用它替代 graph_traverse.",
+    inputSchema: {
+      id: z.string().describe("节点 ID"),
+      include_neighbors: z
+        .enum(["up", "down", "none"])
+        .optional()
+        .default("none")
+        .describe("附加返回拓扑上游(up)/下游(down)相邻节点（紧凑字段）"),
+    },
   },
-  async ({ id }) => {
+  async ({ id, include_neighbors }) => {
     const node = getNode(rootDir, id);
-    return jsonText({
+    const result: Record<string, unknown> = {
       node,
       allowed_transitions: getAllowedTransitions(node.status),
       checkpoint_aggregate: node.checkpoints?.length
         ? aggregateCheckpointStatus(node.checkpoints)
         : null,
       ready_gate: checkReadyGate(rootDir, node.id),
-    });
+    };
+    if (include_neighbors !== "none") {
+      const index = buildGraphIndex(rootDir, { useCache: true });
+      const statusOf = new Map(index.nodes.map((n) => [n.id, n.status]));
+      const compact = (ids: string[]) =>
+        ids.map((nid) => ({
+          id: nid,
+          status: statusOf.get(nid) ?? "missing",
+        }));
+      if (include_neighbors === "up") {
+        result.neighbors_up = compact(index.reverseAdj.get(id) ?? []);
+      } else if (include_neighbors === "down") {
+        result.neighbors_down = compact(index.adjacency.get(id) ?? []);
+      }
+    }
+    return jsonText(result);
   },
 );
 
@@ -100,14 +124,38 @@ server.registerTool(
   "graph_get_graph",
   {
     description:
-      "获取完整图拓扑（节点 + 边 + 邻接表，可命中 index 缓存加速大图）。Use when you need the whole picture before planning parallel work (fan_out/fan_in structure). " +
-      "Returns all nodes and edges with adjacency maps.",
-    inputSchema: {},
+      "获取图拓扑（节点 + 边 + 邻接表，命中 index 缓存）。默认 summary 模式：节点为紧凑字段（id/label/status/type/level/assigned_to），" +
+      "先拿全局再按需解压节点，避免大图 token 爆炸。mode=full 返回完整节点内容，用 offset/limit 分页（每页默认 200）。" +
+      "Returns total + nodes + edges + adjacency.",
+    inputSchema: {
+      mode: z
+        .enum(["summary", "full"])
+        .optional()
+        .default("summary")
+        .describe("summary=紧凑节点列表（默认）；full=完整节点内容"),
+      offset: z.number().int().min(0).optional().default(0).describe("分页偏移（full 模式）"),
+      limit: z.number().int().min(1).max(500).optional().default(200).describe("每页节点数"),
+    },
   },
-  async () => {
+  async ({ mode, offset, limit }) => {
     const index = buildGraphIndex(rootDir, { useCache: true });
+    const page = index.nodes.slice(offset, offset + limit);
+    const nodes =
+      mode === "full"
+        ? page
+        : page.map((n) => ({
+            id: n.id,
+            label: n.label,
+            status: n.status,
+            type: n.type,
+            level: n.level,
+            assigned_to: n.assigned_to,
+          }));
     return jsonText({
-      nodes: index.nodes,
+      total: index.nodes.length,
+      offset,
+      limit,
+      nodes,
       edges: index.edges,
       adjacency: Object.fromEntries(index.adjacency),
       reverseAdj: Object.fromEntries(index.reverseAdj),
@@ -119,8 +167,8 @@ server.registerTool(
   "graph_get_next_actions",
   {
     description:
-      "调度决策工具 — 一次调用回答\"我现在该干什么\"。Use this as your primary planning loop: returns ready nodes (claimable now), blocked nodes with their unmet predecessors, running nodes with elapsed time, and stale running nodes that may be stuck. " +
-      "Prefer this over combining graph_get_graph + graph_traverse + graph_search.",
+      "调度决策工具 — 一次调用回答\"我现在该干什么\"。Use this as your primary planning loop: returns ready nodes (claimable now), ready_eligible nodes (pending/failed whose gates are satisfied — flip them to ready, including cold start), blocked nodes with their unmet predecessors, running nodes with elapsed time, and stale running nodes that may be stuck (reclaim them with graph_reclaim_node). " +
+      "Each bucket is capped at limit (default 100); truncated flags tell you when more exist. Prefer this over combining graph_get_graph + graph_traverse + graph_search.",
     inputSchema: {
       stale_ms: z
         .number()
@@ -129,10 +177,46 @@ server.registerTool(
         .optional()
         .default(30 * 60 * 1000)
         .describe("running 节点无更新阈值（毫秒），默认 30 分钟"),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(1000)
+        .optional()
+        .default(100)
+        .describe("每个桶的最大条数"),
+      assigned_to: z
+        .string()
+        .optional()
+        .describe("仅返回该执行者的 running/stale 节点"),
     },
   },
-  async ({ stale_ms }) => {
-    return jsonText(computeNextActions(rootDir, { staleMs: stale_ms }));
+  async ({ stale_ms, limit, assigned_to }) => {
+    const r = computeNextActions(rootDir, { staleMs: stale_ms });
+    const cap = <T>(list: T[]): T[] => list.slice(0, limit);
+    const running = assigned_to
+      ? r.running.filter((n) => n.assigned_to === assigned_to)
+      : r.running;
+    const stale = assigned_to
+      ? r.stale_running.filter((n) =>
+          running.some((x) => x.id === n.id),
+        )
+      : r.stale_running;
+    return jsonText({
+      ready: cap(r.ready),
+      ready_eligible: cap(r.ready_eligible),
+      blocked: cap(r.blocked),
+      running: cap(running),
+      stale_running: cap(stale),
+      truncated: {
+        ready: r.ready.length > limit,
+        ready_eligible: r.ready_eligible.length > limit,
+        blocked: r.blocked.length > limit,
+        running: running.length > limit,
+        stale_running: stale.length > limit,
+      },
+      summary: r.summary,
+    });
   },
 );
 
@@ -140,18 +224,26 @@ server.registerTool(
   "graph_traverse",
   {
     description:
-      "从指定节点出发遍历相邻节点（BFS，最大深度限制）。Use when you only care about a node's neighborhood. " +
-      "Returns the ordered list of visited node ids.",
+      "从指定节点出发遍历相邻节点（DFS，最大深度与节点数双限制）。Use when you only care about a node's neighborhood. " +
+      "Returns { nodes: ordered visited ids, truncated } — truncated=true 表示达到 max_nodes 上限，缩小 max_depth 或换起点继续。",
     inputSchema: {
       node_id: z.string(),
       direction: z
         .enum(["downstream", "upstream", "both"])
         .optional()
         .default("downstream"),
-      max_depth: z.number().int().optional().default(3),
+      max_depth: z.number().int().min(1).max(20).optional().default(3),
+      max_nodes: z
+        .number()
+        .int()
+        .min(1)
+        .max(1000)
+        .optional()
+        .default(200)
+        .describe("返回节点数上限（防大图误爆上下文）"),
     },
   },
-  async ({ node_id, direction, max_depth }) => {
+  async ({ node_id, direction, max_depth, max_nodes }) => {
     const index = buildGraphIndex(rootDir, { useCache: true });
     // 起点不存在时明确报错（曾静默返回 [node_id] 误导 agent 以为节点存在）
     if (!index.adjacency.has(node_id)) {
@@ -162,6 +254,7 @@ server.registerTool(
 
     function dfs(nodeId: string, depth: number) {
       if (depth > max_depth || visited.has(nodeId)) return;
+      if (result.length >= max_nodes) return;
       visited.add(nodeId);
       result.push(nodeId);
       if (direction === "downstream" || direction === "both") {
@@ -176,7 +269,7 @@ server.registerTool(
       }
     }
     dfs(node_id, 0);
-    return jsonText(result);
+    return jsonText({ nodes: result, truncated: result.length >= max_nodes });
   },
 );
 
@@ -185,16 +278,24 @@ server.registerTool(
   {
     description:
       "按条件过滤节点（query 模糊匹配 id/label，可叠加 status/type/assigned_to/level）。Use when you need to find specific nodes, e.g. all ready tasks assigned to nobody. " +
-      "Returns the array of matching nodes.",
+      "Returns { total, limit, nodes } — nodes 为紧凑字段（id/label/status/type/level/assigned_to），total > limit 时缩小条件或增大 limit 继续查。",
     inputSchema: {
       query: z.string().optional(),
       status: nodeStatusSchema.optional(),
       type: nodeTypeSchema.optional(),
       assigned_to: z.string().optional(),
       level: z.number().int().optional(),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(200)
+        .optional()
+        .default(50)
+        .describe("返回条数上限（默认 50，最大 200）"),
     },
   },
-  async ({ query, status, type, assigned_to, level }) => {
+  async ({ query, status, type, assigned_to, level, limit }) => {
     const nodes = listNodes(rootDir);
     const filtered = nodes.filter((n) => {
       if (query && !n.id.includes(query) && !n.label.includes(query)) return false;
@@ -204,7 +305,18 @@ server.registerTool(
       if (level !== undefined && n.level !== level) return false;
       return true;
     });
-    return jsonText(filtered);
+    return jsonText({
+      total: filtered.length,
+      limit,
+      nodes: filtered.slice(0, limit).map((n) => ({
+        id: n.id,
+        label: n.label,
+        status: n.status,
+        type: n.type,
+        level: n.level,
+        assigned_to: n.assigned_to,
+      })),
+    });
   },
 );
 
@@ -439,6 +551,22 @@ server.registerTool(
       force,
     });
     return jsonText(node);
+  },
+);
+
+server.registerTool(
+  "graph_reclaim_node",
+  {
+    description:
+      "回收死认领：running → pending（清空 assigned_to，notes 附回收记录，attempts 不变）。Use when a running node is stale (graph_get_next_actions stale_running) and the claiming agent is dead or unresponsive. " +
+      "The reclaimed node can be re-claimed after it becomes ready again. Only works on running nodes.",
+    inputSchema: {
+      id: z.string().describe("节点 ID"),
+      by: z.string().optional().describe("回收操作者（写入回收记录）"),
+    },
+  },
+  async ({ id, by }) => {
+    return jsonText(reclaimNode(rootDir, id, by));
   },
 );
 
