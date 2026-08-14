@@ -9,6 +9,7 @@ import {
   checkReadyGate,
   getNode,
   updateNodeContent,
+  updateExecutionReport,
 } from "../../src/core/node.js";
 import { createEdge } from "../../src/core/edge.js";
 import { NodeType, NodeStatus, EdgeType } from "../../src/core/types.js";
@@ -36,6 +37,7 @@ describe("checkReadyGate", () => {
   it("前驱 passed → ok", () => {
     updateNodeStatus(tmpDir, "a", NodeStatus.Ready, undefined, { force: true });
     updateNodeStatus(tmpDir, "a", NodeStatus.Running);
+    updateExecutionReport(tmpDir, "a", { summary: "done" });
     updateNodeStatus(tmpDir, "a", NodeStatus.Passed);
     expect(checkReadyGate(tmpDir, "b").ok).toBe(true);
   });
@@ -70,6 +72,7 @@ describe("ready gate in updateNodeStatus", () => {
   it("前驱完成时 pending→ready 放行", () => {
     updateNodeStatus(tmpDir, "a", NodeStatus.Ready, undefined, { force: true });
     updateNodeStatus(tmpDir, "a", NodeStatus.Running);
+    updateExecutionReport(tmpDir, "a", { summary: "done" });
     updateNodeStatus(tmpDir, "a", NodeStatus.Passed);
     expect(updateNodeStatus(tmpDir, "b", NodeStatus.Ready).status).toBe("ready");
   });
@@ -106,6 +109,7 @@ describe("ready gate in updateNodeStatus", () => {
     createEdge(tmpDir, { id: "e2", source: "c", target: "b", type: EdgeType.FanIn });
     updateNodeStatus(tmpDir, "a", NodeStatus.Ready, undefined, { force: true });
     updateNodeStatus(tmpDir, "a", NodeStatus.Running);
+    updateExecutionReport(tmpDir, "a", { summary: "done" });
     updateNodeStatus(tmpDir, "a", NodeStatus.Passed);
     expect(() => updateNodeStatus(tmpDir, "b", NodeStatus.Ready)).toThrow(
       "c(pending, via fan_in)",

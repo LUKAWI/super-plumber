@@ -22,13 +22,14 @@ export const rebuildCommand = new Command("rebuild").alias("rb")
     // 确保 index/ 目录存在
     fs.mkdirSync(indexPath, { recursive: true });
 
-    // 重建 graph.json（完整节点/边数据 + 邻接表，供 MCP/Web 新鲜度缓存直接加载）
+    // 重建 graph.json（完整节点/边数据 + 邻接表 + 门控邻接，供 MCP/Web 新鲜度缓存直接加载）
     const index = buildGraphIndex(rootDir);
     const graphJson = {
       nodes: index.nodes,
       edges: index.edges,
       adjacency: Object.fromEntries(index.adjacency),
       reverseAdj: Object.fromEntries(index.reverseAdj),
+      gateReverseAdj: Object.fromEntries(index.gateReverseAdj),
     };
 
     const jsonPath = path.join(indexPath, "graph.json");

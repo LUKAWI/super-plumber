@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { computeNextActions } from "../../src/core/graph.js";
-import { createNode, updateNodeStatus } from "../../src/core/node.js";
+import { createNode, updateNodeStatus, updateExecutionReport } from "../../src/core/node.js";
 import { createEdge } from "../../src/core/edge.js";
 import { NodeType, NodeStatus, EdgeType } from "../../src/core/types.js";
 
@@ -39,8 +39,30 @@ describe("computeNextActions", () => {
     createEdge(tmpDir, { id: "e1", source: "a", target: "b", type: EdgeType.DependsOn });
     updateNodeStatus(tmpDir, "a", NodeStatus.Ready);
     updateNodeStatus(tmpDir, "a", NodeStatus.Running);
+    updateExecutionReport(tmpDir, "a", { summary: "done" });
     updateNodeStatus(tmpDir, "a", NodeStatus.Passed);
     const r = computeNextActions(tmpDir);
+    expect(r.blocked).toEqual([]);
+    expect(r.ready_eligible.map((n) => n.id)).toEqual(["b"]);
+  });
+
+  it("冷启动：入口节点（无门控前驱）出现在 ready_eligible", () => {
+    createNode(tmpDir, { id: "a", type: NodeType.Task, label: "A" });
+    createNode(tmpDir, { id: "b", type: NodeType.Task, label: "B" });
+    createEdge(tmpDir, { id: "e1", source: "a", target: "b", type: EdgeType.DependsOn });
+    const r = computeNextActions(tmpDir);
+    // a 无门控前驱 → 可转 ready；b 等依赖
+    expect(r.ready_eligible.map((n) => n.id)).toEqual(["a"]);
+    expect(r.blocked.map((n) => n.id)).toEqual(["b"]);
+  });
+
+  it("failed 且门禁已满足 → ready_eligible（可重试入口）", () => {
+    createNode(tmpDir, { id: "a", type: NodeType.Task, label: "A" });
+    updateNodeStatus(tmpDir, "a", NodeStatus.Ready);
+    updateNodeStatus(tmpDir, "a", NodeStatus.Running);
+    updateNodeStatus(tmpDir, "a", NodeStatus.Failed);
+    const r = computeNextActions(tmpDir);
+    expect(r.ready_eligible.map((n) => n.id)).toEqual(["a"]);
     expect(r.blocked).toEqual([]);
   });
 
@@ -74,6 +96,7 @@ describe("computeNextActions", () => {
     createEdge(tmpDir, { id: "e2", source: "b", target: "c", type: EdgeType.FanIn });
     updateNodeStatus(tmpDir, "a", NodeStatus.Ready);
     updateNodeStatus(tmpDir, "a", NodeStatus.Running);
+    updateExecutionReport(tmpDir, "a", { summary: "done" });
     updateNodeStatus(tmpDir, "a", NodeStatus.Passed);
     const r = computeNextActions(tmpDir);
     const c = r.blocked.find((n) => n.id === "c");

@@ -40,6 +40,8 @@ describe("StateMachine", () => {
     [NodeStatus.Passed, NodeStatus.Cancelled],
     [NodeStatus.Failed, NodeStatus.Cancelled],
     [NodeStatus.Blocked, NodeStatus.Cancelled],
+    [NodeStatus.Running, NodeStatus.Pending], // v0.3: 死认领回收
+    [NodeStatus.Cancelled, NodeStatus.Pending], // v0.3: 重开
   ])("允许 %s → %s", (from, to) => {
     expect(canTransition(from, to)).toBe(true);
   });
@@ -49,7 +51,7 @@ describe("StateMachine", () => {
     [NodeStatus.Pending, NodeStatus.Passed], // 跳级
     [NodeStatus.Pending, NodeStatus.Failed], // 跳级
     [NodeStatus.Passed, NodeStatus.Running], // 单向
-    [NodeStatus.Cancelled, NodeStatus.Ready], // 终止态不可逆
+    [NodeStatus.Cancelled, NodeStatus.Ready], // 重开只能回 pending
   ])("禁止 %s → %s", (from, to) => {
     expect(canTransition(from, to)).toBe(false);
   });
@@ -67,11 +69,99 @@ describe("StateMachine", () => {
     expect(result.attempts).toBe(2);
   });
 
+  it("cancelled → pending 重开时 attempts 归零", () => {
+    const node = makeNode({ status: NodeStatus.Cancelled, attempts: 5 });
+    const result = transition(node, NodeStatus.Pending);
+    expect(result.status).toBe(NodeStatus.Pending);
+    expect(result.attempts).toBe(0);
+  });
+
+  it("running → pending 回收时 attempts 不变", () => {
+    const node = makeNode({ status: NodeStatus.Running, attempts: 2 });
+    const result = transition(node, NodeStatus.Pending);
+    expect(result.attempts).toBe(2);
+  });
+
   it("非法转换抛出错误", () => {
     const node = makeNode();
     expect(() => transition(node, NodeStatus.Passed)).toThrow(
       "Invalid transition",
     );
+  });
+
+  // ── passed 硬门禁（v0.3）──
+  const runningNode = (overrides: Partial<NodeSchema> = {}) =>
+    makeNode({ status: NodeStatus.Running, ...overrides });
+
+  it("无执行报告 → 拒绝 passed", () => {
+    expect(() => transition(runningNode(), NodeStatus.Passed)).toThrow(
+      "无执行报告",
+    );
+  });
+
+  it("execution_report.summary 为空 → 拒绝 passed", () => {
+    expect(() =>
+      transition(
+        runningNode({ execution_report: { summary: "  " } }),
+        NodeStatus.Passed,
+      ),
+    ).toThrow("无执行报告");
+  });
+
+  it("有执行报告 → passed 放行", () => {
+    const result = transition(
+      runningNode({ execution_report: { summary: "完成" } }),
+      NodeStatus.Passed,
+    );
+    expect(result.status).toBe(NodeStatus.Passed);
+  });
+
+  it("failed 裁决 → 拒绝 passed", () => {
+    expect(() =>
+      transition(
+        runningNode({
+          execution_report: {
+            summary: "完成",
+            verification: { verdict: "failed", note: "产物缺失" },
+          },
+        }),
+        NodeStatus.Passed,
+      ),
+    ).toThrow("failed 裁决");
+  });
+
+  it("checkpoint 未聚合 → 拒绝 passed", () => {
+    expect(() =>
+      transition(
+        runningNode({
+          execution_report: { summary: "完成" },
+          checkpoints: [
+            { id: "c1", label: "c1", status: "passed", verifier: "auto" },
+            { id: "c2", label: "c2", status: "pending", verifier: "auto" },
+          ],
+        }),
+        NodeStatus.Passed,
+      ),
+    ).toThrow("未完成 checkpoint");
+  });
+
+  it("checkpoint 全 passed/skipped → passed 放行", () => {
+    const result = transition(
+      runningNode({
+        execution_report: { summary: "完成" },
+        checkpoints: [
+          { id: "c1", label: "c1", status: "passed", verifier: "auto" },
+          { id: "c2", label: "c2", status: "skipped", verifier: "auto" },
+        ],
+      }),
+      NodeStatus.Passed,
+    );
+    expect(result.status).toBe(NodeStatus.Passed);
+  });
+
+  it("--force 绕过 passed 硬门禁（仅人类运维）", () => {
+    const result = transition(runningNode(), NodeStatus.Passed, { force: true });
+    expect(result.status).toBe(NodeStatus.Passed);
   });
 
   // ── Checkpoint 聚合 ──
@@ -97,7 +187,9 @@ describe("StateMachine", () => {
     ).toBe("failed");
   });
 
-  it("cancelled 是终止态，无出口", () => {
-    expect(getAllowedTransitions(NodeStatus.Cancelled)).toEqual([]);
+  it("cancelled 可重开：唯一出口是 pending", () => {
+    expect(getAllowedTransitions(NodeStatus.Cancelled)).toEqual([
+      NodeStatus.Pending,
+    ]);
   });
 });

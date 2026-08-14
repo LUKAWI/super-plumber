@@ -36,6 +36,17 @@ export const TOPOLOGICAL_EDGE_TYPES: EdgeType[] = [
   EdgeType.Validates,
 ];
 
+// 参与 ready 门禁的边类型：depends_on（顺序依赖）、validates（验证）、
+// fan_in（汇聚，全部上游完成）、fan_out（"A 完成后 B/C 可并行"——完成语义同样构成前置）。
+// shares_context / fallback / iterates 是运行时控制流边，不构成门禁。
+// 定义在 types.ts（而非 node.ts）以避免 index-service ↔ node 的循环依赖。
+export const GATE_EDGE_TYPES: readonly EdgeType[] = [
+  EdgeType.DependsOn,
+  EdgeType.Validates,
+  EdgeType.FanIn,
+  EdgeType.FanOut,
+];
+
 // ── Checkpoint ──
 export type CheckpointStatus = "pending" | "running" | "passed" | "failed" | "skipped";
 
