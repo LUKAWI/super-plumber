@@ -57,18 +57,28 @@
 |------|------|----------|
 | pending | 创建完成，待调度 | ready |
 | ready | 前置依赖全部完成，可以执行 | running |
-| running | 正在执行 | passed, failed |
+| running | 正在执行 | passed, failed, pending（回收）, cancelled |
 | passed | 所有 checkpoints 通过 | blocked |
 | failed | 执行失败 | pending（重试） |
 | blocked | 下游等待中（前置已完成但系统尚未调度） | ready, failed, cancelled |
-| cancelled | 被用户或系统取消 | —（终止态）|
+| cancelled | 被用户或系统取消 | pending（重开，attempts 归零）|
 
-**两条硬规则（v0.2 起由核心层强制）**：
+**三条硬规则（核心层强制）**：
 - **ready 门禁**：进入 `ready` 与认领（`ready → running`）前，所有门控入边
   （`depends_on` / `validates` / `fan_in` / `fan_out`）的前驱必须全部 `passed`；
   不满足时报错并点名前驱。`--force` 仅人类运维可用。
 - **max_attempts 上限**：`attempts ≥ max_attempts(>0)` 后禁止重试（提示人工介入）；
   `max_attempts = 0` 表示不限。
+- **passed 硬门禁（v0.3）**：`running → passed` 前必须满足——execution_report.summary 非空、
+  无 `verification.verdict: failed` 裁决、checkpoints（如有）全部 `passed`/`skipped`。
+  `--force` 仅人类运维可用。
+
+### 回收（Reclaim）
+
+死认领恢复动作：`running → pending`（attempts 不变），清空 `assigned_to`，
+`execution_report.notes` 追加带时间戳的回收记录。执行 agent 崩溃或长时间无进展
+（`stale_running`）且确认不可达时，由主控（Super Mario）或人类执行。
+CLI 命令 `graph reclaim`，MCP 工具 `graph_reclaim_node`。
 
 ### 构建计划（Plan）
 
@@ -166,7 +176,10 @@ Super Mario 在 checkpoint 聚合 + 输出抽查后写入的验证结论（`veri
 
 ### 调度决策（Next Actions）
 
-agent 规划循环的一站式工具（`graph next` / `graph_get_next_actions`）：一次返回可认领（ready）、等依赖（blocked，附未满足前驱）、执行中（running，附时长）与疑似卡住（stale_running）清单。
+agent 规划循环的一站式工具（`graph next` / `graph_get_next_actions`）：一次返回
+可认领（ready）、可转 ready（ready_eligible，门禁已满足的 pending/failed 节点——冷启动
+入口与重试入口）、等依赖（blocked，附未满足前驱）、执行中（running，附时长）与
+疑似卡住（stale_running）清单。MCP 每桶默认 `limit` 100，附 `truncated` 标记供翻页。
 
 ### 版本快照（Snapshot / Diff / Rollback）
 

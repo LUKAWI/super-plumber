@@ -43,7 +43,7 @@ description: Use when 接到新需求/任务需要拆解成任务拓扑图、设
 3. **L2 毛细血管**：挂在 L1 下的子任务，`id: l2_*`（一个 L1 有 2–5 个 L2 更佳）
 4. **L3，L4，L5......** :树状延伸的子任务，`id: l3_*，l4_*，l5_*`，按需分层次设计，若上层还可分则启用下一层，一般不超过5层
 5. **边**：先连 topo 边（`depends_on`/`validates`——决定执行顺序），再加运行时边（`fan_out`/`fan_in` 等——并行/汇聚语义）
-6. **建节点时一次带完整压缩包**：`graph create-node -i <id> -l <label> --plan-desc "..." --dod "..." --dod "..."`，再用 `graph update-node -i <id> --add-checkpoint '{"id":"cp1","label":"..."}'` 补 checkpoints（MCP：`graph_create_node` 直接带 `checkpoints`，或 `graph_batch_create` 一次批量建 20+ 节点/边）
+6. **建节点时一次带完整压缩包**：`graph create-node -i <id> -l <label> --plan-desc "..." --dod "..." --dod "..."`，再用 `graph update-node -i <id> --add-checkpoint '{"id":"cp1","label":"..."}'` 补 checkpoints（MCP：`graph_create_node` 直接带 `checkpoints`，或 `graph_batch_create` 一次批量建 20+ 节点/边）。**批量建图每批 ≤200 节点**，大图分段提交；读图用 `graph_get_graph` 默认 summary 模式（紧凑字段），需要完整内容再用 `graph_get_node` 按需解压
 
 **每个节点 MUST 携带三要素**（缺一不可，体检脚本会抓）：
 

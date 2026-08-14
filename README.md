@@ -35,12 +35,14 @@ todo: "做个注册模块"            →     entry → l1_register → l1_login
 | 能力 | 说明 |
 |------|------|
 | 🧭 **类型化拓扑** | 7 种边类型：`depends_on` / `validates` 参与拓扑排序，`shares_context` / `fan_out` / `fan_in` / `fallback` / `iterates` 表达运行时控制流 |
-| 🔄 **状态机强制** | 7 态 + 两条硬规则：ready 门禁（门控前驱必须 passed，fan_out/fan_in 也参与）与 max_attempts 上限（修改 plan 自动重置）；并发认领锁内原子 |
+| 🔄 **状态机强制** | 7 态 + 三条硬规则：ready 门禁（门控前驱必须 passed）、max_attempts 上限（修改 plan 自动重置）、**passed 硬门禁**（无执行报告 / checkpoint 未聚合 / failed 裁决 → 拒绝 passed）；并发认领锁内原子 |
 | 🛡️ **Schema 校验** | 读入层逐文件校验 YAML（枚举/类型/必填），手改拼错即时报可读错误，`graph validate` 逐文件定位 |
 | 🗂️ **版本控制** | `snapshot` / `diff` / `rollback` 三原语（回滚自动备份、必须确认），Branch/Merge 由 Git 承担 |
-| 🤖 **MCP 原生接入** | 18 个 `graph_*` 工具：设计期（批量建图/建边/编辑 entry-exit）、执行期（原子 claim/checkpoint/report）、裁决（verdict）、版本（snapshot/diff/rollback）全流程覆盖，zod 参数校验 |
-| 🎯 **调度决策** | `graph next` / `graph_get_next_actions` 一屏返回可认领/等依赖/执行中/疑似卡住，agent 规划循环首选 |
-| 🌐 **Web 可视化** | 力导向图 + 边类型着色 + running 光点流动 + checkpoint 进度条 + 执行报告面板 + 层级过滤/搜索 + 版本 diff 视图，WebSocket 增量推送 + 断线自动重连 |
+| 🤖 **MCP 原生接入** | 19 个 `graph_*` 工具：设计期（批量建图/建边/编辑 entry-exit）、执行期（原子 claim/checkpoint/report/**reclaim 回收死认领**）、裁决（verdict）、版本（snapshot/diff/rollback）全流程覆盖，zod 参数校验 |
+| 🎯 **调度决策** | `graph next` / `graph_get_next_actions` 一屏返回可认领 / **可转 ready（ready_eligible，冷启动入口）** / 等依赖 / 执行中 / 疑似卡住，每桶分页 + truncated 标记，agent 规划循环首选 |
+| 📉 **上下文经济** | MCP 读接口全面分页：`graph_get_graph` 默认 summary 模式（紧凑字段）+ full 分页、`graph_search` limit、`graph_traverse` max_nodes、`graph_get_node` 可附拓扑邻居——大图不再 token 爆炸 |
+| ⚡ **大图热路径** | 索引两级缓存（内存 + 磁盘 graph.json，mtime 精确新鲜度校验）：门禁/调度从"每次全图扫描"（10k 图 ~9s）降为查表 + 单文件读；调度 O(N+M) |
+| 🌐 **Web 可视化** | 力导向图 + 边类型着色 + running 光点流动 + checkpoint 进度条 + 执行报告面板 + 层级过滤/搜索 + 版本 diff 视图，WebSocket 增量推送 + 断线自动重连 + 内部目录事件过滤去抖 |
 | 📁 **纯文件存储** | 每个节点/边一个 YAML 文件，Git 是唯一真相源，人类可直接编辑，无数据库 |
 | 🧩 **agent 协作协议** | 内置 `plumber-design`（拓扑设计+预览审核）与 `plumber-execute`（拓扑执行+三层验收）双阶段 skill + 2 个专用 subagent（拆解 / 裁决） |
 
@@ -270,16 +272,17 @@ graph serve                           # 打开 http://localhost:8934 看力导�
 |------|------|----------|
 | `graph init` | 初始化 `.graph/` 骨架（含 schema.yaml） | `-l <label>` 图名称；`--force` 已初始化时强制重置 |
 | `graph create-node` | 创建节点（一次可带完整压缩包） | `-i <id>` `-l <label>` `-t <type>`（task/checkpoint/decision/gate）`--level <n>` `--plan-desc <text>` `--dod <item>`（可多次）`--assigned-to <agent>` `--max-attempts <n>` |
-| `graph get-node` | 读取节点 + 合法转换 + 门禁状态 | `-i <id>`；`--json` 稳定输出 |
+| `graph get-node` | 读取节点 + 合法转换 + 门禁状态（可附拓扑邻居） | `-i <id>`；`--json` 稳定输出；`--neighbors up\|down\|none` |
 | `graph add-edge` | 添加边（核心层校验端点存在） | `-i <id>` `-s <source>` `-t <target>` `--type <7种之一>` |
-| `graph update-status` | 状态流转（状态机 + ready 门禁 + max_attempts） | `-i <id>` `-s <status>`；`--claim-by <agent>` 认领；`--force` 仅人类运维 |
+| `graph update-status` | 状态流转（状态机 + ready 门禁 + max_attempts + passed 硬门禁） | `-i <id>` `-s <status>`；`--claim-by <agent>` 认领；`--force` 仅人类运维 |
+| `graph reclaim` | 回收死认领：running → pending（清空执行者 + 回收记录） | `-i <id>`；`--by <actor>` |
 | `graph update-node` | 更新节点详情 | `-i <id>` `--plan-desc` `--add-dod <item>`（可多次）`--clear-dod` `--add-checkpoint '<JSON>'`（可多次）`--set-assigned <agent>` `--label <text>` `--max-attempts <n>` `--show` |
 | `graph update-graph` | 编辑 entry/exit/验收标准/图名（不再手写 graph.yaml） | `--entry-desc` `--exit-desc` `--add-criteria <item>`（可多次）`--clear-criteria` `--label` `--set-context '<json>'` |
 | `graph delete-node` | 软删除节点；有引用边默认拒绝 | `-i <id>`；`--cascade` 连同引用边一起删 |
 | `graph delete-edge` | 软删除边 | `-i <id>` |
 | `graph status` | 状态概览 + 拓扑检查 | `--json` |
 | `graph validate` | schema + 引用 + 拓扑 + 环（逐文件定位） | `--json` |
-| `graph next` | 调度决策：可认领/等依赖/执行中/疑似卡住 | `--stale-ms <ms>`（默认 30 分钟）；`--json` |
+| `graph next` | 调度决策：可认领/可转 ready/等依赖/执行中/疑似卡住 | `--stale-ms <ms>`（默认 30 分钟）；`--json` |
 | `graph verdict` | 记录裁决结论（Super Mario 用） | `-i <id>` `--verdict passed\|failed\|pending` `--note <text>` |
 | `graph snapshot` | 创建版本快照 | `-m <msg>`；`--git` 同时 git commit |
 | `graph snapshots` | 快照列表 | `--json` |
@@ -312,7 +315,7 @@ graph serve                           # 打开 http://localhost:8934 看力导�
 
 ---
 
-## 状态机（7 态 + 两条硬规则）
+## 状态机（7 态 + 三条硬规则）
 
 ```text
 pending ──► ready ──► running ──► passed ──► blocked
@@ -325,6 +328,8 @@ pending ──► ready ──► running ──► passed ──► blocked
 
 - **认领（claim）**：`ready → running` 记录 `assigned_to` + `started_at`（MCP 传 `claim_by` 参数）
 - **完成**：转 `passed` / `failed` 自动记录 `completed_at`
+- **passed 硬门禁**：无执行报告（summary 为空）/ 存在 failed 裁决 / checkpoint 未聚合时，`running → passed` 被核心层拒绝（`--force` 仅人类运维）
+- **回收**：`graph reclaim` 把 running 死认领收回 pending（执行 agent 崩溃后的恢复路径）；cancelled 可重开为 pending
 - **保护**：非法转换（如 `pending → running` 直跳）返回明确错误，**绝不静默**
 
 ---
@@ -369,19 +374,19 @@ graph-mcp
 
 > 也可以直接用绝对路径：`"command": "node D:/path/to/dist/mcp/server.js"`，并设 `cwd` 为你的图所在目录；或 `"command": "graph-mcp --root /path/to/graph"` 显式指定图目录。
 
-### 18 个工具
+### 19 个工具
 
-**调度**：`graph_get_next_actions` — 一次返回可认领（ready）/ 等依赖（blocked，附未满足前驱）/ 执行中（running，附时长）/ 疑似卡住（stale_running），是 agent 规划循环的首选。
+**调度**：`graph_get_next_actions` — 一次返回可认领（ready）/ **可转 ready（ready_eligible，门禁已满足的 pending/failed——冷启动入口）** / 等依赖（blocked，附未满足前驱）/ 执行中（running，附时长）/ 疑似卡住（stale_running），每桶分页（`limit` + `truncated`），是 agent 规划循环的首选。
 
-**读取**：`graph_get_node`（节点 + 合法转换 + checkpoint 聚合 + 门禁状态）、`graph_get_graph`（全拓扑 + 邻接）、`graph_traverse`、`graph_search`（query/status/type/assigned_to/level）。
+**读取**：`graph_get_node`（节点 + 合法转换 + checkpoint 聚合 + 门禁状态，可附拓扑邻居）、`graph_get_graph`（默认 summary 紧凑模式，`mode=full` + `offset/limit` 分页）、`graph_traverse`（`max_nodes` 上限）、`graph_search`（`limit` 上限 + 紧凑结果）。
 
 **设计期写入**：`graph_create_node`（一次带 plan/DoD/checkpoints 完整压缩包）、`graph_batch_create`（批量 nodes+edges，先全量预校验报全部冲突）、`graph_add_edge`、`graph_update_node`、`graph_update_graph`（entry/exit/验收标准）、`graph_delete_node`（有引用边默认拒绝，`cascade` 连删）、`graph_delete_edge`。
 
-**执行期写入**：`graph_update_node_status`（`status=running` 传 `claim_by` 完成**原子认领**，并发只有第一个成功）、`graph_update_checkpoint`（checkpoint 状态机 + 幂等）、`graph_update_execution_report`（交接单 + `verification` 裁决结论）。
+**执行期写入**：`graph_update_node_status`（`status=running` 传 `claim_by` 完成**原子认领**，并发只有第一个成功）、`graph_update_checkpoint`（checkpoint 状态机 + 幂等）、`graph_update_execution_report`（交接单 + `verification` 裁决结论）、`graph_reclaim_node`（回收死认领：running → pending）。
 
 **版本**：`graph_snapshot` / `graph_diff` / `graph_rollback`（必须 `confirm: true`）。
 
-**可靠性设计**：所有参数经 zod schema 校验——缺参、非法枚举返回 `-32602` 协议错误；不存在的节点/边返回 `isError=true` 和可读的错误消息；非法状态转换/门禁/次数上限明确报错。**工具永远不静默失败**。
+**可靠性设计**：所有参数经 zod schema 校验——缺参、非法枚举返回 `-32602` 协议错误；不存在的节点/边返回 `isError=true` 和可读的错误消息；非法状态转换/门禁/次数上限/passed 硬门禁明确报错。**工具永远不静默失败**。
 
 ---
 
@@ -471,7 +476,9 @@ graph --version
 | `❌ Node x 前置未满足，不能进入 ready/running` | ready 门禁拦截（前驱未全部 passed）。先完成前驱，**不要用 --force**（仅人类运维） |
 | `❌ Node x already claimed by y` | 并发认领竞争失败（原子保护）。换一个 ready 节点 |
 | `❌ Node x 已达最大重试次数` | attempts 用尽。人工介入，或 `graph update-node --plan-desc` 改计划（attempts 自动归零） |
+| `❌ Node x 无执行报告，不能标记 passed` | passed 硬门禁：先 `graph update-execution-report` 填交接单（summary 非空）；checkpoint 未聚合或 failed 裁决也会被拒 |
 | `❌ Node x 被 N 条边引用` | 删除会留悬挂引用。`--cascade` 或先 `delete-edge` |
+| `❌ 节点长时间 running 无进展` | 死认领：`graph reclaim -i <id>` 收回 pending 重新调度（执行 agent 已崩溃时） |
 | `❌ schema 校验失败: ...` | 手改 YAML 拼错字段。`graph validate` 逐文件定位修正 |
 | 改完代码全局命令没变化 | 全局是发布包的快照。`npm version patch && npm publish && npm i -g @lukawi/super-plumber` |
 | `graph serve` 后页面是空图 | 检查 cwd 是否是图所在目录；空图时 UI 会显示空状态引导 |
@@ -482,7 +489,7 @@ graph --version
 ## 项目状态
 
 ```text
-Tests: 216（后端）+ 12（前端）✅ | CLI: 19 命令 | MCP: 18 工具 | 状态机: 7 态 + ready 门禁 + max_attempts | 边类型: 7 种 | 版本控制: snapshot/diff/rollback | Web UI: Svelte 5 + D3.js
+Tests: 247（后端）+ 12（前端）✅ | CLI: 20 命令 | MCP: 19 工具 | 状态机: 7 态 + ready 门禁 + max_attempts + passed 硬门禁 | 边类型: 7 种 | 版本控制: snapshot/diff/rollback | Web UI: Svelte 5 + D3.js
 ```
 
 - **npm**: [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)

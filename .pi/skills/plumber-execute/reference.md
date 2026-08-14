@@ -10,28 +10,29 @@
 
 | 层 | 用于 | 不能做 |
 |----|------|--------|
-| **CLI** `graph`（19 命令） | init、批量建节点/边、status、validate、next、verdict、snapshot/diff/rollback、export、serve | —（v0.2 起 claim/checkpoint/report 也可用 CLI/脚本） |
-| **MCP** `graph_*`（18 工具） | 一切（设计 + 执行 + 裁决 + 版本），zod 校验 | 不得传 `force: true`（仅人类运维） |
+| **CLI** `graph`（20 命令） | init、批量建节点/边、status、validate、next、verdict、reclaim、snapshot/diff/rollback、export、serve | —（v0.2 起 claim/checkpoint/report 也可用 CLI/脚本） |
+| **MCP** `graph_*`（19 工具） | 一切（设计 + 执行 + 裁决 + 版本），zod 校验 | 不得传 `force: true`（仅人类运维） |
 | **脚本** `scripts/sp-*.mjs`（7 个） | 无 MCP 客户端时的读/流转/claim/checkpoint/report/遍历 | — |
 
 > 首选 MCP（覆盖最全、校验最强）；无 MCP 客户端时用 CLI + 脚本。
 
-## 2. CLI 命令（19）
+## 2. CLI 命令（20）
 
 | 命令 | 用途 | 关键参数 |
 |------|------|---------|
 | `init` | 建 `.graph/` 骨架（含 schema.yaml） | `-l <label>` `--force` |
 | `create-node` | 建节点（可一次带完整压缩包） | `-i -l -t --level --plan-desc --dod(×N) --assigned-to --max-attempts` |
-| `get-node` | 读节点 + 合法转换 + 门禁状态 | `-i [--json]` |
+| `get-node` | 读节点 + 合法转换 + 门禁状态（+ 拓扑邻居） | `-i [--json] [--neighbors up\|down\|none]` |
 | `add-edge` | 建边（核心层校验端点存在） | `-i -s -t --type` |
-| `update-status` | 状态机流转（含 ready 门禁/max_attempts） | `-i -s [--claim-by <agent>] [--force]` |
+| `update-status` | 状态机流转（含 ready 门禁/max_attempts/passed 硬门禁） | `-i -s [--claim-by <agent>] [--force]` |
+| `reclaim` | 回收死认领：running → pending（清空执行者 + 回收记录） | `-i [--by <actor>]` |
 | `update-node` | 编辑 plan/DoD/checkpoints/assignee/label/max_attempts | `-i --plan-desc --add-dod --clear-dod --add-checkpoint --set-assigned --label --max-attempts --show` |
 | `update-graph` | 编辑图级字段（entry/exit/验收标准），不再手写 graph.yaml | `--entry-desc --exit-desc --add-criteria(×N) --clear-criteria --label --set-context` |
 | `delete-node` | 软删除；有引用边时默认拒绝 | `-i [--cascade]` |
 | `delete-edge` | 软删除边 | `-i` |
 | `status` | 总览 + topo 检查 | `[--json]` |
 | `validate` | schema + 引用 + topo + 环（逐文件 schema 校验） | `[--json]` |
-| `next` | 调度决策：可认领/等依赖/执行中/疑似卡住 | `[--stale-ms N] [--json]` |
+| `next` | 调度决策：ready / ready_eligible / blocked / running / stale | `[--stale-ms N] [--json]` |
 | `verdict` | 记录裁决结论（Super Mario 用） | `-i --verdict passed|failed|pending [--note]` |
 | `snapshot` | 版本快照 | `[-m msg] [--git]` |
 | `snapshots` | 快照列表 | `[--json]` |
@@ -43,12 +44,14 @@
 
 **绝不发明参数**——跑 `graph <cmd> --help`。**每次结构改动后必跑 `graph validate`。**
 
-## 3. 状态机（7 态）+ 两条硬规则
+## 3. 状态机（7 态）+ 三条硬规则
 
 ```text
 pending → ready → running → passed → blocked
                          ↘ failed → pending (retry)
-        any state → cancelled (terminal)
+                         ↘ pending (reclaim 死认领回收，attempts 不变)
+        any state → cancelled
+        cancelled → pending (重开，attempts 归零)
         blocked → ready / failed / cancelled
 ```
 
@@ -57,8 +60,10 @@ pending → ready → running → passed → blocked
 | `ready → running` | **claim**（必须带 `claim_by`；锁内原子，并发认领只有一个成功） | `assigned_to` + `started_at` |
 | `running → passed` | 完成（需先有 execution_report） | `completed_at` |
 | `running → failed` | 失败 | `completed_at` |
+| `running → pending` | **回收死认领**（`graph reclaim` / `graph_reclaim_node`） | 清空 `assigned_to`，notes 附回收记录 |
 | `failed → pending` | 重试；`attempts >= max_attempts(>0)` 时被拦截 | `attempts` +1 |
-| `→ cancelled` | 终止（terminal，不可恢复） | — |
+| `cancelled → pending` | **重开**（修复毒节点，attempts 归零） | — |
+| `→ cancelled` | 终止（可重开，但会阻塞下游门禁——不要随手 cancel） | — |
 | `blocked → ready/failed/cancelled` | 解除阻塞 | — |
 
 **硬规则 1 — ready 门禁**：`pending → ready` 与 `ready → running` 会校验所有门控入边
@@ -70,34 +75,40 @@ pending → ready → running → passed → blocked
 提示人工介入。修改 `plan.description` 会自动把 attempts 重置为 0（CONTEXT 规则）。
 `max_attempts = 0` 表示不限重试。
 
+**硬规则 3 — passed 硬门禁（v0.3）**：`running → passed` 由核心层强制校验：
+1. `execution_report.summary` 非空（"无报告标 passed"会被直接拒绝）；
+2. 无 `verification.verdict: failed` 裁决；
+3. 有 checkpoints 时全部 `passed`/`skipped`（failed 或未完成都会被拒绝）。
+`--force` 仅人类运维可用。
+
 **checkpoint 状态机**：`pending → running|passed|failed|skipped`、`running → passed|failed`、
 `passed|failed|skipped → pending`（重开）。同状态重复上报幂等成功。
 
 被拒绝的转换是状态机在保护你——修正顺序，不要硬来。
 
-## 4. MCP 工具（18）——完整能力面
+## 4. MCP 工具（19）——完整能力面
 
 **调度首选**：
 
 | 工具 | 用途 | 注意 |
 |------|------|------|
-| `graph_get_next_actions` | **规划循环首选**：一次返回 ready / blocked(带未满足前驱) / running(带时长) / stale_running | `stale_ms` 默认 30 分钟 |
+| `graph_get_next_actions` | **规划循环首选**：一次返回 ready / **ready_eligible**（门禁已满足的 pending/failed，转 ready 即可执行——冷启动入口）/ blocked(带未满足前驱) / running(带时长) / stale_running | `stale_ms` 默认 30 分钟；每桶 `limit` 默认 100，`truncated: true` 表示还有更多；`assigned_to` 可过滤 running |
 
 **读**：
 
 | 工具 | 用途 | 注意 |
 |------|------|------|
-| `graph_get_node` | 读节点 + `allowed_transitions` + `checkpoint_aggregate` + `ready_gate` | 一次回答"这节点下一步能干什么" |
-| `graph_get_graph` | 全拓扑 + 邻接（可命中 index 缓存） | 看 fan_out/fan_in 结构 |
-| `graph_traverse` | 遍历邻居 | `direction: downstream\|upstream\|both`，`max_depth` |
-| `graph_search` | 过滤节点 | `query, status, type, assigned_to, level` |
+| `graph_get_node` | 读节点 + `allowed_transitions` + `checkpoint_aggregate` + `ready_gate` | 一次回答"这节点下一步能干什么"；`include_neighbors: up\|down` 附拓扑邻居 |
+| `graph_get_graph` | 图拓扑 + 邻接（索引缓存加速）。默认 **summary 模式**（紧凑节点字段），`mode: full` 返回完整内容 | full 模式用 `offset/limit` 分页（每页默认 200）；大图先 summary 再按需解压 |
+| `graph_traverse` | 遍历邻居 | `direction`、`max_depth`、`max_nodes`（默认 200）；返回 `{nodes, truncated}` |
+| `graph_search` | 过滤节点 | `query, status, type, assigned_to, level, limit`（默认 50）；返回 `{total, limit, nodes}` 紧凑字段 |
 
 **写（设计期）**：
 
 | 工具 | 用途 | 注意 |
 |------|------|------|
 | `graph_create_node` | 建节点，**一次可带 plan/DoD/checkpoints 完整压缩包** | 重复 id 报错，绝不覆盖 |
-| `graph_batch_create` | 批量建 nodes+edges（先全量预校验报全部冲突，再写盘） | 写盘中途崩溃 → 重跑报冲突清单 |
+| `graph_batch_create` | 批量建 nodes+edges（先全量预校验报全部冲突，再写盘） | **每批 ≤200 个节点**，大图分段；写盘中途崩溃 → 重跑报冲突清单 |
 | `graph_add_edge` | 建边（核心层校验端点存在） | — |
 | `graph_update_node` | 编辑 plan/DoD/checkpoints/assignee/label/max_attempts | 改 plan 会重置 attempts |
 | `graph_update_graph` | 编辑 entry/exit/验收标准/root_context | 不再手写 graph.yaml |
@@ -110,7 +121,8 @@ pending → ready → running → passed → blocked
 |------|------|------|
 | `graph_update_node_status` | 状态流转；**claim = `status:"running"` + `claim_by`**；并发认领原子，败者收到"已被认领" | `force` 仅人类运维，agent 禁用 |
 | `graph_update_checkpoint` | 上报一个 checkpoint（checkpoint 状态机校验，幂等） | 完成即报，绝不攒到最后 |
-| `graph_update_execution_report` | 交接单；可选 `verification:{verdict,note}` 写裁决结论 | `artifacts` 填真实路径 |
+| `graph_update_execution_report` | 交接单；可选 `verification:{verdict,note}` 写裁决结论 | `artifacts` 填真实路径；**verdict 写在 passed 之前** |
+| `graph_reclaim_node` | 回收死认领：running → pending（清空 assigned_to + 回收记录） | stale 且执行者不可达时使用；只有 running 节点可回收 |
 
 **版本控制**：
 
@@ -142,6 +154,7 @@ pending → ready → running → passed → blocked
 ### 6.1 结构判读（`graph_get_next_actions` / `graph_get_graph` 的结果怎么看）
 
 - **ready 列表** → 可认领（门禁已由核心层验证，直接 claim）
+- **ready_eligible 列表** → 门禁已满足的 pending/failed 节点，转 ready 即可执行（冷启动第一步从这里拿入口节点）
 - **blocked 列表** → 每个节点附 `unmet`（未满足前驱 + 当前状态），补齐后自然放行
 - **fan_out 批**：一个节点有多条 fan_out 出边 → 这些目标节点并行候选（前驱 passed 后全部 ready）
 - **fan_in 汇聚**：汇聚节点必须等全部上游 passed（核心层门禁强制执行）
@@ -181,6 +194,10 @@ pending → ready → running → passed → blocked
 | `Node X 前置未满足，不能进入 ready/running: [...]` | ready 门禁拦截 | 先完成前驱；**不要用 force** |
 | `Node X already claimed by Y` | 并发认领竞争失败（原子保护） | 换一个 ready 节点认领 |
 | `Node X 已达最大重试次数` | attempts 用尽 | 人工介入；或改 plan（attempts 自动归零） |
+| `Node X 无执行报告，不能标记 passed` | passed 硬门禁（规则 3） | 先填 execution_report；force 仅人类 |
+| `Node X 存在未完成 checkpoint，不能标记 passed` | passed 硬门禁（规则 3） | 补完 checkpoint 再 passed |
+| `Node X 已有 failed 裁决，不能标记 passed` | passed 硬门禁（规则 3） | 修复缺陷，重新 verdict 后 passed |
+| `Node X 当前状态为 Y，只有 running 节点可回收` | reclaim 目标错误 | 只对 running 节点用 `graph reclaim` |
 | `Node X 被 N 条边引用` | 删除会留悬挂引用 | `--cascade` 或先删边 |
 | `schema 校验失败: ...` | 手改 YAML 拼错字段 | 按提示修正；`graph validate` 定位文件 |
 | `ENOENT ... .graph/graph.yaml` | 未 init（或 cwd 不对） | `graph init` / cd 到正确目录 |
