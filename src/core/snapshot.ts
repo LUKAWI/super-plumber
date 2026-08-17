@@ -7,10 +7,11 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as yaml from "js-yaml";
-import { GRAPH_DIR } from "./types.js";
+import { GRAPH_DIR, type NodeSchema } from "./types.js";
 import { listNodeFileNames, listEdgeFileNames } from "./schema.js";
 import { appendEvent } from "./eventlog.js";
 import { withLockSync } from "./lock.js";
+import { rebuildGraphRefs } from "./parser.js";
 
 export interface SnapshotFileEntry {
   file: string; // 相对 .graph/ 的路径（正斜杠）
@@ -230,7 +231,7 @@ function shaOf(rootDir: string, id: string | null, rel: string): string {
 export function rollbackToSnapshot(
   rootDir: string,
   id: string,
-  opts: { confirm?: boolean; actor?: string } = {},
+  opts: { confirm?: boolean; designOnly?: boolean; actor?: string } = {},
 ): { restored: SnapshotManifest; backup: SnapshotManifest } {
   if (!opts.confirm) {
     throw new Error(
@@ -243,10 +244,35 @@ export function rollbackToSnapshot(
   );
 }
 
+// FIX-C2（评审 C 级·设计态与执行态同卷）：design-only 回滚。
+// 全量回滚会把执行进度（status/attempts/execution_report）一起冲掉——
+// "撤回三天前的错误结构重构，保留两百个节点的执行成果"此前不可能。
+// designOnly：graph.yaml 与边文件全量恢复（纯设计态）；节点文件字段级合并
+// （保留执行态字段，恢复设计字段）；快照后新增的节点被删除（撤销设计新增）。
+const DESIGN_ONLY_KEEP_FIELDS = [
+  "status",
+  "attempts",
+  "assigned_to",
+  "execution_report",
+  "created_at",
+  "updated_at",
+] as const;
+
+function designOnlyMergeNode(current: unknown, fromSnap: unknown): NodeSchema {
+  const cur = current as Record<string, unknown>;
+  const snap = fromSnap as Record<string, unknown>;
+  const merged: Record<string, unknown> = { ...snap };
+  for (const k of DESIGN_ONLY_KEEP_FIELDS) {
+    if (cur[k] !== undefined) merged[k] = cur[k];
+    else delete merged[k];
+  }
+  return merged as unknown as NodeSchema;
+}
+
 function rollbackToSnapshotUnlocked(
   rootDir: string,
   id: string,
-  opts: { actor?: string } = {},
+  opts: { designOnly?: boolean; actor?: string } = {},
 ): { restored: SnapshotManifest; backup: SnapshotManifest } {
   const snap = readManifest(rootDir, id);
   if (!snap) throw new Error(`Snapshot ${id} not found`);
@@ -258,32 +284,95 @@ function rollbackToSnapshotUnlocked(
     { actor: opts.actor },
   );
 
-  // 2. 删除当前源文件（保留 .deleted 历史）
   const nodesDir = path.join(rootDir, GRAPH_DIR, "nodes");
   const edgesDir = path.join(rootDir, GRAPH_DIR, "edges");
-  if (fs.existsSync(nodesDir)) {
-    for (const f of listNodeFileNames(rootDir)) {
-      fs.rmSync(path.join(nodesDir, f), { force: true });
-    }
-  }
-  if (fs.existsSync(edgesDir)) {
-    for (const f of listEdgeFileNames(rootDir)) {
-      fs.rmSync(path.join(edgesDir, f), { force: true });
-    }
-  }
+  const removedByDesignRollback: string[] = [];
 
-  // 3. 从快照恢复
-  for (const entry of snap.files) {
-    const src = path.join(snapPath(rootDir, id), entry.file);
-    const dest = path.join(rootDir, GRAPH_DIR, entry.file);
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.copyFileSync(src, dest);
+  if (!opts.designOnly) {
+    // 2. 全量回滚：删除当前源文件（保留 .deleted 历史）
+    if (fs.existsSync(nodesDir)) {
+      for (const f of listNodeFileNames(rootDir)) {
+        fs.rmSync(path.join(nodesDir, f), { force: true });
+      }
+    }
+    if (fs.existsSync(edgesDir)) {
+      for (const f of listEdgeFileNames(rootDir)) {
+        fs.rmSync(path.join(edgesDir, f), { force: true });
+      }
+    }
+
+    // 3. 从快照恢复
+    for (const entry of snap.files) {
+      const src = path.join(snapPath(rootDir, id), entry.file);
+      const dest = path.join(rootDir, GRAPH_DIR, entry.file);
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.copyFileSync(src, dest);
+    }
+  } else {
+    const snapNodeFiles = new Set(
+      snap.files.filter((f) => f.file.startsWith("nodes/")).map((f) => f.file),
+    );
+    const snapEdgeFiles = new Set(
+      snap.files.filter((f) => f.file.startsWith("edges/")).map((f) => f.file),
+    );
+
+    // 2a. 快照后新增的节点/边 → 删除（撤销快照之后的设计新增）
+    if (fs.existsSync(nodesDir)) {
+      for (const f of listNodeFileNames(rootDir)) {
+        if (!snapNodeFiles.has(`nodes/${f}`)) {
+          fs.rmSync(path.join(nodesDir, f), { force: true });
+          removedByDesignRollback.push(f.replace(/\.yaml$/, ""));
+        }
+      }
+    }
+    if (fs.existsSync(edgesDir)) {
+      for (const f of listEdgeFileNames(rootDir)) {
+        if (!snapEdgeFiles.has(`edges/${f}`)) {
+          fs.rmSync(path.join(edgesDir, f), { force: true });
+        }
+      }
+    }
+
+    // 2b. graph.yaml 与边文件全量恢复；节点文件字段级合并（保留执行态）
+    for (const entry of snap.files) {
+      const src = path.join(snapPath(rootDir, id), entry.file);
+      const dest = path.join(rootDir, GRAPH_DIR, entry.file);
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      if (!entry.file.startsWith("nodes/")) {
+        fs.copyFileSync(src, dest);
+        continue;
+      }
+      let currentData: unknown = null;
+      try {
+        currentData = yaml.load(fs.readFileSync(dest, "utf-8"));
+      } catch {
+        currentData = null; // 当前文件不可读/不存在 → 全量恢复快照版本
+      }
+      if (currentData === null || currentData === undefined) {
+        fs.copyFileSync(src, dest);
+        continue;
+      }
+      const snapData = yaml.load(fs.readFileSync(src, "utf-8"));
+      const merged = designOnlyMergeNode(currentData, snapData);
+      fs.writeFileSync(
+        dest,
+        yaml.dump(merged, { indent: 2, lineWidth: 120 }),
+        "utf-8",
+      );
+    }
+
+    // 2c. 节点集合已变（删除新增/无恢复缺失时引用列表可能过期）→ 从目录重建
+    rebuildGraphRefs(rootDir);
   }
 
   appendEvent(rootDir, {
     actor: opts.actor ?? "unknown",
     kind: "rollback",
-    detail: `restored=${id} backup=${backup.id}`,
+    detail:
+      `restored=${id} backup=${backup.id}` +
+      (opts.designOnly
+        ? ` design_only=true${removedByDesignRollback.length > 0 ? ` removed=[${removedByDesignRollback.join(",")}]` : ""}`
+        : ""),
   });
   return { restored: snap, backup };
 }

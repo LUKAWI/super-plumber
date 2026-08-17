@@ -9,8 +9,10 @@ import {
   rollbackToSnapshot,
   listSnapshots,
 } from "../../src/core/snapshot.js";
-import { createNode, updateNodeStatus, getNode } from "../../src/core/node.js";
+import { createNode, updateNodeStatus, getNode, updateNodeContent } from "../../src/core/node.js";
 import { createEdge } from "../../src/core/edge.js";
+import { deleteEdge, deleteNode } from "../../src/core/parser.js";
+import { readEvents } from "../../src/core/eventlog.js";
 import { updateGraph, writeGraph } from "../../src/core/parser.js";
 import { withLockSync } from "../../src/core/lock.js";
 import { NodeType, NodeStatus, EdgeType } from "../../src/core/types.js";
@@ -121,6 +123,53 @@ describe("snapshot", () => {
     const snap = createSnapshot(tmpDir, "after-release");
     expect(snap.files.length).toBeGreaterThanOrEqual(3);
   }, 15_000);
+
+  it("FIX-C2 design-only 回滚：恢复设计字段、保留执行进度、删除快照后新增节点", () => {
+    buildGraph();
+    // 设计基线：a 有旧 plan
+    updateNodeContent(tmpDir, "a", { plan: { description: "旧计划" } }, { actor: "cli" });
+    const snap = createSnapshot(tmpDir, "design-baseline");
+
+    // 快照后：执行推进（a 走到 running + checkpoint + 报告）+ 设计被改坏 + 新增节点 c
+    updateNodeStatus(tmpDir, "a", NodeStatus.Ready);
+    updateNodeStatus(tmpDir, "a", NodeStatus.Running, "agent-1");
+    updateNodeContent(tmpDir, "a", { plan: { description: "被改坏的新计划" } }, { actor: "cli" });
+    updateNodeContent(tmpDir, "a", { assigned_to: "agent-1" }, { actor: "cli" });
+    createNode(tmpDir, { id: "c", type: NodeType.Task, label: "C" });
+
+    const { restored } = rollbackToSnapshot(tmpDir, snap.id, {
+      confirm: true,
+      designOnly: true,
+      actor: "cli",
+    });
+    expect(restored.id).toBe(snap.id);
+
+    // 设计字段已恢复
+    const a = getNode(tmpDir, "a");
+    expect(a.plan?.description).toBe("旧计划");
+    // 执行进度保留：status/assigned_to/started_at
+    expect(a.status).toBe("running");
+    expect(a.assigned_to).toBe("agent-1");
+    expect(a.execution_report?.started_at).toBeTruthy();
+    // 快照后新增节点被删除
+    expect(() => getNode(tmpDir, "c")).toThrow();
+    // 事件日志记录 design_only 标记
+    const events = readEvents(tmpDir, { kind: "rollback" });
+    expect(events).toHaveLength(1);
+    expect(events[0].detail).toContain("design_only=true");
+    expect(events[0].detail).toContain("removed=[c]");
+  });
+
+  it("FIX-C2 design-only：当前缺失的节点从快照全量恢复", () => {
+    buildGraph();
+    const snap = createSnapshot(tmpDir, "v1");
+    // 快照后删掉节点 b（设计回退想把它找回来）
+    deleteEdge(tmpDir, "e1");
+    deleteNode(tmpDir, "b");
+    rollbackToSnapshot(tmpDir, snap.id, { confirm: true, designOnly: true });
+    const b = getNode(tmpDir, "b");
+    expect(b.label).toBe("B");
+  });
 
   it("FIX-E1 rollback 与快照共用同一把锁（备份不重入死锁）", () => {
     buildGraph();

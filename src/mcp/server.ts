@@ -753,15 +753,29 @@ server.registerTool(
   {
     description:
       "回滚到指定快照（覆盖当前 .graph/，先自动备份当前状态为 pre-rollback 快照）。Requires confirm=true as a safety gate. " +
-      "Use when a design iteration went wrong and you want the previous known-good state.",
+      "Use when a design iteration went wrong and you want the previous known-good state. " +
+      "design_only=true restores design fields (plan/DoD/checkpoints/label/edges/graph.yaml) while KEEPING execution progress (status/attempts/execution_report); nodes added after the snapshot are removed.",
     inputSchema: {
       snapshot_id: z.string(),
       confirm: z.boolean().optional().default(false).describe("必须显式 true 才会执行"),
+      design_only: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe("只回滚设计态、保留执行进度（快照后新增节点会被删除）"),
     },
   },
-  async ({ snapshot_id, confirm }) => {
-    const result = rollbackToSnapshot(rootDir, snapshot_id, { confirm, actor: "mcp" });
-    return jsonText({ restored: result.restored.id, backup: result.backup.id });
+  async ({ snapshot_id, confirm, design_only }) => {
+    const result = rollbackToSnapshot(rootDir, snapshot_id, {
+      confirm,
+      ...(design_only ? { designOnly: true } : {}),
+      actor: "mcp",
+    });
+    return jsonText({
+      restored: result.restored.id,
+      backup: result.backup.id,
+      design_only,
+    });
   },
 );
 
