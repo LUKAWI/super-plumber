@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { computeNextActions } from "../../src/core/graph.js";
-import { createNode, updateNodeStatus, updateExecutionReport } from "../../src/core/node.js";
+import { createNode, updateNodeStatus, updateExecutionReport, updateNodeContent, getNode } from "../../src/core/node.js";
 import { createEdge } from "../../src/core/edge.js";
 import { NodeType, NodeStatus, EdgeType } from "../../src/core/types.js";
 
@@ -102,5 +102,36 @@ describe("computeNextActions", () => {
     const c = r.blocked.find((n) => n.id === "c");
     expect(c).toBeDefined();
     expect(c!.unmet.map((u) => u.id)).toEqual(["b"]);
+  });
+  it("FIX-F1 priority 排序：ready/ready_eligible 按 priority 升序 → level → id", () => {
+    // 无优先级（缺省最低）+ p2 优先 + p1 最优先 + 同 priority 时 level 决胜
+    createNode(tmpDir, { id: "plain", type: NodeType.Task, label: "P" });
+    createNode(tmpDir, { id: "p2", type: NodeType.Task, label: "P2", priority: 2 });
+    createNode(tmpDir, { id: "p1", type: NodeType.Task, label: "P1", priority: 1 });
+    createNode(tmpDir, { id: "lv0", type: NodeType.Task, label: "L0", priority: 2, level: 0 });
+
+    const r = computeNextActions(tmpDir);
+    // ready_eligible：p1(1) → lv0(2,level0) → p2(2,level1) → plain(缺省)
+    expect(r.ready_eligible.map((n) => n.id)).toEqual(["p1", "lv0", "p2", "plain"]);
+    // 条目携带 priority 供 agent 决策
+    expect(r.ready_eligible[0].priority).toBe(1);
+
+    // ready 桶同样排序：全部转 ready
+    for (const id of ["plain", "p2", "p1", "lv0"]) {
+      updateNodeStatus(tmpDir, id, NodeStatus.Ready);
+    }
+    const r2 = computeNextActions(tmpDir);
+    expect(r2.ready.map((n) => n.id)).toEqual(["p1", "lv0", "p2", "plain"]);
+    expect(r2.ready_eligible).toEqual([]);
+  });
+
+  it("FIX-F1 priority 可通过 update 通道修改（set_priority）", () => {
+    createNode(tmpDir, { id: "a", type: NodeType.Task, label: "A" });
+    createNode(tmpDir, { id: "b", type: NodeType.Task, label: "B" });
+    // b 提到最优先
+    updateNodeContent(tmpDir, "b", { priority: 0 });
+    const r = computeNextActions(tmpDir);
+    expect(r.ready_eligible.map((n) => n.id)).toEqual(["b", "a"]);
+    expect(getNode(tmpDir, "b").priority).toBe(0);
   });
 });

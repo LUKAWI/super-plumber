@@ -232,6 +232,7 @@ export function validateNode(data: unknown): SchemaIssue[] {
   optEnum(data, "type", NODE_TYPES, issues);
   optEnum(data, "status", NODE_STATUSES, issues);
   optNumber(data, "level", issues, { min: 0 });
+  optNumber(data, "priority", issues, { min: 0 });
   optNumber(data, "attempts", issues, { min: 0 });
   optNumber(data, "max_attempts", issues, { min: 0 });
   optString(data, "assigned_to", issues);

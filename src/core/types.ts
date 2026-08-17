@@ -94,6 +94,8 @@ export interface NodeSchema {
   type: NodeType;
   label: string;
   level: number;
+  /** FIX-F1：调度优先级（≥0，越小越先被推荐；缺省 = 最低优先级） */
+  priority?: number;
   plan?: Plan;
   expected_outcome?: ExpectedOutcome;
   checkpoints?: Checkpoint[];

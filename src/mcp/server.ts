@@ -340,6 +340,7 @@ server.registerTool(
       label: z.string().describe("节点标签"),
       type: nodeTypeSchema.optional().default(NodeType.Task),
       level: z.number().int().optional().default(1),
+      priority: z.number().int().min(0).optional().describe("调度优先级（越小越先；缺省最低）"),
       plan_description: z.string().optional().describe("构建计划描述"),
       definition_of_done: z.array(z.string()).optional().describe("完成标准条目"),
       checkpoints: z.array(checkpointSchema).optional().describe("子步骤检查点"),
@@ -347,12 +348,13 @@ server.registerTool(
       max_attempts: z.number().int().min(0).optional().default(3).describe("最大重试次数（0=不限）"),
     },
   },
-  async ({ id, label, type, level, plan_description, definition_of_done, checkpoints, assigned_to, max_attempts }) => {
+  async ({ id, label, type, level, priority, plan_description, definition_of_done, checkpoints, assigned_to, max_attempts }) => {
     const node = createNodeOp(rootDir, {
       id,
       label,
       type: type as NodeType,
       level,
+      priority,
       plan_description,
       definition_of_done,
       checkpoints: checkpoints as never,
@@ -368,6 +370,7 @@ const batchNodeSchema = z.object({
   label: z.string(),
   type: nodeTypeSchema.optional().default(NodeType.Task),
   level: z.number().int().optional().default(1),
+  priority: z.number().int().min(0).optional(),
   plan_description: z.string().optional(),
   definition_of_done: z.array(z.string()).optional(),
   checkpoints: z.array(checkpointSchema).optional(),
@@ -439,6 +442,7 @@ server.registerTool(
           label: n.label,
           type: n.type as NodeType,
           level: n.level,
+          priority: n.priority,
           plan_description: n.plan_description,
           definition_of_done: n.definition_of_done,
           checkpoints: n.checkpoints as never,
@@ -506,6 +510,7 @@ server.registerTool(
       set_assigned_to: z.string().optional(),
       label: z.string().optional(),
       max_attempts: z.number().int().min(0).optional(),
+      set_priority: z.number().int().min(0).optional().describe("调度优先级（越小越先）"),
       reset_attempts: z
         .boolean()
         .optional()
@@ -513,7 +518,7 @@ server.registerTool(
         .describe("显式把 attempts 重置为 0（写审计事件；修改 plan 不再自动重置）"),
     },
   },
-  async ({ id, plan_description, add_dod, clear_dod, add_checkpoints, set_assigned_to, label, max_attempts, reset_attempts }) => {
+  async ({ id, plan_description, add_dod, clear_dod, add_checkpoints, set_assigned_to, label, max_attempts, set_priority, reset_attempts }) => {
     const node = getNode(rootDir, id);
     const updates = buildNodeUpdates(node, {
       ...(plan_description !== undefined ? { plan_description } : {}),
@@ -523,6 +528,7 @@ server.registerTool(
       ...(set_assigned_to !== undefined ? { set_assigned_to } : {}),
       ...(label !== undefined ? { label } : {}),
       ...(max_attempts !== undefined ? { max_attempts } : {}),
+      ...(set_priority !== undefined ? { set_priority } : {}),
     });
     if (Object.keys(updates).length === 0 && !reset_attempts) {
       throw new Error("没有指定任何更新项（至少传一个可选参数）");

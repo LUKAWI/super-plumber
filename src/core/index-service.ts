@@ -219,10 +219,10 @@ export function buildGraphIndex(
 // ── 调度决策（agent 规划循环的核心减负工具）──
 
 export interface NextActionsResult {
-  /** 可认领节点（状态 ready） */
-  ready: { id: string; label: string }[];
-  /** 门禁已满足、可转 ready 的 pending/failed 节点（冷启动与重试的入口） */
-  ready_eligible: { id: string; label: string }[];
+  /** 可认领节点（状态 ready），按 priority 升序 → level → id 排序 */
+  ready: { id: string; label: string; priority?: number }[];
+  /** 门禁已满足、可转 ready 的 pending/failed 节点（冷启动与重试入口），同上排序 */
+  ready_eligible: { id: string; label: string; priority?: number }[];
   /** pending/failed 且门控前驱未齐的节点 */
   blocked: {
     id: string;
@@ -277,7 +277,7 @@ export function computeNextActions(
 
   for (const n of nodes) {
     if (n.status === NodeStatus.Ready) {
-      ready.push({ id: n.id, label: n.label });
+      ready.push(schedEntry(n));
       continue;
     }
     if (n.status === NodeStatus.Running) {
@@ -311,10 +311,29 @@ export function computeNextActions(
       if (unmet.length > 0) {
         blocked.push({ id: n.id, label: n.label, unmet });
       } else {
-        readyEligible.push({ id: n.id, label: n.label });
+        readyEligible.push(schedEntry(n));
       }
     }
   }
+
+  // FIX-F1：可认领桶按调度优先级排序（priority 升序，缺省最低；level、id 决胜），
+  // agent 面对几十个 ready 节点时不再只能按 readdir 字典序盲选
+  const nodeOf = new Map(nodes.map((n) => [n.id, n]));
+  const bySched = (
+    a: { id: string },
+    b: { id: string },
+  ): number => {
+    const na = nodeOf.get(a.id)!;
+    const nb = nodeOf.get(b.id)!;
+    return (
+      (na.priority ?? Number.MAX_SAFE_INTEGER) -
+        (nb.priority ?? Number.MAX_SAFE_INTEGER) ||
+      na.level - nb.level ||
+      na.id.localeCompare(nb.id)
+    );
+  };
+  ready.sort(bySched);
+  readyEligible.sort(bySched);
 
   return {
     ready,
@@ -323,5 +342,13 @@ export function computeNextActions(
     running,
     stale_running: staleRunning,
     summary,
+  };
+}
+
+function schedEntry(n: NodeSchema): { id: string; label: string; priority?: number } {
+  return {
+    id: n.id,
+    label: n.label,
+    ...(n.priority !== undefined ? { priority: n.priority } : {}),
   };
 }

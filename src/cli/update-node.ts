@@ -22,6 +22,7 @@ export const updateNodeCommand = new Command("update-node").alias("un")
   .option("--set-assigned <agent>", "分配给哪个 agent")
   .option("--label <text>", "重命名节点标签")
   .option("--max-attempts <n>", "最大重试次数（0 = 不限）")
+  .option("--set-priority <n>", "调度优先级（≥0，越小越先；设置后参与 ready 排序）")
   .option(
     "--reset-attempts",
     "显式把 attempts 重置为 0（写入 attempts_reset 审计事件；修改 plan 不再自动重置）",
@@ -85,6 +86,9 @@ export const updateNodeCommand = new Command("update-node").alias("un")
         ...(options.label !== undefined ? { label: options.label } : {}),
         ...(options.maxAttempts !== undefined
           ? { max_attempts: parseInt(options.maxAttempts, 10) }
+          : {}),
+        ...(options.setPriority !== undefined
+          ? { set_priority: parseInt(options.setPriority, 10) }
           : {}),
       });
 

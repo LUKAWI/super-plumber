@@ -25,6 +25,7 @@ export type CreateNodeParams = {
   type: NodeType;
   label: string;
   level?: number;
+  priority?: number;
   plan_description?: string;
   definition_of_done?: string[];
   assigned_to?: string;
@@ -48,6 +49,7 @@ export function createNode(
       type: params.type,
       label: params.label,
       level: params.level ?? 1,
+      ...(params.priority !== undefined ? { priority: params.priority } : {}),
       status: NodeStatus.Pending,
       plan: params.plan_description
         ? { description: params.plan_description }
@@ -398,6 +400,7 @@ export interface NodeUpdateParams {
   set_assigned_to?: string;
   label?: string;
   max_attempts?: number;
+  set_priority?: number;
   /** FIX-A2：显式重置 attempts（由 CLI --reset-attempts / MCP reset_attempts 传入，
    * buildNodeUpdates 不消费此字段——由调用方转为 updateNodeContent 的 opts.resetAttempts） */
   reset_attempts?: boolean;
@@ -464,10 +467,19 @@ export function buildNodeUpdates(
   if (params.max_attempts !== undefined) {
     updates.max_attempts = params.max_attempts;
   }
+  if (params.set_priority !== undefined) {
+    updates.priority = params.set_priority;
+  }
   return updates as Partial<
     Pick<
       NodeSchema,
-      "plan" | "expected_outcome" | "checkpoints" | "assigned_to" | "label" | "max_attempts"
+      | "plan"
+      | "expected_outcome"
+      | "checkpoints"
+      | "assigned_to"
+      | "label"
+      | "max_attempts"
+      | "priority"
     >
   >;
 }

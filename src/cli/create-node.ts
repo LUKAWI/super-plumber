@@ -11,6 +11,7 @@ export const createNodeCommand = new Command("create-node").alias("cn")
   .requiredOption("-l, --label <label>", "节点标签")
   .option("-t, --type <type>", "节点类型", "task")
   .option("--level <level>", "拓扑层级", "1")
+  .option("--priority <n>", "调度优先级（≥0，越小越先被推荐；缺省最低）")
   .option("--assigned-to <agent>", "分配给哪个 agent")
   .option("--plan-desc <text>", "构建计划描述")
   .option(
@@ -41,6 +42,9 @@ export const createNodeCommand = new Command("create-node").alias("cn")
         type,
         label: options.label,
         level: parseInt(options.level, 10),
+        ...(options.priority !== undefined
+          ? { priority: parseInt(options.priority, 10) }
+          : {}),
         assigned_to: options.assignedTo,
         plan_description: options.planDesc,
         definition_of_done: options.dod.length > 0 ? options.dod : undefined,
