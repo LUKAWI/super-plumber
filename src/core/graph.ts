@@ -4,7 +4,9 @@
 // index-service.ts（两级缓存 + 热路径优化），此处重导出以保持既有 import 路径兼容。
 import {
   type EdgeSchema,
+  EdgeType,
   TOPOLOGICAL_EDGE_TYPES,
+  GATE_EDGE_TYPES,
 } from "./types.js";
 
 export {
@@ -71,13 +73,46 @@ export function detectCycles(
   nodeIds: string[],
   edges: Pick<EdgeSchema, "source" | "target" | "type">[],
 ): string[][] {
-  const topologicalEdges = edges.filter((e) =>
-    TOPOLOGICAL_EDGE_TYPES.includes(e.type),
-  );
+  return findCycles(nodeIds, edges, TOPOLOGICAL_EDGE_TYPES);
+}
+
+// FIX-B1（评审 B 级·运行时边装饰性）：隐藏环路 = 仅在引入 fan_out/fan_in
+// 门控边之后才闭合的环。这些边参与 ready 门禁（互等前驱 passed），环即真实
+// 互等死锁——今天就会发生，但拓扑排序/detectCycles 刻意忽略它们，完全不可见。
+// fallback/iterates 的单边闭合属于设计内的回退/迭代模式（不告警，改为
+// validate 对每条此类边发"无运行时语义"警告）。
+const HIDDEN_CYCLE_EDGE_TYPES: readonly EdgeType[] = [...GATE_EDGE_TYPES];
+
+function cycleKey(cycle: string[]): string {
+  return [...new Set(cycle)].sort().join(",");
+}
+
+export function detectHiddenCycles(
+  nodeIds: string[],
+  edges: Pick<EdgeSchema, "source" | "target" | "type">[],
+): string[][] {
+  const visible = new Set(detectCycles(nodeIds, edges).map(cycleKey));
+  const seen = new Set<string>();
+  const hidden: string[][] = [];
+  for (const cycle of findCycles(nodeIds, edges, HIDDEN_CYCLE_EDGE_TYPES)) {
+    const key = cycleKey(cycle);
+    if (visible.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    hidden.push(cycle);
+  }
+  return hidden;
+}
+
+function findCycles(
+  nodeIds: string[],
+  edges: Pick<EdgeSchema, "source" | "target" | "type">[],
+  allowedTypes: readonly EdgeType[],
+): string[][] {
+  const activeEdges = edges.filter((e) => allowedTypes.includes(e.type));
 
   const adjacency = new Map<string, string[]>();
   for (const id of nodeIds) adjacency.set(id, []);
-  for (const e of topologicalEdges) {
+  for (const e of activeEdges) {
     adjacency.get(e.source)?.push(e.target);
   }
 

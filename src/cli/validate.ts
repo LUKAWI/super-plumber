@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { readGraph } from "../core/parser.js";
-import { topologicalSort, detectCycles } from "../core/graph.js";
+import { topologicalSort, detectCycles, detectHiddenCycles } from "../core/graph.js";
 import { aggregateCheckpointStatus } from "../core/state-machine.js";
 import {
   loadNodeFile,
@@ -142,6 +142,21 @@ export const validateCommand = new Command("validate").alias("v")
     }
     if (!jsonMode) console.log(`✅  边: ${edges.length} 条`);
 
+    // FIX-B1（评审 B 级·运行时边装饰性）：运行时控制流边无运行时语义，显式警告
+    for (const edge of edges) {
+      if (edge.type === "fallback" || edge.type === "iterates") {
+        warn(
+          `边 ${edge.id} (${edge.type}) 为运行时控制流边，但工具未实现其运行时语义（不执行回退/迭代）——当前仅文档性标注`,
+        );
+      }
+    }
+    const ctxEdges = edges.filter((e) => e.type === "shares_context");
+    if (ctxEdges.length > 0) {
+      warn(
+        `检测到 ${ctxEdges.length} 条 shares_context 边：不参与门禁与拓扑排序，仅表达上下文共享意图`,
+      );
+    }
+
     // 4. 拓扑排序 + 循环检测
     if (nodes.length > 1) {
       try {
@@ -164,6 +179,18 @@ export const validateCommand = new Command("validate").alias("v")
         }
       } else if (!jsonMode) {
         console.log(`✅  循环检测: 无环路`);
+      }
+
+      // FIX-B1：隐藏环路（fan 门控边闭合的互等环——ready 门禁今天就会死锁，
+      // 但拓扑排序不可见。fallback/iterates 闭合属设计内回退/迭代，仅 per-edge 警告）
+      const hidden = detectHiddenCycles(
+        nodes.map((n) => n.id),
+        edges,
+      );
+      for (const cycle of hidden) {
+        warn(
+          `隐藏环路（fan_out/fan_in 门控边闭合: ${cycle.join(" → ")}）：门禁互等，节点可能永远无法 ready`,
+        );
       }
     }
 

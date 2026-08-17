@@ -47,6 +47,25 @@ describe("CLI commands", () => {
     expect(output).toContain("图:");
   });
 
+  it("FIX-B1 validate 对运行时边与隐藏环路发警告（退出码仍 0）", () => {
+    run("init");
+    run("create-node --id a --label A");
+    run("create-node --id b --label B");
+    // a -fan_out-> b + b -fan_in-> a：门禁互等隐藏环
+    run("add-edge --id e1 --source a --target b --type fan_out");
+    run("add-edge --id e2 --source b --target a --type fan_in");
+    // fallback 运行时边（无运行时语义警告）+ shares_context 信息边
+    run("add-edge --id e3 --source b --target a --type fallback");
+    run("add-edge --id e4 --source b --target a --type shares_context");
+    // 警告走 stderr（console.warn），合并捕获
+    const out = execSync(`${CLI} validate 2>&1`, { cwd: tmpDir, encoding: "utf-8" });
+    expect(out).toContain("隐藏环路");
+    expect(out).toContain("运行时控制流边");
+    expect(out).toContain("shares_context");
+    // 警告不改变退出码（与既有 warning 语义一致）
+    expect(() => run("validate")).not.toThrow();
+  });
+
   it("graph export --mermaid 生成文件", () => {
     run("init");
     run("create-node --id a --label A");
