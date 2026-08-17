@@ -304,7 +304,7 @@ export function updateNodeContent(
       | "execution_report"
     >
   >,
-  opts: { actor?: string } = {},
+  opts: { actor?: string; resetAttempts?: boolean } = {},
 ): NodeSchema {
   return withLockSync(rootDir, id, () => {
     const node = getNode(rootDir, id);
@@ -313,16 +313,13 @@ export function updateNodeContent(
       ...updates,
       updated_at: new Date().toISOString(),
     };
-    // CONTEXT：因修改计划后重试时 attempts 重置为 0
-    const planChanged =
-      updates.plan !== undefined &&
-      (updates.plan.description ?? "") !== (node.plan?.description ?? "");
-    if (
-      planChanged &&
-      node.attempts > 0 &&
-      (node.status === NodeStatus.Failed || node.status === NodeStatus.Pending)
-    ) {
+    // FIX-A2（评审 A 级·自我豁免后门）：attempts 重置必须显式请求，
+    // 且无论通过何种通道都写入 attempts_reset 审计事件。
+    // 旧规则"修改 plan.description 自动重置"已移除——agent 可借此无限清零重试计数。
+    let attemptsReset = false;
+    if (opts.resetAttempts && node.attempts > 0) {
       updated.attempts = 0;
+      attemptsReset = true;
     }
     writeNode(rootDir, updated);
     appendEvent(rootDir, {
@@ -331,6 +328,16 @@ export function updateNodeContent(
       node: id,
       detail: `fields: ${Object.keys(updates).join(", ")}`,
     });
+    if (attemptsReset) {
+      appendEvent(rootDir, {
+        actor: opts.actor ?? "unknown",
+        kind: "attempts_reset",
+        node: id,
+        from: String(node.attempts),
+        to: "0",
+        detail: "显式重置（reset_attempts）",
+      });
+    }
     return updated;
   });
 }
@@ -391,6 +398,9 @@ export interface NodeUpdateParams {
   set_assigned_to?: string;
   label?: string;
   max_attempts?: number;
+  /** FIX-A2：显式重置 attempts（由 CLI --reset-attempts / MCP reset_attempts 传入，
+   * buildNodeUpdates 不消费此字段——由调用方转为 updateNodeContent 的 opts.resetAttempts） */
+  reset_attempts?: boolean;
 }
 
 export function buildNodeUpdates(

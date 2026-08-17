@@ -496,7 +496,7 @@ server.registerTool(
   {
     description:
       "更新节点内容（plan / definition_of_done / checkpoints / assigned_to / label / max_attempts）。Use during the design phase to enrich nodes; during execution prefer graph_update_checkpoint and graph_update_execution_report. " +
-      "Changing plan.description resets attempts to 0 (per CONTEXT retry rule).",
+      "attempts never resets implicitly — changing plan.description does NOT clear the retry counter; pass reset_attempts=true explicitly (an attempts_reset audit event is always recorded).",
     inputSchema: {
       id: z.string(),
       plan_description: z.string().optional(),
@@ -506,9 +506,14 @@ server.registerTool(
       set_assigned_to: z.string().optional(),
       label: z.string().optional(),
       max_attempts: z.number().int().min(0).optional(),
+      reset_attempts: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe("显式把 attempts 重置为 0（写审计事件；修改 plan 不再自动重置）"),
     },
   },
-  async ({ id, plan_description, add_dod, clear_dod, add_checkpoints, set_assigned_to, label, max_attempts }) => {
+  async ({ id, plan_description, add_dod, clear_dod, add_checkpoints, set_assigned_to, label, max_attempts, reset_attempts }) => {
     const node = getNode(rootDir, id);
     const updates = buildNodeUpdates(node, {
       ...(plan_description !== undefined ? { plan_description } : {}),
@@ -519,10 +524,15 @@ server.registerTool(
       ...(label !== undefined ? { label } : {}),
       ...(max_attempts !== undefined ? { max_attempts } : {}),
     });
-    if (Object.keys(updates).length === 0) {
+    if (Object.keys(updates).length === 0 && !reset_attempts) {
       throw new Error("没有指定任何更新项（至少传一个可选参数）");
     }
-    return jsonText(updateNodeContent(rootDir, id, updates, { actor: "mcp" }));
+    return jsonText(
+      updateNodeContent(rootDir, id, updates, {
+        actor: "mcp",
+        ...(reset_attempts ? { resetAttempts: true } : {}),
+      }),
+    );
   },
 );
 

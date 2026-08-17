@@ -22,6 +22,10 @@ export const updateNodeCommand = new Command("update-node").alias("un")
   .option("--set-assigned <agent>", "分配给哪个 agent")
   .option("--label <text>", "重命名节点标签")
   .option("--max-attempts <n>", "最大重试次数（0 = 不限）")
+  .option(
+    "--reset-attempts",
+    "显式把 attempts 重置为 0（写入 attempts_reset 审计事件；修改 plan 不再自动重置）",
+  )
   .option("--show", "显示当前节点内容")
   .action((options) => {
     const rootDir = process.cwd();
@@ -89,7 +93,10 @@ export const updateNodeCommand = new Command("update-node").alias("un")
         return;
       }
 
-      updateNodeContent(rootDir, options.id, updates, { actor: "cli" });
+      updateNodeContent(rootDir, options.id, updates, {
+        actor: "cli",
+        ...(options.resetAttempts ? { resetAttempts: true } : {}),
+      });
       console.log(`✅ 已更新节点: ${options.id}`);
     } catch (err: any) {
       if (err?.message?.includes("not found")) {

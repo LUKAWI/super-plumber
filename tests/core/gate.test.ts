@@ -12,6 +12,7 @@ import {
   updateExecutionReport,
 } from "../../src/core/node.js";
 import { createEdge } from "../../src/core/edge.js";
+import { readEvents } from "../../src/core/eventlog.js";
 import { NodeType, NodeStatus, EdgeType } from "../../src/core/types.js";
 
 let tmpDir: string;
@@ -148,7 +149,7 @@ describe("max_attempts + attempts reset", () => {
     );
   });
 
-  it("修改 plan 后重试 attempts 重置为 0（CONTEXT 规则）", () => {
+  it("FIX-A2：修改 plan 不再自动重置 attempts；显式 resetAttempts 才重置且留审计事件", () => {
     updateNodeStatus(tmpDir, "a", NodeStatus.Ready, undefined, { force: true });
     updateNodeStatus(tmpDir, "a", NodeStatus.Running);
     updateNodeStatus(tmpDir, "a", NodeStatus.Failed);
@@ -161,16 +162,22 @@ describe("max_attempts + attempts reset", () => {
     updateNodeStatus(tmpDir, "a", NodeStatus.Running);
     updateNodeStatus(tmpDir, "a", NodeStatus.Failed);
     expect(getNode(tmpDir, "a").attempts).toBe(2);
-    // 修改 plan.description → attempts 重置
+    // 旧规则已移除：仅修改 plan.description 不重置 attempts
     updateNodeContent(tmpDir, "a", { plan: { description: "修正后的新计划" } });
-    expect(getNode(tmpDir, "a").attempts).toBe(0);
-    // 非 plan 字段更新不重置
-    updateNodeStatus(tmpDir, "a", NodeStatus.Pending);
-    updateNodeStatus(tmpDir, "a", NodeStatus.Ready, undefined, { force: true });
-    updateNodeStatus(tmpDir, "a", NodeStatus.Running);
-    updateNodeStatus(tmpDir, "a", NodeStatus.Failed);
+    expect(getNode(tmpDir, "a").attempts).toBe(2);
+    // 非 plan 字段更新同样不重置
     updateNodeContent(tmpDir, "a", { assigned_to: "someone" });
-    expect(getNode(tmpDir, "a").attempts).toBe(1);
+    expect(getNode(tmpDir, "a").attempts).toBe(2);
+    // 显式 resetAttempts：重置生效 + attempts_reset 审计事件
+    updateNodeContent(tmpDir, "a", { label: "A2" }, { resetAttempts: true });
+    expect(getNode(tmpDir, "a").attempts).toBe(0);
+    const events = readEvents(tmpDir, { node: "a" });
+    const resets = events.filter((e) => e.kind === "attempts_reset");
+    expect(resets).toHaveLength(1);
+    expect(resets[0].from).toBe("2");
+    expect(resets[0].to).toBe("0");
+    // 重置后重试恢复可用（此前 attempts=2、max=3 只剩一次）
+    expect(() => updateNodeStatus(tmpDir, "a", NodeStatus.Pending)).not.toThrow();
   });
 
   it("--force 覆盖 max_attempts 拦截", () => {

@@ -98,7 +98,9 @@ CLI 命令 `graph reclaim`，MCP 工具 `graph_reclaim_node`。
 ### 尝试次数（Attempts）
 
 节点从执行失败状态重试的次数。因执行内容失败时累加（`failed → pending` 自动 +1）；
-因修改计划（plan.description 变化）后重试时重置为 0；达到 max_attempts 后核心层拒绝重试。
+达到 max_attempts 后核心层拒绝重试。重置必须显式请求（CLI `--reset-attempts` /
+MCP `reset_attempts`），且无论何种通道都写入 attempts_reset 审计事件——
+修改 plan.description 不再隐式重置（v0.4 起移除该自动重置，防自我豁免）。
 
 ---
 

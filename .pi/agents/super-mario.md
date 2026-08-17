@@ -100,7 +100,7 @@ graph get-node -i <node_id> --json
 |------|------|
 | `attempts < max_attempts` 且失败可修复 | 置回 pending（attempts 自动 +1），等待重新调度 |
 | `attempts >= max_attempts(>0)` | 🔴 核心层会拦截重试，标记需人工介入（`max_attempts=0` 不限） |
-| 失败因 plan 设计错误 | 用 `graph update-node --plan-desc "修正后的计划"` 修改——attempts 自动重置为 0 |
+| 失败因 plan 设计错误 | 用 `graph update-node --plan-desc "修正后的计划" --reset-attempts` 修改并显式重置（写 attempts_reset 审计事件；改 plan 本身不再自动重置） |
 
 ### ⑥ 全局监测报告
 

@@ -35,7 +35,7 @@ todo: "做个注册模块"            →     entry → l1_register → l1_login
 | 能力 | 说明 |
 |------|------|
 | 🧭 **类型化拓扑** | 7 种边类型：`depends_on` / `validates` 参与拓扑排序，`shares_context` / `fan_out` / `fan_in` / `fallback` / `iterates` 表达运行时控制流 |
-| 🔄 **状态机强制** | 7 态 + 三条硬规则：ready 门禁（门控前驱必须 passed）、max_attempts 上限（修改 plan 自动重置）、**passed 硬门禁**（无执行报告 / checkpoint 未聚合 / failed 裁决 → 拒绝 passed）；并发认领锁内原子 |
+| 🔄 **状态机强制** | 7 态 + 三条硬规则：ready 门禁（门控前驱必须 passed）、max_attempts 上限（修改 plan 自动重置）、**passed 硬门禁**（无执行报告 / checkpoint 未聚合 / failed 裁决 → 拒绝 passed）；并发认领锁内原子；attempts 重置必须显式 `--reset-attempts`（写审计事件，改 plan 不再自动重置） |
 | 🛡️ **Schema 校验** | 读入层逐文件校验 YAML（枚举/类型/必填），手改拼错即时报可读错误，`graph validate` 逐文件定位 |
 | 🗂️ **版本控制** | `snapshot` / `diff` / `rollback` 三原语（回滚自动备份、必须确认），Branch/Merge 由 Git 承担 |
 | 🤖 **MCP 原生接入** | 19 个 `graph_*` 工具：设计期（批量建图/建边/编辑 entry-exit）、执行期（原子 claim/checkpoint/report/**reclaim 回收死认领**）、裁决（verdict）、版本（snapshot/diff/rollback）全流程覆盖，zod 参数校验 |

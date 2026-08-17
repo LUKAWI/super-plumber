@@ -72,7 +72,7 @@ pending → ready → running → passed → blocked
 这不是 bug——修正依赖顺序。`--force` 仅人类运维可用，**agent 绝不使用**。
 
 **硬规则 2 — max_attempts**：`attempts >= max_attempts(>0)` 后 `failed → pending` 被拦截，
-提示人工介入。修改 `plan.description` 会自动把 attempts 重置为 0（CONTEXT 规则）。
+提示人工介入。重置必须显式：CLI `--reset-attempts` / MCP `reset_attempts: true`（写审计事件）；修改 `plan.description` 不再自动重置。
 `max_attempts = 0` 表示不限重试。
 
 **硬规则 3 — passed 硬门禁（v0.3）**：`running → passed` 由核心层强制校验：
@@ -110,7 +110,7 @@ pending → ready → running → passed → blocked
 | `graph_create_node` | 建节点，**一次可带 plan/DoD/checkpoints 完整压缩包** | 重复 id 报错，绝不覆盖 |
 | `graph_batch_create` | 批量建 nodes+edges（先全量预校验报全部冲突，再写盘） | **每批 ≤200 个节点**，大图分段；写盘中途崩溃 → 重跑报冲突清单 |
 | `graph_add_edge` | 建边（核心层校验端点存在） | — |
-| `graph_update_node` | 编辑 plan/DoD/checkpoints/assignee/label/max_attempts | 改 plan 会重置 attempts |
+| `graph_update_node` | 编辑 plan/DoD/checkpoints/assignee/label/max_attempts | `reset_attempts: true` 显式重置（写审计事件），改 plan 不重置 |
 | `graph_update_graph` | 编辑 entry/exit/验收标准/root_context | 不再手写 graph.yaml |
 | `graph_delete_node` | 软删除；有引用边默认拒绝 | `cascade: true` 连边一起删 |
 | `graph_delete_edge` | 软删除边 | — |
