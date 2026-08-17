@@ -10,6 +10,7 @@ import * as yaml from "js-yaml";
 import { GRAPH_DIR } from "./types.js";
 import { listNodeFileNames, listEdgeFileNames } from "./schema.js";
 import { appendEvent } from "./eventlog.js";
+import { withLockSync } from "./lock.js";
 
 export interface SnapshotFileEntry {
   file: string; // 相对 .graph/ 的路径（正斜杠）
@@ -82,7 +83,23 @@ function collectSourceFiles(rootDir: string): string[] {
   return files;
 }
 
+// FIX-E1（评审 E 级·快照无锁）：快照/回滚共用全局锁 id "__snapshot__"，
+// 串行化多文件复制，避免与并发的同类操作交错产生撕裂快照。
+// （节点级写入持的是各自的 id 锁，与该锁无嵌套关系，无死锁风险；
+//  持锁超 30s 会被判陈锁——常规规模图复制远低于该阈值。）
+const SNAPSHOT_LOCK = "__snapshot__";
+
 export function createSnapshot(
+  rootDir: string,
+  message?: string,
+  opts: { actor?: string } = {},
+): SnapshotManifest {
+  return withLockSync(rootDir, SNAPSHOT_LOCK, () =>
+    createSnapshotUnlocked(rootDir, message, opts),
+  );
+}
+
+function createSnapshotUnlocked(
   rootDir: string,
   message?: string,
   opts: { actor?: string } = {},
@@ -220,11 +237,22 @@ export function rollbackToSnapshot(
       `rollback 会覆盖当前 .graph/ 内容，请显式加 --confirm（自动备份当前状态）`,
     );
   }
+  // FIX-E1：与 createSnapshot 共用全局锁（备份走无锁内层，避免重入死锁）
+  return withLockSync(rootDir, SNAPSHOT_LOCK, () =>
+    rollbackToSnapshotUnlocked(rootDir, id, opts),
+  );
+}
+
+function rollbackToSnapshotUnlocked(
+  rootDir: string,
+  id: string,
+  opts: { actor?: string } = {},
+): { restored: SnapshotManifest; backup: SnapshotManifest } {
   const snap = readManifest(rootDir, id);
   if (!snap) throw new Error(`Snapshot ${id} not found`);
 
   // 1. 自动备份当前状态（pre-rollback 快照，可再回滚）
-  const backup = createSnapshot(
+  const backup = createSnapshotUnlocked(
     rootDir,
     `pre-rollback-to-${id}`,
     { actor: opts.actor },

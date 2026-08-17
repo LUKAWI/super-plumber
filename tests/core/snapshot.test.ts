@@ -12,6 +12,7 @@ import {
 import { createNode, updateNodeStatus, getNode } from "../../src/core/node.js";
 import { createEdge } from "../../src/core/edge.js";
 import { updateGraph, writeGraph } from "../../src/core/parser.js";
+import { withLockSync } from "../../src/core/lock.js";
 import { NodeType, NodeStatus, EdgeType } from "../../src/core/types.js";
 
 let tmpDir: string;
@@ -106,5 +107,29 @@ describe("snapshot", () => {
     const diff = diffSnapshot(tmpDir, v1.id, v2.id);
     expect(diff.added).toContain("nodes/c.yaml");
     expect(diff.removed).toEqual([]);
+  });
+
+  it("FIX-E1 快照持全局锁：锁被占用时 createSnapshot 超时报错，释放后成功", () => {
+    buildGraph();
+    // 模拟另一个进程正在做快照/回滚（持 __snapshot__ 锁不放）
+    const lock = withLockSync(tmpDir, "__snapshot__", () => {
+      // 锁内尝试再快照 → 互斥，3s 默认超时后 LockTimeoutError
+      expect(() => createSnapshot(tmpDir, "concurrent")).toThrow("Lock timeout");
+    });
+    void lock;
+    // 锁已释放：快照恢复正常
+    const snap = createSnapshot(tmpDir, "after-release");
+    expect(snap.files.length).toBeGreaterThanOrEqual(3);
+  }, 15_000);
+
+  it("FIX-E1 rollback 与快照共用同一把锁（备份不重入死锁）", () => {
+    buildGraph();
+    const snap = createSnapshot(tmpDir, "v1");
+    updateNodeStatus(tmpDir, "a", NodeStatus.Ready);
+    // rollback 内部做 pre-rollback 备份快照——若备份走带锁入口会自锁死；
+    // 此处能在超时内完成即证明无重入死锁
+    const { restored } = rollbackToSnapshot(tmpDir, snap.id, { confirm: true });
+    expect(restored.id).toBe(snap.id);
+    expect(getNode(tmpDir, "a").status).toBe("pending");
   });
 });
