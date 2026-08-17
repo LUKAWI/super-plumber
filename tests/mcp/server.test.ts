@@ -103,6 +103,22 @@ describe("MCP server protocol compliance", () => {
     expect(r.isError).toBe(true);
   });
 
+  it("FIX-A1 force=true 时 MCP 通道协议级拒绝（agent 无法越权）", async () => {
+    const r = await client!.callTool({
+      name: "graph_update_node_status",
+      arguments: { id: "a", status: "ready", force: true },
+    });
+    expect(r.isError).toBe(true);
+    const text = JSON.stringify(r.content);
+    expect(text).toContain("MCP 拒绝");
+    // 且节点状态未被改动（拒绝发生在任何写入之前）
+    const check = await client!.callTool({
+      name: "graph_get_node",
+      arguments: { id: "a" },
+    });
+    expect(JSON.stringify(check.content)).toContain("\\\"pending\\\"");
+  });
+
   it("不存在的工具名返回 isError", async () => {
     const r = await client!.callTool({
       name: "graph_nonexistent",

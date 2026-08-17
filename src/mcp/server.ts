@@ -531,7 +531,7 @@ server.registerTool(
   {
     description:
       "更新节点状态（状态机强制校验 + ready 前置门禁 + max_attempts 拦截）。Claim semantics: pass claim_by when transitioning ready → running — records assigned_to and started_at atomically (concurrent double-claim fails for the loser). " +
-      "Re-claiming by the same claim_by is idempotent. Use force ONLY for human maintenance, never as an agent.",
+      "Re-claiming by the same claim_by is idempotent. force is REJECTED on the MCP channel (agent-facing); human operators must use the CLI: graph update-status --force.",
     inputSchema: {
       id: z.string(),
       status: nodeStatusSchema,
@@ -543,12 +543,19 @@ server.registerTool(
         .boolean()
         .optional()
         .default(false)
-        .describe("跳过 ready 门禁/max_attempts（仅人类运维，agent 禁用）"),
+        .describe("已废弃：MCP 通道一律拒绝 force（仅 CLI 人类运维通道可用）"),
     },
   },
   async ({ id, status, claim_by, force }) => {
+    // FIX-A1（评审 A 级·信任模型）：MCP 是 agent 通道，force 在协议层面拒绝。
+    // 保留 zod 形参以显式报错（剥离未知键会变成静默忽略，更危险）。
+    if (force) {
+      throw new Error(
+        "force 仅人类运维通道（CLI: graph update-status --force）可用，MCP 拒绝执行。" +
+          "若你是执行 agent：请按状态机/门禁规则走合法转换，不要绕过。",
+      );
+    }
     const node = updateNodeStatus(rootDir, id, status as NodeStatus, claim_by, {
-      force,
       actor: "mcp",
     });
     return jsonText(node);
