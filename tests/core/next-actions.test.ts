@@ -6,6 +6,8 @@ import * as path from "node:path";
 import { computeNextActions } from "../../src/core/graph.js";
 import { createNode, updateNodeStatus, updateExecutionReport, updateNodeContent, getNode } from "../../src/core/node.js";
 import { createEdge } from "../../src/core/edge.js";
+import { writeNode } from "../../src/core/parser.js";
+import { resetIndexCache } from "../../src/core/index-service.js";
 import { NodeType, NodeStatus, EdgeType } from "../../src/core/types.js";
 
 let tmpDir: string;
@@ -133,5 +135,28 @@ describe("computeNextActions", () => {
     const r = computeNextActions(tmpDir);
     expect(r.ready_eligible.map((n) => n.id)).toEqual(["b", "a"]);
     expect(getNode(tmpDir, "b").priority).toBe(0);
+  });
+  it("FIX-F2 stale 判据按最后活动时间：持续上报（updated_at 新鲜）不算卡住", () => {
+    createNode(tmpDir, { id: "long", type: NodeType.Task, label: "Long" });
+    updateNodeStatus(tmpDir, "long", NodeStatus.Ready);
+    updateNodeStatus(tmpDir, "long", NodeStatus.Running, "agent-1");
+
+    // 伪造：started_at 很旧（认领 1 小时前），但 updated_at 新鲜（刚上报过 checkpoint）
+    const node = getNode(tmpDir, "long");
+    node.execution_report!.started_at = new Date(Date.now() - 3_600_000).toISOString();
+    node.updated_at = new Date().toISOString();
+    writeNode(tmpDir, node);
+    resetIndexCache();
+
+    let r = computeNextActions(tmpDir, { staleMs: 30 * 60 * 1000 });
+    expect(r.stale_running.map((n) => n.id)).toEqual([]); // 心跳新鲜，不误报
+    expect(r.running).toHaveLength(1);
+
+    // 两者皆旧（1 小时前后再无任何更新）→ stale
+    node.updated_at = new Date(Date.now() - 3_600_000).toISOString();
+    writeNode(tmpDir, node);
+    resetIndexCache();
+    r = computeNextActions(tmpDir, { staleMs: 30 * 60 * 1000 });
+    expect(r.stale_running.map((n) => n.id)).toEqual(["long"]);
   });
 });

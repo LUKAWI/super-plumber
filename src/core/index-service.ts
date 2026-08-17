@@ -282,7 +282,14 @@ export function computeNextActions(
     }
     if (n.status === NodeStatus.Running) {
       const started = n.execution_report?.started_at;
-      const elapsed_ms = started ? Date.now() - Date.parse(started) : null;
+      // FIX-F2：stale 判据 = 最后活动时间 max(updated_at, started_at)。
+      // checkpoint / execution_report 上报都会刷新 updated_at——"上报即心跳"，
+      // 持续工作的长任务不再因 started_at 陈旧被误报疑似卡住。
+      const lastActivity = Math.max(
+        Date.parse(n.updated_at ?? "") || 0,
+        started ? Date.parse(started) || 0 : 0,
+      );
+      const elapsed_ms = lastActivity > 0 ? Date.now() - lastActivity : null;
       running.push({
         id: n.id,
         label: n.label,
