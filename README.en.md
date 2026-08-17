@@ -5,7 +5,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@lukawi/super-plumber)](https://www.npmjs.com/package/@lukawi/super-plumber)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-216%2F12-green)](https://github.com/LUKAWI/super-plumber/actions)
+[![Tests](https://img.shields.io/badge/tests-247%2F247-green)](https://github.com/LUKAWI/super-plumber/actions)
 [![GitHub](https://img.shields.io/badge/GitHub-LUKAWI%2Fsuper--plumber-black)](https://github.com/LUKAWI/super-plumber)
 
 **中文版:** [README.md](README.md) · **npm:** [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)
@@ -35,8 +35,11 @@ todo: "build a registration module"  →   entry → l1_register → l1_login �
 | Capability | Description |
 |------------|-------------|
 | 🧭 **Typed topology** | 7 edge types: `depends_on` / `validates` participate in topological sort; `shares_context` / `fan_out` / `fan_in` / `fallback` / `iterates` express runtime control flow |
-| 🔄 **Enforced state machine** | 7 states, 14 legal transitions (`pending → ready → running → passed/…`); illegal jumps error out loudly — never silent |
-| 🤖 **Native MCP** | 9 `graph_*` tools with zod-validated params, ready for Claude Code / opencode agents |
+| 🔄 **Enforced state machine** | 7 states + three hard rules: ready gate (gating predecessors must be `passed`), max_attempts cap, and a **passed hard gate** (no execution report / unaggregated checkpoints / failed verdict → `passed` rejected); concurrent claims are atomic under a lock |
+| 🤖 **Native MCP** | 19 `graph_*` tools covering the whole flow: design (batch create / add edge / edit entry-exit), execution (atomic claim / checkpoint / report / **reclaim of dead claims**), adjudication (verdict), versioning (snapshot/diff/rollback) — all with zod-validated params |
+| 🎯 **Scheduling decisions** | `graph next` / `graph_get_next_actions` returns claimable / ready-eligible (cold-start entry) / waiting-on-deps / running / possibly-stale in one screen, with per-bucket pagination + truncated flags — the agent planning loop's first call |
+| 📉 **Context economy** | All MCP read endpoints paginate: `graph_get_graph` defaults to summary mode (compact fields) + paginated full mode, `graph_search` limit, `graph_traverse` max_nodes, `graph_get_node` optional topology neighbors — no more token explosions on large graphs |
+| ⚡ **Large-graph hot paths** | Two-level index cache (in-memory + on-disk graph.json, exact mtime freshness validation): gate/scheduling drop from full-graph scans (~9s @10k) to table lookup + single-file reads; scheduling is O(N+M) |
 | 🌐 **Web visualization** | Force-directed graph, per-edge-type colors, flow dots on `running` nodes, checkpoint progress bars, WebSocket delta push |
 | 📁 **File-first storage** | One YAML file per node/edge, Git as the single source of truth, human-editable, no database |
 | 🧩 **Agent collaboration protocol** | Built-in `plumber-design` (topology design + preview review) and `plumber-execute` (topology execution + 3-layer acceptance) skills + 2 dedicated subagents (designer / adjudicator) |
@@ -431,7 +434,7 @@ cd super-plumber
 npm install
 npm run build && npm --prefix web-ui run build
 
-# Tests (216 backend + 12 frontend cases)
+# Tests (247 backend + 12 frontend cases)
 npm test
 
 # Link globally for local dev
@@ -459,7 +462,7 @@ graph --version
 ## Project Status
 
 ```text
-Tests: 216 backend + 12 frontend ✅ | CLI: 19 commands | MCP: 18 tools | State machine: 7 states + ready gate + max_attempts | Edge types: 7 | Versioning: snapshot/diff/rollback | Web UI: Svelte 5 + D3.js
+Tests: 247 backend + 12 frontend ✅ | CLI: 20 commands | MCP: 19 tools | State machine: 7 states + ready gate + max_attempts + passed hard gate | Edge types: 7 | Versioning: snapshot/diff/rollback | Web UI: Svelte 5 + D3.js
 ```
 
 - **npm**: [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)

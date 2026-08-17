@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.3.0] — 未发布（分支 feat/agent-topology-scale）
+## [0.3.0] — 2026-08-17
 
 ### 性能（大图热路径）
 - **索引两级缓存**：新增 `src/core/index-service.ts`——内存缓存 + 磁盘 `index/graph.json` 双轨，逐文件 mtime 精确新鲜度校验（跨进程写入可见，2 万次 stat 实测 ~0.4s vs 2 万次读+解析 ~9.4s）。
