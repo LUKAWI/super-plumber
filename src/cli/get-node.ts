@@ -1,11 +1,17 @@
 import { Command } from "commander";
 import { getNode, checkReadyGate } from "../core/node.js";
+import { buildGraphIndex } from "../core/graph.js";
 import { getAllowedTransitions, aggregateCheckpointStatus } from "../core/state-machine.js";
 
 export const getNodeCommand = new Command("get-node").alias("gn")
   .description("读取单个节点全部内容（解压压缩包）+ 合法转换 + 门禁状态")
   .requiredOption("-i, --id <id>", "节点 ID")
   .option("--json", "输出稳定 JSON（供脚本/agent 消费）")
+  .option(
+    "--neighbors <up|down|none>",
+    "附加返回拓扑上游(up)/下游(down)相邻节点（紧凑字段，默认 none）",
+    "none",
+  )
   .action((options) => {
     const rootDir = process.cwd();
     try {
@@ -16,6 +22,21 @@ export const getNodeCommand = new Command("get-node").alias("gn")
         ? aggregateCheckpointStatus(node.checkpoints)
         : null;
 
+      // 拓扑邻居（基于索引缓存，无全图扫描）
+      let neighborsUp: { id: string; status: string }[] = [];
+      let neighborsDown: { id: string; status: string }[] = [];
+      if (options.neighbors === "up" || options.neighbors === "down") {
+        const index = buildGraphIndex(rootDir, { useCache: true });
+        const statusOf = new Map(index.nodes.map((n) => [n.id, n.status]));
+        const compact = (ids: string[]) =>
+          ids.map((nid) => ({ id: nid, status: statusOf.get(nid) ?? "missing" }));
+        if (options.neighbors === "up") {
+          neighborsUp = compact(index.reverseAdj.get(node.id) ?? []);
+        } else {
+          neighborsDown = compact(index.adjacency.get(node.id) ?? []);
+        }
+      }
+
       if (options.json) {
         console.log(
           JSON.stringify(
@@ -24,6 +45,8 @@ export const getNodeCommand = new Command("get-node").alias("gn")
               allowed_transitions: allowed,
               checkpoint_aggregate: cpAgg,
               ready_gate: gate,
+              ...(neighborsUp.length > 0 ? { neighbors_up: neighborsUp } : {}),
+              ...(neighborsDown.length > 0 ? { neighbors_down: neighborsDown } : {}),
             },
             null,
             2,

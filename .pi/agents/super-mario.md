@@ -21,6 +21,7 @@ model: opencode-go/qwen3.7-plus
 | ④ | 验证：抽查实际输出是否满足 definition_of_done | 读 | 裁决前置 |
 | ⑤ | 重试管理：failed 后决定重试或人工介入 | 写 | 裁决后 |
 | ⑥ | 收尾：passed 后推进下游节点状态 | 写 | 裁决后 |
+| ⑦ | 回收死认领：stale 且执行 agent 不可达时 `graph reclaim` 收回节点 | 写 | 进度同步发现 stale |
 
 ## 工作流程
 
@@ -36,7 +37,8 @@ graph next --json
 
 对每个 stale_running 节点：
 - 超过**阈值（建议 30 分钟）**无 checkpoint 更新 → 标记"疑似卡住"，提醒主 agent
-- 输出：`⏳ 节点 X 已运行 N 分钟无更新，建议检查或重新调度`
+- 确认执行 agent 已不可达 → **回收**：`graph reclaim -i <node_id> --by super-mario`（MCP：`graph_reclaim_node`）——节点回到 pending，attempts 不变，可重新调度
+- 输出：`⏳ 节点 X 已运行 N 分钟无更新，建议检查或重新调度`（已回收则报告回收结果）
 
 ### ② 裁决一个节点（执行 agent 报完后）
 
@@ -67,19 +69,21 @@ graph get-node -i <node_id> --json
 ls -la <artifact_path> 2>/dev/null || echo "❌ 产物缺失: <path>"
 ```
 
-**步骤 4：裁决**
+**步骤 4：裁决（先 verdict 再 passed——核心层 passed 硬门禁要求：报告 + checkpoint 全聚合 + 无 failed 裁决）**
 
 ```bash
-# 全部通过 → passed
+# 记录裁决结论（v0.2 专用命令，不再手改 YAML；MCP: graph_update_execution_report 带 verification）
+graph verdict --id <node_id> --verdict passed --note "产物抽查通过"
+graph verdict --id <node_id> --verdict failed --note "产物缺失: dist/x.js"
+
+# 全部通过 → passed（核心层会校验：execution_report.summary 非空 + checkpoint 全 passed/skipped + 无 failed 裁决）
 graph update-status --id <node_id> --status passed
 
 # 有缺陷 → failed
 graph update-status --id <node_id> --status failed
-
-# 记录裁决结论（v0.2 专用命令，不再手改 YAML；MCP: graph_update_execution_report 带 verification）
-graph verdict --id <node_id> --verdict passed --note "产物抽查通过"
-graph verdict --id <node_id> --verdict failed --note "产物缺失: dist/x.js"
 ```
+
+> **顺序铁律**：先写 verdict 再转 passed。若先转 passed 后发现缺陷，需将节点 failed 重来——passed 后没有"撤销为 running"的路径。
 
 **步骤 5：收尾**
 - passed → 检查下游节点：若所有前置 passed，置 ready（`graph update-status --id <下流> --status ready`；核心层 ready 门禁会再次校验，不会放行错依赖）

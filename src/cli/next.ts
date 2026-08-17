@@ -28,6 +28,9 @@ export const nextCommand = new Command("next").alias("n")
       console.log(`\n✅ 可认领 (ready):`);
       if (result.ready.length === 0) console.log(`   （无）`);
       for (const n of result.ready) console.log(`   ${n.id}: ${n.label}`);
+      console.log(`\n🔓 可转 ready (门禁已满足):`);
+      if (result.ready_eligible.length === 0) console.log(`   （无）`);
+      for (const n of result.ready_eligible) console.log(`   ${n.id}: ${n.label}`);
       console.log(`\n⏳ 等依赖 (blocked 候选):`);
       if (result.blocked.length === 0) console.log(`   （无）`);
       for (const n of result.blocked) {

@@ -28,15 +28,16 @@ description: Use when 拓扑图已设计并审核通过、需要执行 .graph/ �
 
 ## 执行协议（每个节点，严格按序）
 
-0. **PLAN** — 每轮决策前先 `graph_get_next_actions`（或 CLI `graph next --json`）：一次拿到 ready / blocked(带未满足前驱) / running(带时长) / 疑似卡住清单，不要用 graph_get_graph + graph_search 手工拼。
+0. **PLAN** — 每轮决策前先 `graph_get_next_actions`（或 CLI `graph next --json`）：一次拿到 ready（可认领）/ ready_eligible（门禁已满足的 pending/failed，**转 ready 即可执行——冷启动第一步就从这里拿入口节点**）/ blocked(带未满足前驱) / running(带时长) / 疑似卡住清单，不要用 graph_get_graph + graph_search 手工拼。每个桶默认最多 100 条，`truncated: true` 时用 `limit` 参数翻页。
 1. **CLAIM** — 挑一个 `ready` 节点：`graph_update_node_status {id, status: "running", claim_by: "<你的agent名>"}`。原子记录 `assigned_to` + `started_at`。
+   - 没有 ready 节点但有 `ready_eligible` → 对可执行节点 `graph_update_node_status {id, status: "ready"}`（核心层会再次校验门禁），然后 claim。
    - **绝不 claim 非 ready 节点**——状态机/门禁会拒绝（`Invalid transition` 或 `前置未满足`），先用 `graph_get_next_actions` 确认 ready。
    - 并发 claim 是原子的：拿到 `already claimed by X` 说明别的 agent 抢先了——换节点，别重试同节点。
    - `force` 参数仅人类运维可用，**agent 绝不传**。
 2. **WORK** — 执行 `plan.description`；把 `checkpoints` 当你的清单逐条完成。
 3. **REPORT AS YOU GO** — **每完成一个 checkpoint 立即上报** `graph_update_checkpoint {node_id, checkpoint_id, status}`。**绝不攒到结尾**——完成的未上报 = 丢失的进度。（checkpoint 状态机：pending→running→passed 等；同状态重复上报幂等）
 4. **HAND OFF** — 干完立刻 `graph_update_execution_report {node_id, summary, artifacts, blockers, notes}`。artifacts 填**真实文件路径**（验收时会抽查）。
-5. **passed** — 有 execution_report 之后才能标 `passed`。**无报告标 passed 是撒谎。**
+5. **passed** — **核心层硬门禁**：有 execution_report（summary 非空）+ checkpoint 全部 passed/skipped + 无 failed 裁决，才能标 `passed`。**无报告标 passed 会被核心拒绝**——这不是可选的礼仪，是状态机规则。
 
 > 状态流转：`failed` → `pending` 重试（attempts 自动 +1，到 `max_attempts` 被拦截；修改 plan.description 自动归零）；`blocked` → 等依赖解除转 `ready`。见 reference.md 状态机全表。
 
@@ -49,6 +50,7 @@ description: Use when 拓扑图已设计并审核通过、需要执行 .graph/ �
 ### 第一步 · 看拓扑结构（`graph_get_next_actions` 直读；fan_out 批 = 并行候选，fan_in 汇聚 = 强制汇合）
 
 - **ready 列表** → 可认领（核心层已验证门禁，直接 claim）
+- **ready_eligible 列表** → 门禁已满足的 pending/failed 节点，转 ready 即可执行（含冷启动入口）
 - **blocked 列表** → 带未满足前驱清单；补齐后自然放行
 - **fan_out 之后的一批节点**（同一上游发散出的多个子任务）→ 天然并行候选——它们互相无依赖，顺序无所谓
 - **fan_in 汇聚点**（多个节点汇入一个下游）→ 必须等**全部**上游 passed 且 execution_report 齐备才能执行汇聚节点——并行后的汇合门，不满足就等（核心层门禁会拦截提前 claim）
@@ -71,6 +73,16 @@ description: Use when 拓扑图已设计并审核通过、需要执行 .graph/ �
 - 各 subagent 自己 checkpoint / execution_report（各自节点归属清楚）
 - 主 agent 在**汇合点**统一 verify：所有并行节点 passed + 报告齐备，才允许下游
 - 并行 subagent 类型参考：`explore`/`hephaestus`/`sisyphus-junior` 等，按节点性质选
+
+### 死认领回收（stale_running 处理）
+
+`stale_running` 出现时不要干等：
+
+1. 确认该节点长时间无 checkpoint 更新（阈值默认 30 分钟）且执行 agent 已不可达；
+2. 用 `graph_reclaim_node {id, by: "<你的agent名>"}`（CLI：`graph reclaim -i <id>`）把节点收回 `pending`——attempts 不变、`assigned_to` 清空、notes 附回收记录；
+3. 回收后节点回到调度池，可被任何 agent 重新执行。
+
+**绝不直接 cancel 一个可以回收的节点**——cancelled 会阻塞其所有下游汇合点。
 
 ### 示例判读（pi-extension/subagents/.graph 结构）
 
@@ -99,11 +111,13 @@ entry → l1_discover → l1_extract ──fan_out×10──→ (10个 l2_*) ─
 | 错误 | 修正 |
 |------|------|
 | claim 非 ready 节点 | 先 graph_get_next_actions 确认 ready 再 claim |
+| 冷启动找不到第一个节点 | 看 `ready_eligible` 桶：门禁已满足的 pending 节点转 ready 即可执行 |
 | pending → running 一步到位 | 状态机拒绝。先 ready 再 running |
 | 用 force 绕开门禁/次数上限 | force 仅人类运维，agent 禁用 |
 | 拿到 already claimed 还重试同节点 | 原子认领保护，换节点 |
 | checkpoint 攒到结尾批量报 | 每完成一个立即上报 |
-| 无 execution_report 标 passed | 协议第 5 步，绝不 |
+| 无 execution_report 标 passed | 核心层会拒绝（passed 硬门禁），先填报告再 passed |
+| stale 节点直接 cancel | 先 `graph_reclaim_node` 回收（cancel 会毒死下游汇合点） |
 | 明明可并行却串行（或反之） | 并行决策两步走：结构 + 条件 |
 | fan_in 汇聚点不等齐上游 | 等全部上游 passed + 报告齐备 |
 | 并行数超过 3 | 分批，主 agent 验收不过来 |

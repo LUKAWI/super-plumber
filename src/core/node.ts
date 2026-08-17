@@ -4,6 +4,7 @@ import {
   NodeStatus,
   type NodeType,
   type Checkpoint,
+  GATE_EDGE_TYPES,
 } from "./types.js";
 import { readNode, writeNode, nodeFilePath, addGraphRef } from "./parser.js";
 import { transition } from "./state-machine.js";
@@ -13,8 +14,10 @@ import {
   CHECKPOINT_STATUSES,
 } from "./checkpoint.js";
 import { listNodeFileNames } from "./schema.js";
-import { listEdges } from "./edge.js";
+import { buildGraphIndex } from "./index-service.js";
 import * as fs from "node:fs";
+
+export { GATE_EDGE_TYPES } from "./types.js";
 
 export type CreateNodeParams = {
   id: string;
@@ -80,13 +83,10 @@ export function getNode(rootDir: string, id: string): NodeSchema {
 // 门控边类型：depends_on（顺序依赖）、validates（验证）、fan_in（汇聚，全部上游完成）、
 // fan_out（"A 完成后 B/C 可并行"——完成语义同样构成前置）。
 // cancelled 前驱视为阻塞并点名。--force 可绕过（仅人类运维）。
-
-export const GATE_EDGE_TYPES: readonly string[] = [
-  "depends_on",
-  "validates",
-  "fan_in",
-  "fan_out",
-];
+//
+// 性能：拓扑信息来自缓存索引的 gateReverseAdj（O(1) 查表 + 精确 mtime 新鲜度校验），
+// 前驱状态按需直读少数前驱文件（保证跨进程写入下状态永远新鲜）。
+// 10k 图从"每查一次全扫 2 万文件（~9s）"降为"~0.4s stat + k 次单文件读"。
 
 export interface GateUnmet {
   id: string;
@@ -100,16 +100,33 @@ export interface GateResult {
 }
 
 export function checkReadyGate(rootDir: string, nodeId: string): GateResult {
-  const edges = listEdges(rootDir);
-  const statusOf = new Map(listNodes(rootDir).map((n) => [n.id, n.status]));
-  const unmet: GateUnmet[] = [];
-  for (const e of edges) {
-    if (e.target !== nodeId) continue;
-    if (!GATE_EDGE_TYPES.includes(e.type)) continue;
-    const status = statusOf.get(e.source);
-    if (status !== NodeStatus.Passed) {
-      unmet.push({ id: e.source, status: status ?? "missing", edgeType: e.type });
+  const index = buildGraphIndex(rootDir, { useCache: true });
+  const sources = index.gateReverseAdj.get(nodeId) ?? [];
+  if (sources.length === 0) return { ok: true, unmet: [] };
+
+  // 前驱状态直读文件：不信任缓存内容（跨进程写入下保持门禁精确性）
+  const statuses = new Map<string, string>();
+  for (const src of sources) {
+    try {
+      statuses.set(src, getNode(rootDir, src).status);
+    } catch {
+      statuses.set(src, "missing");
     }
+  }
+
+  const unmet: GateUnmet[] = [];
+  for (const src of sources) {
+    const status = statuses.get(src)!;
+    if (status === NodeStatus.Passed) continue;
+    // 仅未满足前驱需要 edgeType（错误路径才扫边，热路径保持 O(k)）
+    const edgeType =
+      index.edges.find(
+        (e) =>
+          e.source === src &&
+          e.target === nodeId &&
+          GATE_EDGE_TYPES.includes(e.type),
+      )?.type ?? "gate";
+    unmet.push({ id: src, status, edgeType });
   }
   return { ok: unmet.length === 0, unmet };
 }
@@ -171,6 +188,34 @@ export function updateNodeStatus(
       };
     }
 
+    writeNode(rootDir, updated);
+    return updated;
+  });
+}
+
+/**
+ * 回收死认领：running → pending（attempts 不变），清空 assigned_to，
+ * 在 execution_report.notes 追加带时间戳的回收记录。
+ * agent 崩溃 / 长时无进展后由主控或人类调用，恢复被毒节点阻塞的下游。
+ */
+export function reclaimNode(rootDir: string, id: string, by?: string): NodeSchema {
+  return withLockSync(rootDir, id, () => {
+    const node = getNode(rootDir, id);
+    if (node.status !== NodeStatus.Running) {
+      throw new Error(
+        `Node ${id} 当前状态为 ${node.status}，只有 running 节点可回收（死认领恢复）`,
+      );
+    }
+    const updated = transition(node, NodeStatus.Pending);
+    updated.assigned_to = undefined;
+    const prev = node.execution_report?.notes ?? "";
+    const note =
+      `[reclaim] ${new Date().toISOString()}${by ? ` by ${by}` : ""}: ` +
+      `回收死认领（原执行者 ${node.assigned_to ?? "unknown"}）`;
+    updated.execution_report = {
+      ...(updated.execution_report ?? { summary: "" }),
+      notes: prev ? `${prev}\n${note}` : note,
+    };
     writeNode(rootDir, updated);
     return updated;
   });

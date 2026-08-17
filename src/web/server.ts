@@ -181,6 +181,26 @@ export function startServer(
     );
   });
 
+  // 边/图/其他变更 → trailing debounce 合并突发（批操作/多次写只推一次全量），
+  // 且全量重建走索引缓存（buildGraphIndex useCache），大图下不再每事件全量读盘。
+  const FULL_BROADCAST_DEBOUNCE_MS = 250;
+  let fullTimer: ReturnType<typeof setTimeout> | null = null;
+  function scheduleFullBroadcast() {
+    if (fullTimer !== null) clearTimeout(fullTimer);
+    fullTimer = setTimeout(() => {
+      fullTimer = null;
+      broadcast({
+        type: "graph:update",
+        data: {
+          graph: serializeGraphIndex(
+            buildGraphIndex(rootDir, { useCache: true }),
+            rootDir,
+          ),
+        },
+      });
+    }, FULL_BROADCAST_DEBOUNCE_MS);
+  }
+
   const watcher = createWatcher(rootDir, (event: FileChangeEvent) => {
     const kind = classifyEvent(event.file);
 
@@ -208,14 +228,8 @@ export function startServer(
       return;
     }
 
-    // 边 / 图 / 其他变更 → 全量推送（低频事件，全量可接受）
-    broadcast({
-      type: "graph:update",
-      data: {
-        ...event,
-        graph: serializeGraphIndex(buildGraphIndex(rootDir), rootDir),
-      },
-    });
+    // 边 / 图 / 其他变更 → 去抖后全量推送（低频事件，全量可接受）
+    scheduleFullBroadcast();
   });
 
   // 端口占用/监听错误必须友好处理（曾 unhandled 'error' event 裸崩溃）
