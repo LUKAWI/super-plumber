@@ -10,6 +10,7 @@ export const rollbackCommand = new Command("rollback").alias("rol")
     try {
       const { restored, backup } = rollbackToSnapshot(rootDir, snapshotId, {
         confirm: !!options.confirm,
+        actor: "cli",
       });
       console.log(`✅ 已回滚到快照: ${restored.id} (${restored.files.length} 个文件)`);
       console.log(`   回滚前状态已备份: ${backup.id}`);

@@ -29,6 +29,7 @@ export const updateStatusCommand = new Command("update-status").alias("us")
     try {
       const node = updateNodeStatus(rootDir, options.id, status, options.claimBy, {
         force: !!options.force,
+        actor: "cli",
       });
       console.log(`✅ ${options.id}: ${node.status}`);
     } catch (err: any) {

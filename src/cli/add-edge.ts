@@ -34,7 +34,7 @@ export const addEdgeCommand = new Command("add-edge").alias("ae")
         source: options.source,
         target: options.target,
         type,
-      });
+      }, { actor: "cli" });
       console.log(`✅ 已添加边: ${edge.id} (${edge.source} → ${edge.target})`);
     } catch (err: any) {
       console.error(`❌ ${err.message}`);

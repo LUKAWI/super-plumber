@@ -358,7 +358,7 @@ server.registerTool(
       checkpoints: checkpoints as never,
       assigned_to,
       max_attempts,
-    });
+    }, { actor: "mcp" });
     return jsonText(node);
   },
 );
@@ -445,7 +445,7 @@ server.registerTool(
           assigned_to: n.assigned_to,
           max_attempts: n.max_attempts,
         },
-        { syncRef: false },
+        { syncRef: false, actor: "mcp" },
       );
     }
     for (const e of edges) {
@@ -457,7 +457,7 @@ server.registerTool(
           target: e.target,
           type: e.type as EdgeType,
         },
-        { syncRef: false },
+        { syncRef: false, actor: "mcp" },
       );
     }
     rebuildGraphRefs(rootDir);
@@ -484,7 +484,7 @@ server.registerTool(
       source,
       target,
       type: type as EdgeType,
-    });
+    }, { actor: "mcp" });
     return jsonText(edge);
   },
 );
@@ -522,7 +522,7 @@ server.registerTool(
     if (Object.keys(updates).length === 0) {
       throw new Error("没有指定任何更新项（至少传一个可选参数）");
     }
-    return jsonText(updateNodeContent(rootDir, id, updates));
+    return jsonText(updateNodeContent(rootDir, id, updates, { actor: "mcp" }));
   },
 );
 
@@ -549,6 +549,7 @@ server.registerTool(
   async ({ id, status, claim_by, force }) => {
     const node = updateNodeStatus(rootDir, id, status as NodeStatus, claim_by, {
       force,
+      actor: "mcp",
     });
     return jsonText(node);
   },
@@ -566,7 +567,7 @@ server.registerTool(
     },
   },
   async ({ id, by }) => {
-    return jsonText(reclaimNode(rootDir, id, by));
+    return jsonText(reclaimNode(rootDir, id, by ?? "mcp"));
   },
 );
 
@@ -583,7 +584,7 @@ server.registerTool(
     },
   },
   async ({ node_id, checkpoint_id, status }) => {
-    return jsonText(updateCheckpoint(rootDir, node_id, checkpoint_id, status));
+    return jsonText(updateCheckpoint(rootDir, node_id, checkpoint_id, status, { actor: "mcp" }));
   },
 );
 
@@ -619,7 +620,7 @@ server.registerTool(
             },
           }
         : {}),
-    });
+    }, { actor: "mcp" });
     return jsonText(node);
   },
 );
@@ -671,7 +672,7 @@ server.registerTool(
     },
   },
   async ({ id, cascade }) => {
-    deleteNode(rootDir, id, { cascade });
+    deleteNode(rootDir, id, { cascade, actor: "mcp" });
     return jsonText({ deleted: id, cascade });
   },
 );
@@ -684,7 +685,7 @@ server.registerTool(
     inputSchema: { id: z.string() },
   },
   async ({ id }) => {
-    deleteEdge(rootDir, id);
+    deleteEdge(rootDir, id, { actor: "mcp" });
     return jsonText({ deleted: id });
   },
 );
@@ -702,7 +703,7 @@ server.registerTool(
     },
   },
   async ({ message }) => {
-    return jsonText(createSnapshot(rootDir, message));
+    return jsonText(createSnapshot(rootDir, message, { actor: "mcp" }));
   },
 );
 
@@ -742,7 +743,7 @@ server.registerTool(
     },
   },
   async ({ snapshot_id, confirm }) => {
-    const result = rollbackToSnapshot(rootDir, snapshot_id, { confirm });
+    const result = rollbackToSnapshot(rootDir, snapshot_id, { confirm, actor: "mcp" });
     return jsonText({ restored: result.restored.id, backup: result.backup.id });
   },
 );

@@ -89,7 +89,7 @@ export const updateNodeCommand = new Command("update-node").alias("un")
         return;
       }
 
-      updateNodeContent(rootDir, options.id, updates);
+      updateNodeContent(rootDir, options.id, updates, { actor: "cli" });
       console.log(`✅ 已更新节点: ${options.id}`);
     } catch (err: any) {
       if (err?.message?.includes("not found")) {

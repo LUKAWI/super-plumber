@@ -20,7 +20,7 @@ export const verdictCommand = new Command("verdict").alias("vd")
           checked_at: new Date().toISOString(),
           ...(options.note ? { note: options.note } : {}),
         },
-      });
+      }, { actor: "cli" });
       console.log(
         `✅ ${node.id}: verification=${options.verdict}${options.note ? ` (${options.note})` : ""}`,
       );

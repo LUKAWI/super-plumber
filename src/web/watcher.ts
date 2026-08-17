@@ -18,11 +18,13 @@ export function createWatcher(
     // - .locks/：每次状态流转的锁文件增删（含目录自身的 addDir 事件，
     //   路径无尾斜杠，故模式需同时匹配目录本身）
     // - snapshots/：graph snapshot 会整目录复制
+    // - events.jsonl：事件日志每次写操作都追加（FIX-C1），不忽略会持续触发全量推送
     // - .deleted.yaml 的 add 事件会与节点 unlink 重复推送（removed=true 发两次）
     ignored: [
       /(^|\/)index(\/|$)/,
       /(^|\/)\.locks(\/|$)/,
       /(^|\/)snapshots(\/|$)/,
+      /(^|\/)events\.jsonl$/,
       /\.deleted[^/]*\.yaml$/,
     ],
     persistent: true,

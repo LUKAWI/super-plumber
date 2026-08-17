@@ -19,6 +19,7 @@ import {
   formatIssues,
 } from "./schema.js";
 import { withLockSync } from "./lock.js";
+import { appendEvent } from "./eventlog.js";
 
 export { SchemaValidationError, formatIssues };
 
@@ -147,7 +148,7 @@ function softDelete(filePath: string): string {
 export function deleteNode(
   rootDir: string,
   id: string,
-  opts: { cascade?: boolean } = {},
+  opts: { cascade?: boolean; actor?: string } = {},
 ): void {
   return withLockSync(rootDir, id, () => {
     const filePath = nodeFilePath(rootDir, id);
@@ -164,25 +165,44 @@ export function deleteNode(
     if (referencing.length > 0 && !opts.cascade) {
       throw new Error(
         `Node ${id} 被 ${referencing.length} 条边引用 (${referencing.join(", ")})，` +
-          `直接删除会留下悬挂引用。使用 --cascade 连同这些边一起删除`,
+        `直接删除会留下悬挂引用。使用 --cascade 连同这些边一起删除`,
       );
     }
     if (opts.cascade) {
-      for (const edgeId of referencing) deleteEdge(rootDir, edgeId);
+      for (const edgeId of referencing) {
+        deleteEdge(rootDir, edgeId, { actor: opts.actor });
+      }
     }
 
     // soft delete: rename to .deleted.yaml 保留历史
     softDelete(filePath);
     removeGraphRef(rootDir, "node", id);
+    appendEvent(rootDir, {
+      actor: opts.actor ?? "unknown",
+      kind: "node_deleted",
+      node: id,
+      ...(opts.cascade
+        ? { detail: `cascade 删除边: ${referencing.join(", ")}` }
+        : {}),
+    });
   });
 }
 
-export function deleteEdge(rootDir: string, id: string): void {
+export function deleteEdge(
+  rootDir: string,
+  id: string,
+  opts: { actor?: string } = {},
+): void {
   return withLockSync(rootDir, id, () => {
     const filePath = edgeFilePath(rootDir, id);
     if (!fs.existsSync(filePath)) throw new Error(`Edge ${id} not found`);
     softDelete(filePath);
     removeGraphRef(rootDir, "edge", id);
+    appendEvent(rootDir, {
+      actor: opts.actor ?? "unknown",
+      kind: "edge_deleted",
+      edge: id,
+    });
   });
 }
 

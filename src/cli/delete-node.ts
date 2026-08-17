@@ -11,7 +11,7 @@ export const deleteNodeCommand = new Command("delete-node").alias("dn")
   .action((options) => {
     const rootDir = process.cwd();
     try {
-      deleteNode(rootDir, options.id, { cascade: !!options.cascade });
+      deleteNode(rootDir, options.id, { cascade: !!options.cascade, actor: "cli" });
       console.log(`✅ 已删除节点: ${options.id}`);
     } catch (err: any) {
       console.error(`❌ ${err.message}`);

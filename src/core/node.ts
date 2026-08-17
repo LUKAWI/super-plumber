@@ -15,6 +15,7 @@ import {
 } from "./checkpoint.js";
 import { listNodeFileNames } from "./schema.js";
 import { buildGraphIndex } from "./index-service.js";
+import { appendEvent } from "./eventlog.js";
 import * as fs from "node:fs";
 
 export { GATE_EDGE_TYPES } from "./types.js";
@@ -34,7 +35,7 @@ export type CreateNodeParams = {
 export function createNode(
   rootDir: string,
   params: CreateNodeParams,
-  opts: { syncRef?: boolean } = {},
+  opts: { syncRef?: boolean; actor?: string } = {},
 ): NodeSchema {
   return withLockSync(rootDir, params.id, () => {
     // 重复 id 检查（锁内）：不静默覆盖已有节点，并发创建也只有一个成功
@@ -63,6 +64,12 @@ export function createNode(
     };
     writeNode(rootDir, node);
     if (opts.syncRef !== false) addGraphRef(rootDir, "node", node.id);
+    appendEvent(rootDir, {
+      actor: opts.actor ?? "unknown",
+      kind: "node_created",
+      node: node.id,
+      to: NodeStatus.Pending,
+    });
     return node;
   });
 }
@@ -136,7 +143,7 @@ export function updateNodeStatus(
   id: string,
   to: NodeStatus,
   claimBy?: string, // claim 语义：ready→running 时记录执行者
-  opts: { force?: boolean } = {},
+  opts: { force?: boolean; actor?: string } = {},
 ): NodeSchema {
   return withLockSync(rootDir, id, () => {
     // 锁内重读：并发 claim 只有一个能通过状态机（原子认领）
@@ -189,6 +196,27 @@ export function updateNodeStatus(
     }
 
     writeNode(rootDir, updated);
+    // 审计：force 越权单独留痕（谁在何时绕过了哪条硬规则）
+    if (opts.force) {
+      appendEvent(rootDir, {
+        actor: opts.actor ?? claimBy ?? "unknown",
+        kind: "force_override",
+        node: id,
+        from: node.status,
+        to,
+        detail: `绕过 ready 门禁/max_attempts/passed 硬门禁（原状态 ${node.status} → ${to}）`,
+      });
+    }
+    appendEvent(rootDir, {
+      actor: opts.actor ?? claimBy ?? "unknown",
+      kind: "node_status",
+      node: id,
+      from: node.status,
+      to,
+      ...(to === NodeStatus.Running && claimBy
+        ? { detail: `claim by ${claimBy}` }
+        : {}),
+    });
     return updated;
   });
 }
@@ -217,6 +245,14 @@ export function reclaimNode(rootDir: string, id: string, by?: string): NodeSchem
       notes: prev ? `${prev}\n${note}` : note,
     };
     writeNode(rootDir, updated);
+    appendEvent(rootDir, {
+      actor: by ?? "unknown",
+      kind: "node_reclaimed",
+      node: id,
+      from: NodeStatus.Running,
+      to: NodeStatus.Pending,
+      detail: `原执行者 ${node.assigned_to ?? "unknown"}`,
+    });
     return updated;
   });
 }
@@ -225,6 +261,7 @@ export function updateExecutionReport(
   rootDir: string,
   id: string,
   report: Partial<NonNullable<NodeSchema["execution_report"]>>,
+  opts: { actor?: string } = {},
 ): NodeSchema {
   return withLockSync(rootDir, id, () => {
     const node = getNode(rootDir, id);
@@ -237,6 +274,17 @@ export function updateExecutionReport(
       updated_at: new Date().toISOString(),
     };
     writeNode(rootDir, merged);
+    appendEvent(rootDir, {
+      actor: opts.actor ?? "unknown",
+      kind: "execution_report",
+      node: id,
+      ...(report.verification
+        ? {
+            kind: "verdict" as const,
+            detail: `verdict=${report.verification.verdict}`,
+          }
+        : {}),
+    });
     return merged;
   });
 }
@@ -256,6 +304,7 @@ export function updateNodeContent(
       | "execution_report"
     >
   >,
+  opts: { actor?: string } = {},
 ): NodeSchema {
   return withLockSync(rootDir, id, () => {
     const node = getNode(rootDir, id);
@@ -276,6 +325,12 @@ export function updateNodeContent(
       updated.attempts = 0;
     }
     writeNode(rootDir, updated);
+    appendEvent(rootDir, {
+      actor: opts.actor ?? "unknown",
+      kind: "node_content_updated",
+      node: id,
+      detail: `fields: ${Object.keys(updates).join(", ")}`,
+    });
     return updated;
   });
 }
@@ -285,6 +340,7 @@ export function updateCheckpoint(
   nodeId: string,
   cpId: string,
   status: Checkpoint["status"],
+  opts: { actor?: string } = {},
 ): NodeSchema {
   // 运行时校验：TS 类型只保护编译期，脚本/手工调用可绕过，必须显式拦截
   if (!CHECKPOINT_STATUSES.includes(status as Checkpoint["status"])) {
@@ -298,9 +354,18 @@ export function updateCheckpoint(
     const cp = node.checkpoints.find((c) => c.id === cpId);
     if (!cp) throw new Error(`Checkpoint ${cpId} not found in node ${nodeId}`);
     assertCheckpointTransition(cpId, cp.status, status);
+    const cpFrom = cp.status;
     cp.status = status;
     node.updated_at = new Date().toISOString();
     writeNode(rootDir, node);
+    appendEvent(rootDir, {
+      actor: opts.actor ?? "unknown",
+      kind: "checkpoint_updated",
+      node: nodeId,
+      from: cpFrom,
+      to: status,
+      detail: `checkpoint=${cpId}`,
+    });
     return node;
   });
 }

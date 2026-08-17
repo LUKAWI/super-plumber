@@ -22,6 +22,7 @@ import { verdictCommand } from "./verdict.js";
 import { snapshotCommand, snapshotsCommand } from "./snapshot.js";
 import { diffCommand } from "./diff.js";
 import { rollbackCommand } from "./rollback.js";
+import { eventsCommand } from "./events.js";
 
 const program = new Command();
 
@@ -51,5 +52,6 @@ program.addCommand(snapshotCommand);
 program.addCommand(snapshotsCommand);
 program.addCommand(diffCommand);
 program.addCommand(rollbackCommand);
+program.addCommand(eventsCommand);
 
 program.parse(process.argv);

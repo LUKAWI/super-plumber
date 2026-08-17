@@ -9,6 +9,7 @@ import * as path from "node:path";
 import * as yaml from "js-yaml";
 import { GRAPH_DIR } from "./types.js";
 import { listNodeFileNames, listEdgeFileNames } from "./schema.js";
+import { appendEvent } from "./eventlog.js";
 
 export interface SnapshotFileEntry {
   file: string; // 相对 .graph/ 的路径（正斜杠）
@@ -84,6 +85,7 @@ function collectSourceFiles(rootDir: string): string[] {
 export function createSnapshot(
   rootDir: string,
   message?: string,
+  opts: { actor?: string } = {},
 ): SnapshotManifest {
   const now = new Date();
   const id = `${now.toISOString().replace(/[:.]/g, "-")}-${Math.random()
@@ -110,6 +112,11 @@ export function createSnapshot(
     JSON.stringify(manifest, null, 2),
     "utf-8",
   );
+  appendEvent(rootDir, {
+    actor: opts.actor ?? "unknown",
+    kind: "snapshot_created",
+    detail: `snapshot=${id}${message ? ` message="${message}"` : ""}`,
+  });
   return manifest;
 }
 
@@ -206,7 +213,7 @@ function shaOf(rootDir: string, id: string | null, rel: string): string {
 export function rollbackToSnapshot(
   rootDir: string,
   id: string,
-  opts: { confirm?: boolean } = {},
+  opts: { confirm?: boolean; actor?: string } = {},
 ): { restored: SnapshotManifest; backup: SnapshotManifest } {
   if (!opts.confirm) {
     throw new Error(
@@ -217,7 +224,11 @@ export function rollbackToSnapshot(
   if (!snap) throw new Error(`Snapshot ${id} not found`);
 
   // 1. 自动备份当前状态（pre-rollback 快照，可再回滚）
-  const backup = createSnapshot(rootDir, `pre-rollback-to-${id}`);
+  const backup = createSnapshot(
+    rootDir,
+    `pre-rollback-to-${id}`,
+    { actor: opts.actor },
+  );
 
   // 2. 删除当前源文件（保留 .deleted 历史）
   const nodesDir = path.join(rootDir, GRAPH_DIR, "nodes");
@@ -241,5 +252,10 @@ export function rollbackToSnapshot(
     fs.copyFileSync(src, dest);
   }
 
+  appendEvent(rootDir, {
+    actor: opts.actor ?? "unknown",
+    kind: "rollback",
+    detail: `restored=${id} backup=${backup.id}`,
+  });
   return { restored: snap, backup };
 }

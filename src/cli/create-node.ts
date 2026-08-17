@@ -44,7 +44,7 @@ export const createNodeCommand = new Command("create-node").alias("cn")
         assigned_to: options.assignedTo,
         plan_description: options.planDesc,
         definition_of_done: options.dod.length > 0 ? options.dod : undefined,
-      });
+      }, { actor: "cli" });
       console.log(`✅ 已创建节点: ${node.id} (${node.status})`);
     } catch (err: any) {
       console.error(`❌ ${err.message}`);

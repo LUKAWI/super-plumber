@@ -9,7 +9,7 @@ export const snapshotCommand = new Command("snapshot").alias("sp")
   .action((options) => {
     const rootDir = process.cwd();
     try {
-      const snap = createSnapshot(rootDir, options.message);
+      const snap = createSnapshot(rootDir, options.message, { actor: "cli" });
       console.log(`✅ 已创建快照: ${snap.id}`);
       console.log(`   ${snap.files.length} 个文件${snap.message ? ` | ${snap.message}` : ""}`);
       if (options.git) {

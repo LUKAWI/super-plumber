@@ -3,6 +3,7 @@ import { type EdgeSchema, type EdgeType } from "./types.js";
 import { writeEdge, readEdge, edgeFilePath, nodeFilePath, addGraphRef } from "./parser.js";
 import { listEdgeFileNames } from "./schema.js";
 import { withLockSync } from "./lock.js";
+import { appendEvent } from "./eventlog.js";
 import * as fs from "node:fs";
 
 export type CreateEdgeParams = {
@@ -16,7 +17,7 @@ export type CreateEdgeParams = {
 export function createEdge(
   rootDir: string,
   params: CreateEdgeParams,
-  opts: { syncRef?: boolean } = {},
+  opts: { syncRef?: boolean; actor?: string } = {},
 ): EdgeSchema {
   return withLockSync(rootDir, params.id, () => {
     // 重复 id 检查（锁内）：不静默覆盖已有边，并发创建也只有一个成功
@@ -39,6 +40,12 @@ export function createEdge(
     };
     writeEdge(rootDir, edge);
     if (opts.syncRef !== false) addGraphRef(rootDir, "edge", edge.id);
+    appendEvent(rootDir, {
+      actor: opts.actor ?? "unknown",
+      kind: "edge_created",
+      edge: edge.id,
+      detail: `${edge.source} -[${edge.type}]-> ${edge.target}`,
+    });
     return edge;
   });
 }

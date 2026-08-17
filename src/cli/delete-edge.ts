@@ -7,7 +7,7 @@ export const deleteEdgeCommand = new Command("delete-edge").alias("de")
   .action((options) => {
     const rootDir = process.cwd();
     try {
-      deleteEdge(rootDir, options.id);
+      deleteEdge(rootDir, options.id, { actor: "cli" });
       console.log(`✅ 已删除边: ${options.id}`);
     } catch (err: any) {
       console.error(`❌ ${err.message}`);
