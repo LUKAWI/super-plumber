@@ -5,7 +5,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@lukawi/super-plumber)](https://www.npmjs.com/package/@lukawi/super-plumber)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-270%2F270-green)](https://github.com/LUKAWI/super-plumber/actions)
+[![Tests](https://img.shields.io/badge/tests-274%2F274-green)](https://github.com/LUKAWI/super-plumber/actions)
 [![GitHub](https://img.shields.io/badge/GitHub-LUKAWI%2Fsuper--plumber-black)](https://github.com/LUKAWI/super-plumber)
 
 **English:** [README.en.md](README.en.md) · **npm:** [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)
@@ -346,7 +346,14 @@ Super Plumber 自带 MCP Server（stdio 传输），coding agent 可以像用工
 graph-mcp
 ```
 
-### 接入配置
+### 接入配置（全局配一次，所有项目通用）
+
+**推荐做法：全局安装 + 全局配置，不需要填任何路径/`--root`。**
+服务会在每次工具调用时自动定位当前项目的图（解析链见下），换项目、开新会话都不用改配置。
+
+```bash
+npm install -g @lukawi/super-plumber
+```
 
 **Claude Code**（`claude.json`）：
 
@@ -374,7 +381,30 @@ graph-mcp
 }
 ```
 
-> 也可以直接用绝对路径：`"command": "node D:/path/to/dist/mcp/server.js"`，并设 `cwd` 为你的图所在目录；或 `"command": "graph-mcp --root /path/to/graph"` 显式指定图目录。
+**通用 npx 形式**（免全局安装，任何支持 MCP 的客户端）：
+
+```json
+{
+  "mcpServers": {
+    "super-plumber": {
+      "command": "npx",
+      "args": ["-y", "-p", "@lukawi/super-plumber", "graph-mcp"]
+    }
+  }
+}
+```
+
+> v0.4.1 起全局安装还会多注册一个与包名同名的 `super-plumber` 命令（同样启动 MCP server），
+> npx 形式可简写为 `npx -y @lukawi/super-plumber`。
+
+**图目录自动定位**（每次工具调用时求值，优先级从高到低）：
+
+1. `--root <dir>` 启动参数 / `SUPER_PLUMBER_ROOT` 环境变量——**仅在**你想把服务固定到某个图时才需要；
+2. **MCP workspace roots**：客户端通过 MCP 协议上报当前打开的项目根，取第一个含 `.graph/` 的；
+3. 服务进程工作目录**向上逐级查找** `.graph/graph.yaml`（agent 在项目子目录里也能命中）；
+4. 以上都失败 → 报可读错误（"图目录未初始化…请 graph init 或 --root 指定"），**绝不静默返回空图**。
+
+> 单一固定图/测试场景才需要显式指定：`"command": "graph-mcp", "args": ["--root", "/path/to/graph"]`。
 
 ### 19 个工具
 
@@ -472,6 +502,7 @@ graph --version
 | 问题 | 原因与解决 |
 |------|-----------|
 | `❌ 未找到 .../.graph/graph.yaml，请先运行 graph init` | 当前目录还没有图。先 `graph init`，或 `cd` 到图所在目录 |
+| MCP 报"图目录未初始化：定位到 X，但不存在 .graph/graph.yaml" | MCP server 没定位到你的项目：确认项目里跑过 `graph init`；客户端支持 workspace roots 时会自动跟随项目，否则在该项目目录重启客户端（server 以项目为 cwd 拉起），或设 `SUPER_PLUMBER_ROOT` |
 | `❌ 端口 8934 已被占用` | 已有 serve 在跑。`graph serve -p 8935` 换端口 |
 | `❌ Node x already exists` / `Edge x already exists` | id 重复。工具拒绝覆盖，换一个新 id |
 | `❌ Invalid transition: ...` | 跳过了状态机允许的路径。按 `Allowed: [...]` 提示走合法转换 |
@@ -494,7 +525,7 @@ graph --version
 ## 项目状态
 
 ```text
-Tests: 270（后端）+ 12（前端）✅ | CLI: 21 命令 | MCP: 19 工具 | 状态机: 7 态 + ready 门禁 + max_attempts + passed 硬门禁 + 事件日志审计 | 边类型: 7 种 | 版本控制: snapshot/diff/rollback（含 design-only）| Web UI: Svelte 5 + D3.js
+Tests: 274（后端）+ 12（前端）✅ | CLI: 21 命令 | MCP: 19 工具 | 状态机: 7 态 + ready 门禁 + max_attempts + passed 硬门禁 + 事件日志审计 | 边类型: 7 种 | 版本控制: snapshot/diff/rollback（含 design-only）| Web UI: Svelte 5 + D3.js
 ```
 
 - **npm**: [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)

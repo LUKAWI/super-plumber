@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.1] — 2026-08-18
+
+### MCP 全局配置一次、随项目自动跟随（用户核心诉求修复）
+- **动态图目录定位**：`--root`/`SUPER_PLUMBER_ROOT` 固定覆盖之外，新增两级自动定位——
+  ① MCP workspace roots 协议（客户端上报当前项目根，取第一个含 `.graph/` 的，5s TTL 缓存）；
+  ② 服务进程 cwd 向上逐级查找 `.graph/graph.yaml`。每次工具调用时求值，
+  用户把 MCP 配置写进 agent 全局配置一次即可，换项目不改配置、不需要填路径。
+- **定位失败报可读错误**：未初始化的目录返回"图目录未初始化…请 graph init 或 --root 指定"，
+  不再静默返回空图误导用户。
+- **新增 `super-plumber` bin 别名**（与包名去 scope 同名）：全局安装后可直接
+  `super-plumber` 启动 MCP server；npx 形式简化为 `npx -y @lukawi/super-plumber`。
+- README zh/en 接入配置章节重写：全局安装 + 零路径配置为推荐路径，附解析优先级说明与 FAQ。
+- 测试 +4（E2E）：roots 上报 workspace 定位 / cwd 子目录向上查找 / `--root` 覆盖 / 未初始化报错。
+
 ## [0.4.0] — 2026-08-17
 
 > 本版本是对一次全面代码评审（A–F 级发现）的可溯源修复。每项修复独立提交，

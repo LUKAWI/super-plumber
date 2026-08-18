@@ -8,7 +8,8 @@
   },
   "bin": {
     "graph": "./dist/cli/index.js",
-    "graph-mcp": "./dist/mcp/server.js"
+    "graph-mcp": "./dist/mcp/server.js",
+    "super-plumber": "./dist/mcp/server.js"
   },
   "exports": {
     ".": "./dist/index.js",

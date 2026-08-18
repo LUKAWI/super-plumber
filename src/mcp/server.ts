@@ -10,6 +10,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import * as path from "node:path";
+import * as fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   getNode,
   createNode as createNodeOp,
@@ -38,23 +40,88 @@ import {
 import { NodeType, NodeStatus, EdgeType } from "../core/types.js";
 import { VERSION } from "../version.js";
 
-// ── 服务定位：--root <dir> > SUPER_PLUMBER_ROOT > process.cwd() ──
-function resolveRootDir(): string {
+// ── 图目录定位（全局配置一次、随项目自动跟随）──
+// 解析优先级（每次工具调用时求值，不锁死在启动瞬间）：
+//   1. --root <dir> 参数 / SUPER_PLUMBER_ROOT 环境变量（固定覆盖，测试/单图用户用）
+//   2. MCP workspace roots 协议：客户端上报当前项目根，取第一个含 .graph/ 的
+//   3. 服务进程 cwd 向上逐级查找 .graph/graph.yaml（子目录里启动也能找到项目根）
+//   4. 兜底返回 cwd 本身
+// 定位到的目录若未初始化（无 .graph/graph.yaml）→ 报可读错误指引用户 graph init，
+// 绝不静默返回空图。这样用户把 MCP 配置写进 agent 全局配置一次即可，换项目无需改配置。
+function resolveFixedRoot(): string | null {
   const argv = process.argv.slice(2);
   const idx = argv.indexOf("--root");
   if (idx !== -1 && argv[idx + 1]) return path.resolve(argv[idx + 1]);
   if (process.env.SUPER_PLUMBER_ROOT) {
     return path.resolve(process.env.SUPER_PLUMBER_ROOT);
   }
-  return process.cwd();
+  return null;
 }
 
-const rootDir = resolveRootDir();
+const fixedRoot = resolveFixedRoot();
+
+/** 从 start 向上查找最近的 .graph/graph.yaml 所在目录；找不到返回 null */
+function findGraphRoot(start: string): string | null {
+  let dir = path.resolve(start);
+  for (;;) {
+    if (fs.existsSync(path.join(dir, ".graph", "graph.yaml"))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+const ROOTS_TTL_MS = 5_000;
+let rootsCache: { at: number; root: string | null } | null = null;
 
 const server = new McpServer({
   name: "super-plumber",
   version: VERSION,
 });
+
+async function resolveGraphRoot(): Promise<string> {
+  const root = await locateRoot();
+  const graphFile = path.join(root, ".graph", "graph.yaml");
+  if (!fs.existsSync(graphFile)) {
+    throw new Error(
+      `图目录未初始化：定位到 ${root}，但不存在 .graph/graph.yaml。` +
+        `请在该项目目录运行 graph init（CLI），或用 --root <dir> / ` +
+        `SUPER_PLUMBER_ROOT 环境变量显式指定图所在目录。`,
+    );
+  }
+  return root;
+}
+
+async function locateRoot(): Promise<string> {
+  if (fixedRoot) return fixedRoot;
+  // 1. MCP roots（客户端支持时，短 TTL 缓存避免每次调用都往返）
+  const now = Date.now();
+  if (rootsCache && now - rootsCache.at < ROOTS_TTL_MS && rootsCache.root) {
+    return rootsCache.root;
+  }
+  try {
+    const res = await server.server.listRoots();
+    for (const r of res.roots) {
+      if (!r.uri.startsWith("file://")) continue;
+      const dir = fileURLToPath(r.uri);
+      const found = findGraphRoot(dir);
+      if (found) {
+        rootsCache = { at: now, root: found };
+        return found;
+      }
+    }
+    const first = res.roots.find((r) => r.uri.startsWith("file://"));
+    if (first) {
+      const dir = fileURLToPath(first.uri);
+      rootsCache = { at: now, root: dir };
+      return dir;
+    }
+  } catch {
+    /* 客户端未实现 roots 能力 → 走 cwd 回退 */
+  }
+  // 2/3. 进程 cwd 向上查找（客户端在项目目录里拉起 server 时命中）
+  return findGraphRoot(process.cwd()) ?? process.cwd();
+}
 
 // zod 4.x 中 z.nativeEnum deprecated，用 z.enum 显式枚举
 const nodeStatusSchema = z.enum(Object.values(NodeStatus) as [string, ...string[]]);
@@ -93,6 +160,7 @@ server.registerTool(
     },
   },
   async ({ id, include_neighbors }) => {
+    const rootDir = await resolveGraphRoot();
     const node = getNode(rootDir, id);
     const result: Record<string, unknown> = {
       node,
@@ -138,6 +206,7 @@ server.registerTool(
     },
   },
   async ({ mode, offset, limit }) => {
+    const rootDir = await resolveGraphRoot();
     const index = buildGraphIndex(rootDir, { useCache: true });
     const page = index.nodes.slice(offset, offset + limit);
     const nodes =
@@ -192,6 +261,7 @@ server.registerTool(
     },
   },
   async ({ stale_ms, limit, assigned_to }) => {
+    const rootDir = await resolveGraphRoot();
     const r = computeNextActions(rootDir, { staleMs: stale_ms });
     const cap = <T>(list: T[]): T[] => list.slice(0, limit);
     const running = assigned_to
@@ -244,6 +314,7 @@ server.registerTool(
     },
   },
   async ({ node_id, direction, max_depth, max_nodes }) => {
+    const rootDir = await resolveGraphRoot();
     const index = buildGraphIndex(rootDir, { useCache: true });
     // 起点不存在时明确报错（曾静默返回 [node_id] 误导 agent 以为节点存在）
     if (!index.adjacency.has(node_id)) {
@@ -296,6 +367,7 @@ server.registerTool(
     },
   },
   async ({ query, status, type, assigned_to, level, limit }) => {
+    const rootDir = await resolveGraphRoot();
     const nodes = listNodes(rootDir);
     const filtered = nodes.filter((n) => {
       if (query && !n.id.includes(query) && !n.label.includes(query)) return false;
@@ -349,6 +421,7 @@ server.registerTool(
     },
   },
   async ({ id, label, type, level, priority, plan_description, definition_of_done, checkpoints, assigned_to, max_attempts }) => {
+    const rootDir = await resolveGraphRoot();
     const node = createNodeOp(rootDir, {
       id,
       label,
@@ -397,6 +470,7 @@ server.registerTool(
     },
   },
   async ({ nodes, edges }) => {
+    const rootDir = await resolveGraphRoot();
     // 1. 全量预校验：报出全部冲突，不写盘
     const existingNodeIds = new Set(listNodes(rootDir).map((n) => n.id));
     const existingEdgeIds = new Set(listEdges(rootDir).map((e) => e.id));
@@ -483,6 +557,7 @@ server.registerTool(
     },
   },
   async ({ id, source, target, type }) => {
+    const rootDir = await resolveGraphRoot();
     const edge = createEdgeOp(rootDir, {
       id,
       source,
@@ -519,6 +594,7 @@ server.registerTool(
     },
   },
   async ({ id, plan_description, add_dod, clear_dod, add_checkpoints, set_assigned_to, label, max_attempts, set_priority, reset_attempts }) => {
+    const rootDir = await resolveGraphRoot();
     const node = getNode(rootDir, id);
     const updates = buildNodeUpdates(node, {
       ...(plan_description !== undefined ? { plan_description } : {}),
@@ -563,6 +639,7 @@ server.registerTool(
     },
   },
   async ({ id, status, claim_by, force }) => {
+    const rootDir = await resolveGraphRoot();
     // FIX-A1（评审 A 级·信任模型）：MCP 是 agent 通道，force 在协议层面拒绝。
     // 保留 zod 形参以显式报错（剥离未知键会变成静默忽略，更危险）。
     if (force) {
@@ -590,6 +667,7 @@ server.registerTool(
     },
   },
   async ({ id, by }) => {
+    const rootDir = await resolveGraphRoot();
     return jsonText(reclaimNode(rootDir, id, by ?? "mcp"));
   },
 );
@@ -607,6 +685,7 @@ server.registerTool(
     },
   },
   async ({ node_id, checkpoint_id, status }) => {
+    const rootDir = await resolveGraphRoot();
     return jsonText(updateCheckpoint(rootDir, node_id, checkpoint_id, status, { actor: "mcp" }));
   },
 );
@@ -629,6 +708,7 @@ server.registerTool(
     },
   },
   async ({ node_id, summary, artifacts, blockers, notes, verification }) => {
+    const rootDir = await resolveGraphRoot();
     const node = updateExecutionReport(rootDir, node_id, {
       summary,
       artifacts,
@@ -664,6 +744,7 @@ server.registerTool(
     },
   },
   async ({ label, entry_description, exit_description, add_criteria, clear_criteria, root_context }) => {
+    const rootDir = await resolveGraphRoot();
     return jsonText(
       updateGraph(rootDir, {
         ...(label !== undefined ? { label } : {}),
@@ -695,6 +776,7 @@ server.registerTool(
     },
   },
   async ({ id, cascade }) => {
+    const rootDir = await resolveGraphRoot();
     deleteNode(rootDir, id, { cascade, actor: "mcp" });
     return jsonText({ deleted: id, cascade });
   },
@@ -708,6 +790,7 @@ server.registerTool(
     inputSchema: { id: z.string() },
   },
   async ({ id }) => {
+    const rootDir = await resolveGraphRoot();
     deleteEdge(rootDir, id, { actor: "mcp" });
     return jsonText({ deleted: id });
   },
@@ -726,6 +809,7 @@ server.registerTool(
     },
   },
   async ({ message }) => {
+    const rootDir = await resolveGraphRoot();
     return jsonText(createSnapshot(rootDir, message, { actor: "mcp" }));
   },
 );
@@ -742,6 +826,7 @@ server.registerTool(
     },
   },
   async ({ from, to }) => {
+    const rootDir = await resolveGraphRoot();
     let fromId: string | null = from ?? null;
     if (fromId === null && to === undefined) {
       const snaps = listSnapshots(rootDir);
@@ -772,6 +857,7 @@ server.registerTool(
     },
   },
   async ({ snapshot_id, confirm, design_only }) => {
+    const rootDir = await resolveGraphRoot();
     const result = rollbackToSnapshot(rootDir, snapshot_id, {
       confirm,
       ...(design_only ? { designOnly: true } : {}),

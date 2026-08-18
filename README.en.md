@@ -5,7 +5,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@lukawi/super-plumber)](https://www.npmjs.com/package/@lukawi/super-plumber)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-270%2F270-green)](https://github.com/LUKAWI/super-plumber/actions)
+[![Tests](https://img.shields.io/badge/tests-274%2F274-green)](https://github.com/LUKAWI/super-plumber/actions)
 [![GitHub](https://img.shields.io/badge/GitHub-LUKAWI%2Fsuper--plumber-black)](https://github.com/LUKAWI/super-plumber)
 
 **中文版:** [README.md](README.md) · **npm:** [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)
@@ -330,7 +330,14 @@ Super Plumber ships an MCP Server (stdio transport). Coding agents read the grap
 graph-mcp
 ```
 
-### Wire it up
+### Wire it up (configure once globally — works in every project)
+
+**Recommended: install globally and configure once. No paths, no `--root` needed.**
+The server locates the current project's graph on every tool call (see resolution order below), so switching projects or opening new sessions requires zero config changes.
+
+```bash
+npm install -g @lukawi/super-plumber
+```
 
 **Claude Code** (`claude.json`):
 
@@ -358,7 +365,30 @@ graph-mcp
 }
 ```
 
-> Prefer an absolute path: `"command": "node D:/path/to/dist/mcp/server.js"` and set `cwd` to the directory holding your graph.
+**Universal npx form** (no global install; works with any MCP-capable client):
+
+```json
+{
+  "mcpServers": {
+    "super-plumber": {
+      "command": "npx",
+      "args": ["-y", "-p", "@lukawi/super-plumber", "graph-mcp"]
+    }
+  }
+}
+```
+
+> Since v0.4.1 the global install also registers a package-named `super-plumber` command
+> (same MCP server), so the npx form shortens to `npx -y @lukawi/super-plumber`.
+
+**Graph auto-location** (evaluated per tool call, highest priority first):
+
+1. `--root <dir>` launch arg / `SUPER_PLUMBER_ROOT` env var — only if you want to pin the server to one graph;
+2. **MCP workspace roots**: the client reports the currently open project root(s) over the MCP protocol; the first one containing `.graph/` wins;
+3. walk **up from the server process cwd** looking for `.graph/graph.yaml` (agents started inside a subdirectory still hit the project root);
+4. nothing found → a readable error ("graph not initialized… run graph init or pass --root") — never a silently empty graph.
+
+> Pinning to a single fixed graph (testing etc.): `"command": "graph-mcp", "args": ["--root", "/path/to/graph"]`.
 
 ### The 18 tools
 
@@ -439,7 +469,7 @@ cd super-plumber
 npm install
 npm run build && npm --prefix web-ui run build
 
-# Tests (270 backend + 12 frontend cases)
+# Tests (274 backend + 12 frontend cases)
 npm test
 
 # Link globally for local dev
@@ -467,7 +497,7 @@ graph --version
 ## Project Status
 
 ```text
-Tests: 270 backend + 12 frontend ✅ | CLI: 21 commands | MCP: 19 tools | State machine: 7 states + ready gate + max_attempts + passed hard gate + event-log audit | Edge types: 7 | Versioning: snapshot/diff/rollback (incl. design-only) | Web UI: Svelte 5 + D3.js
+Tests: 274 backend + 12 frontend ✅ | CLI: 21 commands | MCP: 19 tools | State machine: 7 states + ready gate + max_attempts + passed hard gate + event-log audit | Edge types: 7 | Versioning: snapshot/diff/rollback (incl. design-only) | Web UI: Svelte 5 + D3.js
 ```
 
 - **npm**: [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)
