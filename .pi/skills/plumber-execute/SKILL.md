@@ -33,7 +33,7 @@ description: Use when 拓扑图已设计并审核通过、需要执行 .graph/ �
    - 没有 ready 节点但有 `ready_eligible` → 对可执行节点 `graph_update_node_status {id, status: "ready"}`（核心层会再次校验门禁），然后 claim。
    - **绝不 claim 非 ready 节点**——状态机/门禁会拒绝（`Invalid transition` 或 `前置未满足`），先用 `graph_get_next_actions` 确认 ready。
    - 并发 claim 是原子的：拿到 `already claimed by X` 说明别的 agent 抢先了——换节点，别重试同节点。
-   - `force` 参数仅人类运维可用，**agent 绝不传**。
+   - `force` 在 MCP 通道被**协议级拒绝**（v0.4 起）——传了直接报错；人类运维走 CLI `--force` 并留审计事件。
 2. **WORK** — 执行 `plan.description`；把 `checkpoints` 当你的清单逐条完成。
 3. **REPORT AS YOU GO** — **每完成一个 checkpoint 立即上报** `graph_update_checkpoint {node_id, checkpoint_id, status}`。**绝不攒到结尾**——完成的未上报 = 丢失的进度。（checkpoint 状态机：pending→running→passed 等；同状态重复上报幂等）
 4. **HAND OFF** — 干完立刻 `graph_update_execution_report {node_id, summary, artifacts, blockers, notes}`。artifacts 填**真实文件路径**（验收时会抽查）。
@@ -113,7 +113,7 @@ entry → l1_discover → l1_extract ──fan_out×10──→ (10个 l2_*) ─
 | claim 非 ready 节点 | 先 graph_get_next_actions 确认 ready 再 claim |
 | 冷启动找不到第一个节点 | 看 `ready_eligible` 桶：门禁已满足的 pending 节点转 ready 即可执行 |
 | pending → running 一步到位 | 状态机拒绝。先 ready 再 running |
-| 用 force 绕开门禁/次数上限 | force 仅人类运维，agent 禁用 |
+| 用 force 绕开门禁/次数上限 | MCP 直接拒绝（协议错误）；CLI force 仅人类运维 |
 | 拿到 already claimed 还重试同节点 | 原子认领保护，换节点 |
 | checkpoint 攒到结尾批量报 | 每完成一个立即上报 |
 | 无 execution_report 标 passed | 核心层会拒绝（passed 硬门禁），先填报告再 passed |

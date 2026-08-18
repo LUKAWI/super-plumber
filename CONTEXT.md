@@ -182,10 +182,24 @@ agent 规划循环的一站式工具（`graph next` / `graph_get_next_actions`�
 可认领（ready）、可转 ready（ready_eligible，门禁已满足的 pending/failed 节点——冷启动
 入口与重试入口）、等依赖（blocked，附未满足前驱）、执行中（running，附时长）与
 疑似卡住（stale_running）清单。MCP 每桶默认 `limit` 100，附 `truncated` 标记供翻页。
+ready / ready_eligible 桶按节点优先级排序（priority 升序 → level → id）；
+stale 判据为最后活动时间 max(updated_at, started_at)——checkpoint/报告上报即心跳。
 
 ### 版本快照（Snapshot / Diff / Rollback）
 
-版本控制三原语（需求 4.3）：快照复制 .graph 真相源文件到 snapshots/<id>/（可选联动 git commit）；diff 对比任意两个快照或快照 vs 工作区（增删改文件 + 状态变化）；rollback 恢复指定快照（自动备份当前状态，必须显式 confirm）。Branch/Merge 由 Git 承担。
+版本控制三原语（需求 4.3）：快照复制 .graph 真相源文件到 snapshots/<id>/（可选联动 git commit，快照与回滚共用全局互斥锁）；diff 对比任意两个快照或快照 vs 工作区（增删改文件 + 状态变化）；rollback 恢复指定快照（自动备份当前状态，必须显式 confirm）。design-only 模式只回卷设计字段（plan/DoD/checkpoints/label/边/graph.yaml），保留执行进度（status/attempts/execution_report），快照后新增的节点被删除。Branch/Merge 由 Git 承担。
+
+### 事件日志（Event Log）
+
+append-only 审计日志（.graph/events.jsonl，`graph events` 读取）。每次结构性变更追加一行
+JSON：时间戳、操作者（actor：cli / mcp / claimBy）、事件类型（创建/删除/状态流转/claim/
+force_override/checkpoint/裁决/attempts_reset/reclaim/快照/回滚）与明细。长程任务流
+"何时、何人、改了什么"可追溯。
+
+### 节点优先级（Priority）
+
+可选的调度提示字段（≥0，越小越先被推荐，缺省=最低）。参与 next/get_next_actions
+的 ready / ready_eligible 桶排序，tie-break 依次为 level、id。
 
 ### 进度同步检查（Progress Sync Check）
 

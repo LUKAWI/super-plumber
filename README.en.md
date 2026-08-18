@@ -5,7 +5,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@lukawi/super-plumber)](https://www.npmjs.com/package/@lukawi/super-plumber)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-247%2F247-green)](https://github.com/LUKAWI/super-plumber/actions)
+[![Tests](https://img.shields.io/badge/tests-270%2F270-green)](https://github.com/LUKAWI/super-plumber/actions)
 [![GitHub](https://img.shields.io/badge/GitHub-LUKAWI%2Fsuper--plumber-black)](https://github.com/LUKAWI/super-plumber)
 
 **中文版:** [README.md](README.md) · **npm:** [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)
@@ -37,7 +37,9 @@ todo: "build a registration module"  →   entry → l1_register → l1_login �
 | 🧭 **Typed topology** | 7 edge types: `depends_on` / `validates` participate in topological sort; `shares_context` / `fan_out` / `fan_in` / `fallback` / `iterates` express runtime control flow |
 | 🔄 **Enforced state machine** | 7 states + three hard rules: ready gate (gating predecessors must be `passed`), max_attempts cap, and a **passed hard gate** (no execution report / unaggregated checkpoints / failed verdict → `passed` rejected); concurrent claims are atomic under a lock |
 | 🤖 **Native MCP** | 19 `graph_*` tools covering the whole flow: design (batch create / add edge / edit entry-exit), execution (atomic claim / checkpoint / report / **reclaim of dead claims**), adjudication (verdict), versioning (snapshot/diff/rollback) — all with zod-validated params |
-| 🎯 **Scheduling decisions** | `graph next` / `graph_get_next_actions` returns claimable / ready-eligible (cold-start entry) / waiting-on-deps / running / possibly-stale in one screen, with per-bucket pagination + truncated flags — the agent planning loop's first call |
+| 🎯 **Scheduling decisions** | `graph next` / `graph_get_next_actions` returns claimable / ready-eligible (cold-start entry) / waiting-on-deps / running / possibly-stale in one screen, with per-bucket pagination + truncated flags; ready buckets ordered by node `priority`; staleness = last activity (reporting acts as a heartbeat) — the agent planning loop's first call |
+| 🗂️ **Versioning** | `snapshot` / `diff` / `rollback` primitives (auto-backup before rollback, explicit confirm required; **design-only rollback** rewinds design fields while keeping execution progress); Branch/Merge stays with Git |
+| 🧾 **Event log** | `.graph/events.jsonl` append-only audit: who created/deleted/transitioned/claimed/overrode/reset/rolled back what and when — `graph events` for one-command traceability |
 | 📉 **Context economy** | All MCP read endpoints paginate: `graph_get_graph` defaults to summary mode (compact fields) + paginated full mode, `graph_search` limit, `graph_traverse` max_nodes, `graph_get_node` optional topology neighbors — no more token explosions on large graphs |
 | ⚡ **Large-graph hot paths** | Two-level index cache (in-memory + on-disk graph.json, exact mtime freshness validation): gate/scheduling drop from full-graph scans (~9s @10k) to table lookup + single-file reads; scheduling is O(N+M) |
 | 🌐 **Web visualization** | Force-directed graph, per-edge-type colors, flow dots on `running` nodes, checkpoint progress bars, WebSocket delta push |
@@ -277,6 +279,8 @@ graph serve                           # open http://localhost:8934 for the force
 | `graph status` | Status overview + topo check | — |
 | `graph validate` | Integrity check (references + topo sort + cycles) | — |
 | `graph rebuild` | Rebuild `index/` derived indexes | — |
+| `graph rollback` | Rollback to a snapshot (auto-backup first) | `<snapshot-id>` `--confirm` (required); `--design-only` keeps execution progress |
+| `graph events` | Read the append-only event log (audit trail) | `--node <id>` `--kind <k>` `--last <n>`; `--json` |
 | `graph export --mermaid` | Export a Mermaid diagram | `-o <file>` |
 | `graph serve` | Start the Web UI (auto-opens browser) | `-p <port>` (default 8934); `--no-open` to skip |
 
@@ -397,7 +401,8 @@ graph serve
 ├── graph.yaml             # graph definition: entry/exit/root context + node/edge reference lists
 ├── nodes/*.yaml           # node files: plan / checkpoints / expected_outcome / execution_report
 ├── edges/*.yaml           # edge files: source / target / type / contract
-├── snapshots/             # version snapshots (reserved)
+├── snapshots/<id>/        # version snapshots: manifest + full file copies (graph snapshot)
+├── events.jsonl           # append-only event log (read with graph events; commit it for audit or gitignore it)
 └── index/                 # derived indexes (graph.json / meta.json — deletable, rebuildable)
 ```
 
@@ -434,7 +439,7 @@ cd super-plumber
 npm install
 npm run build && npm --prefix web-ui run build
 
-# Tests (247 backend + 12 frontend cases)
+# Tests (270 backend + 12 frontend cases)
 npm test
 
 # Link globally for local dev
@@ -462,7 +467,7 @@ graph --version
 ## Project Status
 
 ```text
-Tests: 247 backend + 12 frontend ✅ | CLI: 20 commands | MCP: 19 tools | State machine: 7 states + ready gate + max_attempts + passed hard gate | Edge types: 7 | Versioning: snapshot/diff/rollback | Web UI: Svelte 5 + D3.js
+Tests: 270 backend + 12 frontend ✅ | CLI: 21 commands | MCP: 19 tools | State machine: 7 states + ready gate + max_attempts + passed hard gate + event-log audit | Edge types: 7 | Versioning: snapshot/diff/rollback (incl. design-only) | Web UI: Svelte 5 + D3.js
 ```
 
 - **npm**: [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)

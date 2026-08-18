@@ -5,7 +5,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@lukawi/super-plumber)](https://www.npmjs.com/package/@lukawi/super-plumber)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-247%2F247-green)](https://github.com/LUKAWI/super-plumber/actions)
+[![Tests](https://img.shields.io/badge/tests-270%2F270-green)](https://github.com/LUKAWI/super-plumber/actions)
 [![GitHub](https://img.shields.io/badge/GitHub-LUKAWI%2Fsuper--plumber-black)](https://github.com/LUKAWI/super-plumber)
 
 **English:** [README.en.md](README.en.md) · **npm:** [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)
@@ -37,9 +37,10 @@ todo: "做个注册模块"            →     entry → l1_register → l1_login
 | 🧭 **类型化拓扑** | 7 种边类型：`depends_on` / `validates` 参与拓扑排序，`shares_context` / `fan_out` / `fan_in` / `fallback` / `iterates` 表达运行时控制流 |
 | 🔄 **状态机强制** | 7 态 + 三条硬规则：ready 门禁（门控前驱必须 passed）、max_attempts 上限（修改 plan 自动重置）、**passed 硬门禁**（无执行报告 / checkpoint 未聚合 / failed 裁决 → 拒绝 passed）；并发认领锁内原子；attempts 重置必须显式 `--reset-attempts`（写审计事件，改 plan 不再自动重置） |
 | 🛡️ **Schema 校验** | 读入层逐文件校验 YAML（枚举/类型/必填），手改拼错即时报可读错误，`graph validate` 逐文件定位 |
-| 🗂️ **版本控制** | `snapshot` / `diff` / `rollback` 三原语（回滚自动备份、必须确认），Branch/Merge 由 Git 承担 |
+| 🗂️ **版本控制** | `snapshot` / `diff` / `rollback` 三原语（回滚自动备份、必须确认；**design-only 回滚**保留执行进度只回卷设计），Branch/Merge 由 Git 承担 |
+| 🧾 **事件日志** | `.graph/events.jsonl` append-only 审计：谁在何时创建/删除/流转/claim/越权/重置/回滚，`graph events` 一键追查 |
 | 🤖 **MCP 原生接入** | 19 个 `graph_*` 工具：设计期（批量建图/建边/编辑 entry-exit）、执行期（原子 claim/checkpoint/report/**reclaim 回收死认领**）、裁决（verdict）、版本（snapshot/diff/rollback）全流程覆盖，zod 参数校验 |
-| 🎯 **调度决策** | `graph next` / `graph_get_next_actions` 一屏返回可认领 / **可转 ready（ready_eligible，冷启动入口）** / 等依赖 / 执行中 / 疑似卡住，每桶分页 + truncated 标记，agent 规划循环首选 |
+| 🎯 **调度决策** | `graph next` / `graph_get_next_actions` 一屏返回可认领 / **可转 ready（ready_eligible，冷启动入口）** / 等依赖 / 执行中 / 疑似卡住，每桶分页 + truncated 标记，ready/ready_eligible 按节点 `priority` 排序，stale 判据=最后活动时间（上报即心跳），agent 规划循环首选 |
 | 📉 **上下文经济** | MCP 读接口全面分页：`graph_get_graph` 默认 summary 模式（紧凑字段）+ full 分页、`graph_search` limit、`graph_traverse` max_nodes、`graph_get_node` 可附拓扑邻居——大图不再 token 爆炸 |
 | ⚡ **大图热路径** | 索引两级缓存（内存 + 磁盘 graph.json，mtime 精确新鲜度校验）：门禁/调度从"每次全图扫描"（10k 图 ~9s）降为查表 + 单文件读；调度 O(N+M) |
 | 🌐 **Web 可视化** | 力导向图 + 边类型着色 + running 光点流动 + checkpoint 进度条 + 执行报告面板 + 层级过滤/搜索 + 版本 diff 视图，WebSocket 增量推送 + 断线自动重连 + 内部目录事件过滤去抖 |
@@ -287,7 +288,8 @@ graph serve                           # 打开 http://localhost:8934 看力导�
 | `graph snapshot` | 创建版本快照 | `-m <msg>`；`--git` 同时 git commit |
 | `graph snapshots` | 快照列表 | `--json` |
 | `graph diff` | 差异对比（默认最新快照 vs 当前） | `--from <id>` `--to <id>`；`--json` |
-| `graph rollback` | 回滚（自动备份当前状态） | `<snapshot-id>` `--confirm`（必须显式确认） |
+| `graph rollback` | 回滚（自动备份当前状态） | `<snapshot-id>` `--confirm`；`--design-only` 保留执行进度只回卷设计 |
+| `graph events` | 查看事件日志（审计追溯） | `--node <id>` `--kind <k>` `--last <n>`；`--json` |
 | `graph rebuild` | 重建 `index/` 派生索引（graph.json + topology.dot） | — |
 | `graph export --mermaid` | 导出 Mermaid 图 | `-o <file>` |
 | `graph serve` | 启动 Web UI（自动打开浏览器） | `-p <port>`（默认 8934）；`--no-open` 不自动打开 |
@@ -382,9 +384,9 @@ graph-mcp
 
 **设计期写入**：`graph_create_node`（一次带 plan/DoD/checkpoints 完整压缩包）、`graph_batch_create`（批量 nodes+edges，先全量预校验报全部冲突）、`graph_add_edge`、`graph_update_node`、`graph_update_graph`（entry/exit/验收标准）、`graph_delete_node`（有引用边默认拒绝，`cascade` 连删）、`graph_delete_edge`。
 
-**执行期写入**：`graph_update_node_status`（`status=running` 传 `claim_by` 完成**原子认领**，并发只有第一个成功）、`graph_update_checkpoint`（checkpoint 状态机 + 幂等）、`graph_update_execution_report`（交接单 + `verification` 裁决结论）、`graph_reclaim_node`（回收死认领：running → pending）。
+**执行期写入**：`graph_update_node_status`（`status=running` 传 `claim_by` 完成**原子认领**，并发只有第一个成功；**force 在 MCP 通道被协议级拒绝**——人类运维走 CLI `--force`，留 force_override 审计事件）、`graph_update_checkpoint`（checkpoint 状态机 + 幂等）、`graph_update_execution_report`（交接单 + `verification` 裁决结论）、`graph_reclaim_node`（回收死认领：running → pending）。`graph_update_node` 的 attempts 重置必须显式 `reset_attempts: true`（改 plan 不再隐式重置，重置必留审计事件）。
 
-**版本**：`graph_snapshot` / `graph_diff` / `graph_rollback`（必须 `confirm: true`）。
+**版本**：`graph_snapshot` / `graph_diff` / `graph_rollback`（必须 `confirm: true`；`design_only: true` 只回卷设计、保留执行进度）。
 
 **可靠性设计**：所有参数经 zod schema 校验——缺参、非法枚举返回 `-32602` 协议错误；不存在的节点/边返回 `isError=true` 和可读的错误消息；非法状态转换/门禁/次数上限/passed 硬门禁明确报错。**工具永远不静默失败**。
 
@@ -417,12 +419,14 @@ graph serve
 ├── nodes/*.yaml           # 节点文件：plan / checkpoints / expected_outcome / execution_report
 ├── edges/*.yaml           # 边文件：source / target / type / contract
 ├── snapshots/<id>/        # 版本快照：manifest + 完整文件副本（graph snapshot）
+├── events.jsonl           # append-only 事件日志（graph events 读取；可 gitignore 亦可入库审计）
 └── index/                 # 派生索引（graph.json / meta.json / topology.dot，可删可重建）
 ```
 
 **设计理念：**
 
 - **Git 是唯一真相源** —— 所有数据是文件，可 diff、可回滚、可 review
+  > ⚠️ 若以 Git 为真相源（删除 `.graph/` 后可 `git clone` 恢复），**不要**把 `.graph/` 写进 `.gitignore`；本仓库忽略它只因开发期运行时图不入库
 - **文件即节点** —— 一个节点一个 YAML，人类可以直接用编辑器修改
 - **结构优先于文本** —— YAML schema 约束，拒绝自由 Markdown 的模糊性
 - **纯文件系统** —— 无数据库；软删除保留 `.deleted.yaml` 历史
@@ -474,6 +478,7 @@ graph --version
 | `❌ MCP error -32602: ...` | 调用 MCP 工具缺参数或传了非法枚举，按提示补参数/改枚举 |
 | `❌ 节点不存在: x` | 该节点不存在（可能是软删除或 id 写错），用 `graph status` / `graph_search` 确认 |
 | `❌ Node x 前置未满足，不能进入 ready/running` | ready 门禁拦截（前驱未全部 passed）。先完成前驱，**不要用 --force**（仅人类运维） |
+| `❌ force 仅人类运维通道（CLI…），MCP 拒绝执行` | 设计如此：agent 无法越权。人类运维请走 CLI `graph update-status --force`（写 force_override 审计事件） |
 | `❌ Node x already claimed by y` | 并发认领竞争失败（原子保护）。换一个 ready 节点 |
 | `❌ Node x 已达最大重试次数` | attempts 用尽。人工介入，或 `graph update-node --plan-desc` 改计划（attempts 自动归零） |
 | `❌ Node x 无执行报告，不能标记 passed` | passed 硬门禁：先 `graph update-execution-report` 填交接单（summary 非空）；checkpoint 未聚合或 failed 裁决也会被拒 |
@@ -489,7 +494,7 @@ graph --version
 ## 项目状态
 
 ```text
-Tests: 247（后端）+ 12（前端）✅ | CLI: 20 命令 | MCP: 19 工具 | 状态机: 7 态 + ready 门禁 + max_attempts + passed 硬门禁 | 边类型: 7 种 | 版本控制: snapshot/diff/rollback | Web UI: Svelte 5 + D3.js
+Tests: 270（后端）+ 12（前端）✅ | CLI: 21 命令 | MCP: 19 工具 | 状态机: 7 态 + ready 门禁 + max_attempts + passed 硬门禁 + 事件日志审计 | 边类型: 7 种 | 版本控制: snapshot/diff/rollback（含 design-only）| Web UI: Svelte 5 + D3.js
 ```
 
 - **npm**: [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)

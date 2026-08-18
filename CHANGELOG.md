@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.4.0] — 2026-08-17
+
+> 本版本是对一次全面代码评审（A–F 级发现）的可溯源修复。每项修复独立提交，
+> 提交信息与下表 ID 一一对应，评审结论可在 git log 中逐条回查。
+
+### 评审溯源矩阵
+
+| 修复 ID | 评审发现（级别） | 内容 |
+|---|---|---|
+| FIX-A1 | A 级·信任模型 | MCP 通道协议级拒绝 force（agent 无法越权绕过门禁/次数上限；人类运维收敛为 CLI `--force` 并留审计事件） |
+| FIX-A2 | A 级·自我豁免后门 | attempts 重置必须显式请求（CLI `--reset-attempts` / MCP `reset_attempts`），移除"改 plan 自动重置"；重置必写审计事件 |
+| FIX-C1 | C 级·无事件日志 | append-only 事件日志 `.graph/events.jsonl` + `graph events` 命令；全部写路径挂载，actor 透传（cli/mcp/claimBy） |
+| FIX-B1 | B 级·运行时边装饰性 | `detectHiddenCycles`：检出 fan 门控边闭合的互等死锁环（拓扑排序不可见但门禁今天就会死锁）；validate 对 fallback/iterates 边发"无运行时语义"警告、shares_context 计数提示 |
+| FIX-C2 | C 级·设计/执行同卷 | design-only 回滚：`rollback --design-only` 只回卷设计字段、保留执行进度（status/attempts/execution_report），快照后新增节点删除、缺失节点恢复 |
+| FIX-E1 | E 级·快照无锁 | 快照/回滚共用全局互斥锁 `__snapshot__`（多文件复制不再与同类操作交错产生撕裂快照）；备份走无锁内层避免重入死锁 |
+| FIX-F1 | F 级·调度无优先级 | 节点 `priority` 字段全链路（schema/create/update/CLI/MCP）；ready 与 ready_eligible 按 (priority, level, id) 排序 |
+| FIX-F2 | F 级·stale 无心跳 | stale 判据改为最后活动时间 max(updated_at, started_at)——checkpoint/报告上报即心跳，长任务不再误报"疑似卡住" |
+| FIX-DOC | 文档滞后/哲学矛盾 | 双语 README/CONTEXT/.pi skill 全面同步；存储章节明确"以 Git 为真相源的工作流不应 gitignore .graph/" |
+
+### 信任与审计（A 级 + C1）
+- **事件日志**：`graph events [--node] [--kind] [--last N] [--json]` 一键追查"何时、何人、改了什么"；事件类型覆盖创建/删除/状态流转/claim/force_override/checkpoint/裁决/attempts_reset/reclaim/快照/回滚；撕裂行读取时跳过不毒化。
+- watcher 忽略 `events.jsonl`（事件写入不触发 Web 全量推送）。
+
+### 行为变更（升级必读）
+- MCP `graph_update_node_status` 传 `force: true` 从"生效"变为**协议错误**。
+- 修改 `plan.description` **不再**重置 attempts；必须显式 `reset_attempts`。
+- `graph_get_next_actions` 的 ready/ready_eligible 条目新增 `priority` 字段并按其排序。
+
+### Roadmap（本轮明确不做，防再犯"纸面能力"）
+- **monorepo 命名空间/子图组合**（评审 D 级）：节点无 package 作用域、无跨图引用、无"子树任务包"执行单元。单图巨图与多图割裂的两难仍在，需架构级设计后实施。
+- fallback/iterates 的运行时语义仍未实现（现状已由 validate 警告显式化，不再是静默的纸面承诺）。
+
 ## [0.3.0] — 2026-08-17
 
 ### 性能（大图热路径）

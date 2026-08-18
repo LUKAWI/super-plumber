@@ -10,8 +10,8 @@
 
 | 层 | 用于 | 不能做 |
 |----|------|--------|
-| **CLI** `graph`（20 命令） | init、批量建节点/边、status、validate、next、verdict、reclaim、snapshot/diff/rollback、export、serve | —（v0.2 起 claim/checkpoint/report 也可用 CLI/脚本） |
-| **MCP** `graph_*`（19 工具） | 一切（设计 + 执行 + 裁决 + 版本），zod 校验 | 不得传 `force: true`（仅人类运维） |
+| **CLI** `graph`（21 命令） | init、批量建节点/边、status、validate、next、verdict、reclaim、snapshot/diff/rollback（含 --design-only）、events（审计日志）、export、serve | —（v0.2 起 claim/checkpoint/report 也可用 CLI/脚本） |
+| **MCP** `graph_*`（19 工具） | 一切（设计 + 执行 + 裁决 + 版本），zod 校验 | `force: true` 会被协议级拒绝（v0.4）；人类运维走 CLI `--force`（留审计事件） |
 | **脚本** `scripts/sp-*.mjs`（7 个） | 无 MCP 客户端时的读/流转/claim/checkpoint/report/遍历 | — |
 
 > 首选 MCP（覆盖最全、校验最强）；无 MCP 客户端时用 CLI + 脚本。
@@ -69,7 +69,7 @@ pending → ready → running → passed → blocked
 **硬规则 1 — ready 门禁**：`pending → ready` 与 `ready → running` 会校验所有门控入边
 （`depends_on` / `validates` / `fan_in` / `fan_out`）的前驱必须全部 `passed`。
 不满足时工具报错并点名前驱（如 `Node b 前置未满足: [a(pending, via depends_on)]`）。
-这不是 bug——修正依赖顺序。`--force` 仅人类运维可用，**agent 绝不使用**。
+这不是 bug——修正依赖顺序。`--force` 仅人类运维可用（CLI 通道；MCP 一律协议级拒绝），使用即写 force_override 审计事件。
 
 **硬规则 2 — max_attempts**：`attempts >= max_attempts(>0)` 后 `failed → pending` 被拦截，
 提示人工介入。重置必须显式：CLI `--reset-attempts` / MCP `reset_attempts: true`（写审计事件）；修改 `plan.description` 不再自动重置。
@@ -119,7 +119,7 @@ pending → ready → running → passed → blocked
 
 | 工具 | 用途 | 注意 |
 |------|------|------|
-| `graph_update_node_status` | 状态流转；**claim = `status:"running"` + `claim_by`**；并发认领原子，败者收到"已被认领" | `force` 仅人类运维，agent 禁用 |
+| `graph_update_node_status` | 状态流转；**claim = `status:"running"` + `claim_by`**；并发认领原子，败者收到"已被认领" | `force: true` 协议级拒绝（v0.4） |
 | `graph_update_checkpoint` | 上报一个 checkpoint（checkpoint 状态机校验，幂等） | 完成即报，绝不攒到最后 |
 | `graph_update_execution_report` | 交接单；可选 `verification:{verdict,note}` 写裁决结论 | `artifacts` 填真实路径；**verdict 写在 passed 之前** |
 | `graph_reclaim_node` | 回收死认领：running → pending（清空 assigned_to + 回收记录） | stale 且执行者不可达时使用；只有 running 节点可回收 |
