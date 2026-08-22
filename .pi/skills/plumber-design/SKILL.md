@@ -7,9 +7,9 @@ description: Use when 接到新需求/任务需要拆解成任务拓扑图、设
 
 ## Overview
 
-把一条需求拆解成一张**可执行的任务拓扑图**（`.graph/`），验证它无 bug，用 `graph serve` 打开浏览器供用户预览，然后**请求用户审核**。审核是硬性 gate——用户批准之前，绝不进入执行阶段。
+把一条需求拆解成一张**可执行的任务拓扑图**（`.graph/`），验证它无 bug，用 `graph serve` 打开浏览器供用户预览，然后**请求用户审核**。审核是硬性 gate——用户批准之前，绝不进入执行阶段。v0.5 起设计产出还包含**领域结构**：bounded context（节点即文档的术语表）与 ADR（够三判据的架构决策），它们是图中一等公民。
 
-**本 skill 的产出物是"设计定稿的拓扑图"，不是执行结果。** 审核通过后切换到 plumber-execute。
+**本 skill 的产出物是"设计定稿的拓扑图（含领域结构）"，不是执行结果。** 审核通过后切换到 plumber-execute。
 
 ---
 
@@ -53,6 +53,38 @@ description: Use when 接到新需求/任务需要拆解成任务拓扑图、设
 | 分几步 | `checkpoints` | ≥1 个子步骤 `{id, label}` |
 | 算完成 | `expected_outcome.definition_of_done` | ≥1 条可验证标准 |
 
+### Step 2.5 — 领域建模（v0.5，需求超过一个关注点时必做）
+
+**识别 bounded context 的信号**：职责各自内聚、可各说各话；同一个词在不同块里含义不同（同词异义 = 边界存在的最强信号）。单一关注点的小任务可跳过本步。
+
+1. **建 context 顶点（节点即文档）**：`graph create-node -i ctx_<域名> --type context -l "<中文名>"`，然后填边界与术语表：
+   ```bash
+   graph update-node -i ctx_ordering --boundary "负责订单生命周期；不负责计费（计费经契约边由 billing 消费）"
+   graph update-node -i ctx_ordering --glossary-add '{"term":"订单","definition":"带明细行的购买单据，区别于账单"}'
+   ```
+   - **术语是 context 的内容字段，不是独立顶点**——绝不为术语单独建节点
+   - 同一 context 内术语不重复（validate 警告）；**跨 context 同名术语合法**（DDD 本义，各说各话）
+   - 定义要能划界："X 是……，不是……"
+2. **归属工作流节点**：`graph create-node ... --context ctx_x`（创建时）或 `graph update-node -i <id> --set-context ctx_x`（事后）。过程节点（测试/发布类）不属于产品域，可不归属。
+3. **context 间关系（可选）**：`graph add-edge -i rel_1 -s ctx_a -t ctx_b --type relates --rel-kind "上游-下游"`（仅 context↔context，rel_kind 自由文本，不发明新边类型）。
+4. **跨 context 契约边（硬规则）**：任何**两端归属不同 context** 的工作流边 = 契约边，**必须**填 `--contract '{"produces":"...","consumed_by":[...],"validation":{...}}'`——两个上下文间的依赖必须声明产出/消费/验收，未填 validate 警告。
+
+### Step 2.6 — ADR 甄别（v0.5，三判据全满足才建，缺一跳过）
+
+| 判据 | 问自己 |
+|------|--------|
+| 难以逆转 | 改主意的代价大吗？随手能改的不算 |
+| 脱离上下文令人费解 | 未来读者看代码会问"为什么这么搞？"吗 |
+| 真实权衡 | 存在过真正的备选项，且为特定理由选了这一个吗 |
+
+```bash
+graph adr create -t "<决策标题>" -d "<决策内容>" [-b 背景 -o 备选项 -w 为何 -c 后果]  # 自动编号 adr_NNNN，落 proposed
+graph add-edge -i d_1 -s adr_0001 -t <管辖的节点或ctx> --type decides   # 孤儿 ADR 会被 validate 警告
+```
+
+- **设计方只 propose 不裁决**：accept/supersede 归 super-mario/人类（提议/裁决分离）
+- 不够三判据的决策写进节点 plan 即可，不建 ADR（ADR 膨胀 = 判断力失守）
+
 ### Step 3 — 验证无 bug（两关，都过才算）
 
 1. **结构关**：`graph validate` → **必须 0 error**。任何 warning 都要看懂并处理（warning 是可修的，修掉再走）。
@@ -69,10 +101,11 @@ description: Use when 接到新需求/任务需要拆解成任务拓扑图、设
 
 ### Step 5 — 请求用户审核（硬性 gate）
 
-- 明确询问用户："拓扑图已在浏览器打开（端口 X），请审核：任务拆分是否合理？验收标准是否齐全？是否批准执行？"
+- 明确询问用户："拓扑图已在浏览器打开（端口 X），请审核：任务拆分是否合理？验收标准是否齐全？领域划分与 ADR 是否妥当？是否批准执行？"
+- **建议用户切三透镜审阅**（Web UI 左侧 map 勾选器）：**工作流图**（任务拆分与依赖）／**领域图**（context 边界与术语，点开看节点即文档详情）／**叠加图**（簇壳包裹成员、ADR 徽章、契约边高亮——归属是否合理一眼可见）
 - 用户**否决/提意见** → 回到 Step 2 修改 → Step 3 重验 → 等待浏览器刷新 → 再次请求审核
-- 用户**批准** → 才可进入 `plumber-execute`
-- **绝不**在未获批准的情况下 claim 节点或改动节点状态
+- 用户**批准** → 才可进入 `plumber-execute`（建议用户明确说"开始执行"触发）
+- **绝不**在未获批准的情况下 claim 节点或改动节点状态；**绝不**自行调用 plumber-execute 或开始执行任何节点——设计完成 ≠ 可以执行
 
 ---
 
@@ -86,7 +119,11 @@ description: Use when 接到新需求/任务需要拆解成任务拓扑图、设
 | 用 CLI 建图但没有验证入口可达性 | 体检脚本自动查双向可达 |
 | 审核没过就偷偷开始执行 | 硬性 gate：批准前不执行 |
 | 忘了 serve 在跑，重复启动 | 先确认端口，serve 贯穿全程不重复启 |
-| 边类型乱用（如把 fan_out 当 depends_on） | 见 reference.md 的 7 边类型选型表 |
+| 边类型乱用（如把 fan_out 当 depends_on） | 见 reference.md 的 9 边类型选型表 |
+| 为术语单独建节点 | 术语是 context 的内容字段（glossary），不是顶点 |
+| 每个决策都建 ADR | 三判据缺一跳过，写进 plan 即可 |
+| 跨 context 边不填 contract | 契约边硬规则：produces/consumed_by/validation 必声明 |
+| 设计完自链进入执行 | Step 5 硬性 gate：批准前不执行，绝不自己调 plumber-execute |
 
 ## Red Flags — STOP and fix
 
@@ -96,6 +133,7 @@ description: Use when 接到新需求/任务需要拆解成任务拓扑图、设
 - 体检脚本有 error 就 serve 预览（先修完再预览）
 - 用户还没批准就 claim / 改状态（gate 是硬的）
 - 需求没理解就建图（Step 1 是地基）
+- "领域建模/ADR 最后再说"（它们是设计产出的一部分，和节点同批完成，validate 才能全绿）
 
 ---
 

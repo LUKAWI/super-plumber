@@ -5,7 +5,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@lukawi/super-plumber)](https://www.npmjs.com/package/@lukawi/super-plumber)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-274%2F274-green)](https://github.com/LUKAWI/super-plumber/actions)
+[![Tests](https://img.shields.io/badge/tests-316%2F316-green)](https://github.com/LUKAWI/super-plumber/actions)
 [![GitHub](https://img.shields.io/badge/GitHub-LUKAWI%2Fsuper--plumber-black)](https://github.com/LUKAWI/super-plumber)
 
 **English:** [README.en.md](README.en.md) · **npm:** [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)
@@ -34,18 +34,19 @@ todo: "做个注册模块"            →     entry → l1_register → l1_login
 
 | 能力 | 说明 |
 |------|------|
-| 🧭 **类型化拓扑** | 7 种边类型：`depends_on` / `validates` 参与拓扑排序，`shares_context` / `fan_out` / `fan_in` / `fallback` / `iterates` 表达运行时控制流 |
-| 🔄 **状态机强制** | 7 态 + 三条硬规则：ready 门禁（门控前驱必须 passed）、max_attempts 上限（修改 plan 自动重置）、**passed 硬门禁**（无执行报告 / checkpoint 未聚合 / failed 裁决 → 拒绝 passed）；并发认领锁内原子；attempts 重置必须显式 `--reset-attempts`（写审计事件，改 plan 不再自动重置） |
-| 🛡️ **Schema 校验** | 读入层逐文件校验 YAML（枚举/类型/必填），手改拼错即时报可读错误，`graph validate` 逐文件定位 |
+| 🧭 **类型化拓扑** | 9 种边类型：`depends_on` / `validates` 参与拓扑排序，`shares_context` / `fan_out` / `fan_in` / `fallback` / `iterates` 表达运行时控制流，`decides` / `relates`（v0.5）承载领域知识边 |
+| 🏛️ **领域语义（v0.5）** | **bounded context 与 ADR 是图中一等公民**：context 顶点"节点即文档"（boundary+术语表 glossary），节点归属（`--context`）派生工作流/领域两张 map；**ADR 三态机** proposed→accepted→superseded（废弃必带接替者、提议/裁决分离）；`graph adr` 命令组 + MCP `graph_create_adr`；决策变更沿 decides 边传播（claim 注入 `governing_adrs` 指针、调度条目打 `adr_flags` ⚠️）；跨 context 工作流边为契约边（必填 contract）；`graph export --docs` 导出 docs/adr + CONTEXT-MAP.md + 各 CONTEXT.md（图为真相源，md 是视图） |
+| 🔄 **状态机强制** | 7 态 + 三条硬规则：ready 门禁（门控前驱必须 passed）、max_attempts 上限、**passed 硬门禁**（无执行报告 / checkpoint 未聚合 / failed 裁决 → 拒绝 passed）；并发认领锁内原子；attempts 重置必须显式 `--reset-attempts`（写审计事件，改 plan 不再自动重置）；知识顶点豁免状态机（context 无状态、adr 走三态机） |
+| 🛡️ **Schema 校验** | 读入层逐文件校验 YAML（枚举/类型/必填），手改拼错即时报可读错误，`graph validate` 逐文件定位 + 六条领域规则（悬空归属=error、同 context 术语重复=warning、跨 context 缺契约=warning、relates 端点=error、孤儿 ADR=warning、decides 来源=error） |
 | 🗂️ **版本控制** | `snapshot` / `diff` / `rollback` 三原语（回滚自动备份、必须确认；**design-only 回滚**保留执行进度只回卷设计），Branch/Merge 由 Git 承担 |
-| 🧾 **事件日志** | `.graph/events.jsonl` append-only 审计：谁在何时创建/删除/流转/claim/越权/重置/回滚，`graph events` 一键追查 |
-| 🤖 **MCP 原生接入** | 19 个 `graph_*` 工具：设计期（批量建图/建边/编辑 entry-exit）、执行期（原子 claim/checkpoint/report/**reclaim 回收死认领**）、裁决（verdict）、版本（snapshot/diff/rollback）全流程覆盖，zod 参数校验 |
-| 🎯 **调度决策** | `graph next` / `graph_get_next_actions` 一屏返回可认领 / **可转 ready（ready_eligible，冷启动入口）** / 等依赖 / 执行中 / 疑似卡住，每桶分页 + truncated 标记，ready/ready_eligible 按节点 `priority` 排序，stale 判据=最后活动时间（上报即心跳），agent 规划循环首选 |
-| 📉 **上下文经济** | MCP 读接口全面分页：`graph_get_graph` 默认 summary 模式（紧凑字段）+ full 分页、`graph_search` limit、`graph_traverse` max_nodes、`graph_get_node` 可附拓扑邻居——大图不再 token 爆炸 |
-| ⚡ **大图热路径** | 索引两级缓存（内存 + 磁盘 graph.json，mtime 精确新鲜度校验）：门禁/调度从"每次全图扫描"（10k 图 ~9s）降为查表 + 单文件读；调度 O(N+M) |
-| 🌐 **Web 可视化** | 力导向图 + 边类型着色 + running 光点流动 + checkpoint 进度条 + 执行报告面板 + 层级过滤/搜索 + 版本 diff 视图，WebSocket 增量推送 + 断线自动重连 + 内部目录事件过滤去抖 |
+| 🧾 **事件日志** | `.graph/events.jsonl` append-only 审计：谁在何时创建/删除/流转/claim/越权/重置/回滚/ADR 生命周期（adr_created/accepted/superseded），`graph events` 一键追查 |
+| 🤖 **MCP 原生接入** | 20 个 `graph_*` 工具：设计期（批量建图/建边/编辑 entry-exit/**graph_create_adr**）、执行期（原子 claim 附管辖 ADR 指针/checkpoint/report/**reclaim 回收死认领**）、裁决（verdict）、版本（snapshot/diff/rollback）全流程覆盖，zod 参数校验 |
+| 🎯 **调度决策** | `graph next` / `graph_get_next_actions` 一屏返回可认领 / **可转 ready（ready_eligible，冷启动入口）** / 等依赖 / 执行中 / 疑似卡住，每桶分页 + truncated 标记，ready/ready_eligible 按节点 `priority` 排序，stale 判据=最后活动时间（上报即心跳），条目可含 `adr_flags`（决策依据已过时 ⚠️），知识顶点永不进调度桶，agent 规划循环首选 |
+| 📉 **上下文经济** | MCP 读接口全面分页：`graph_get_graph` 默认 summary 模式（紧凑字段）+ full 分页、`graph_search` limit、`graph_traverse` max_nodes、`graph_get_node` 可附拓扑邻居——大图不再 token 爆炸；ADR 只注入标题级指针，永不全文推送 |
+| ⚡ **大图热路径** | 索引两级缓存（内存 + 磁盘 graph.json）：门禁/调度从"每次全图扫描"（10k 图 ~9s）降为查表 + 单文件读；调度 O(N+M)；**写路径主动失效缓存**（不赌文件系统 mtime，长驻进程写后读一致） |
+| 🌐 **Web 可视化** | 力导向图 + 边类型着色 + running 光点流动 + checkpoint 进度条 + 执行报告面板 + 层级过滤/搜索 + 版本 diff 视图，WebSocket 增量推送 + 断线自动重连；**v0.5 map 透镜**：左侧勾选工作流图/领域图任意子集——领域视图（context+relates+术语详情）、叠加视图（簇壳包裹成员、ADR 徽章、契约边高亮），UI 保持纯只读 |
 | 📁 **纯文件存储** | 每个节点/边一个 YAML 文件，Git 是唯一真相源，人类可直接编辑，无数据库 |
-| 🧩 **agent 协作协议** | 内置 `plumber-design`（拓扑设计+预览审核）与 `plumber-execute`（拓扑执行+三层验收）双阶段 skill + 2 个专用 subagent（拆解 / 裁决） |
+| 🧩 **agent 协作协议** | 内置 `plumber-design`（拓扑设计+领域建模+ADR 甄别+预览审核闸门）与 `plumber-execute`（拓扑执行+三层验收+管辖 ADR 纪律）双阶段 skill + 2 个专用 subagent（拆解 / 裁决） |
 
 ---
 
@@ -76,8 +77,8 @@ npm install -g @lukawi/super-plumber
 ### 2. 验证安装
 
 ```bash
-graph --version     # 输出 0.2.0 即成功
-graph --help        # 查看全部 19 个命令
+graph --version     # 输出 0.5.0 即成功
+graph --help        # 查看全部 22 个命令
 which graph         # 确认命令位置（Windows: where graph）
 ```
 
@@ -406,15 +407,15 @@ npm install -g @lukawi/super-plumber
 
 > 单一固定图/测试场景才需要显式指定：`"command": "graph-mcp", "args": ["--root", "/path/to/graph"]`。
 
-### 19 个工具
+### 20 个工具
 
-**调度**：`graph_get_next_actions` — 一次返回可认领（ready）/ **可转 ready（ready_eligible，门禁已满足的 pending/failed——冷启动入口）** / 等依赖（blocked，附未满足前驱）/ 执行中（running，附时长）/ 疑似卡住（stale_running），每桶分页（`limit` + `truncated`），是 agent 规划循环的首选。
+**调度**：`graph_get_next_actions` — 一次返回可认领（ready）/ **可转 ready（ready_eligible，门禁已满足的 pending/failed——冷启动入口）** / 等依赖（blocked，附未满足前驱）/ 执行中（running，附时长）/ 疑似卡住（stale_running），每桶分页（`limit` + `truncated`），条目可含 `adr_flags`（决策依据已过时 ⚠️），是 agent 规划循环的首选。
 
-**读取**：`graph_get_node`（节点 + 合法转换 + checkpoint 聚合 + 门禁状态，可附拓扑邻居）、`graph_get_graph`（默认 summary 紧凑模式，`mode=full` + `offset/limit` 分页）、`graph_traverse`（`max_nodes` 上限）、`graph_search`（`limit` 上限 + 紧凑结果）。
+**读取**：`graph_get_node`（节点 + 合法转换 + checkpoint 聚合 + 门禁状态 + **governing_adrs 管辖 ADR 指针**，可附拓扑邻居）、`graph_get_graph`（默认 summary 紧凑模式，`mode=full` + `offset/limit` 分页）、`graph_traverse`（`max_nodes` 上限）、`graph_search`（`limit` 上限 + 紧凑结果，可按 `--type adr/context` 查知识顶点）。
 
-**设计期写入**：`graph_create_node`（一次带 plan/DoD/checkpoints 完整压缩包）、`graph_batch_create`（批量 nodes+edges，先全量预校验报全部冲突）、`graph_add_edge`、`graph_update_node`、`graph_update_graph`（entry/exit/验收标准）、`graph_delete_node`（有引用边默认拒绝，`cascade` 连删）、`graph_delete_edge`。
+**设计期写入**：`graph_create_node`（一次带 plan/DoD/checkpoints 完整压缩包，支持 `type=context/adr` 与 `context` 归属）、`graph_create_adr`（**v0.5**：自动编号 adr_NNNN + 落 proposed——提议/裁决分离，accept/supersede 归 Super Mario/人类）、`graph_batch_create`（批量 nodes+edges，先全量预校验报全部冲突）、`graph_add_edge`（含 `decides`/`relates` 知识边与 `contract`/`rel_kind`）、`graph_update_node`（含领域字段 `set_context`/`boundary`/`glossary_add`/`superseded_by`）、`graph_update_graph`（entry/exit/验收标准）、`graph_delete_node`（有引用边默认拒绝，`cascade` 连删）、`graph_delete_edge`。
 
-**执行期写入**：`graph_update_node_status`（`status=running` 传 `claim_by` 完成**原子认领**，并发只有第一个成功；**force 在 MCP 通道被协议级拒绝**——人类运维走 CLI `--force`，留 force_override 审计事件）、`graph_update_checkpoint`（checkpoint 状态机 + 幂等）、`graph_update_execution_report`（交接单 + `verification` 裁决结论）、`graph_reclaim_node`（回收死认领：running → pending）。`graph_update_node` 的 attempts 重置必须显式 `reset_attempts: true`（改 plan 不再隐式重置，重置必留审计事件）。
+**执行期写入**：`graph_update_node_status`（`status=running` 传 `claim_by` 完成**原子认领**，并发只有第一个成功，**响应附 governing_adrs 指针**；**force 在 MCP 通道被协议级拒绝**——人类运维走 CLI `--force`，留 force_override 审计事件；ADR 三态机经此工具流转，superseded 两步法=先 `graph_update_node {superseded_by}` 再置状态）、`graph_update_checkpoint`（checkpoint 状态机 + 幂等）、`graph_update_execution_report`（交接单 + `verification` 裁决结论）、`graph_reclaim_node`（回收死认领：running → pending）。`graph_update_node` 的 attempts 重置必须显式 `reset_attempts: true`（改 plan 不再隐式重置，重置必留审计事件）。
 
 **版本**：`graph_snapshot` / `graph_diff` / `graph_rollback`（必须 `confirm: true`；`design_only: true` 只回卷设计、保留执行进度）。
 
@@ -430,7 +431,8 @@ graph serve
 ```
 
 - **力导向图**：缩放 / 平移 / 适应视图（修复版）/ 固定布局开关，按节点状态着色
-- **边类型可视化**：7 种边类型不同颜色，悬停高亮，**点击边查看语义与合约**
+- **map 透镜（v0.5）**：左侧勾选**工作流图 / 领域图**任意子集——单独看任一张是一等能力；领域视图只渲染 context 顶点 + relates 边，点开 context 显示边界与全部术语（节点即文档）；**叠加视图**：context 呈现为 D3 簇壳（cluster hull）空间包裹成员节点 + 着色，ADR 渲染为附着徽章，跨 context 契约边高亮；边可见 ⇔ 两端顶点所属 map 都勾选（decides 边天然只在叠加视图出现）；**UI 保持纯只读**（裁决走 Super Mario/人类通道）
+- **边类型可视化**：9 种边类型不同颜色，悬停高亮，**点击边查看语义与合约**（decides/relates 含领域语义说明）
 - **光点流动**：`running` 节点的下游边有光点沿边流动（"血管"隐喻）
 - **checkpoint 进度条**：节点下方展示子步骤完成进度；详情面板含**执行报告（交接单 + 裁决徽标）**
 - **执行者标签**：`running` 节点旁显示 `assigned_to`
@@ -525,7 +527,7 @@ graph --version
 ## 项目状态
 
 ```text
-Tests: 274（后端）+ 12（前端）✅ | CLI: 21 命令 | MCP: 19 工具 | 状态机: 7 态 + ready 门禁 + max_attempts + passed 硬门禁 + 事件日志审计 | 边类型: 7 种 | 版本控制: snapshot/diff/rollback（含 design-only）| Web UI: Svelte 5 + D3.js
+Tests: 316（后端）+ 36（前端）✅ | CLI: 22 命令 | MCP: 20 工具 | 状态机: 7 态 + ready 门禁 + max_attempts + passed 硬门禁 + 事件日志审计 + ADR 三态机（知识顶点豁免） | 边类型: 9 种 | 版本控制: snapshot/diff/rollback（含 design-only）| Web UI: Svelte 5 + D3.js（map 透镜）
 ```
 
 - **npm**: [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)

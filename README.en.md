@@ -5,7 +5,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@lukawi/super-plumber)](https://www.npmjs.com/package/@lukawi/super-plumber)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-274%2F274-green)](https://github.com/LUKAWI/super-plumber/actions)
+[![Tests](https://img.shields.io/badge/tests-316%2F316-green)](https://github.com/LUKAWI/super-plumber/actions)
 [![GitHub](https://img.shields.io/badge/GitHub-LUKAWI%2Fsuper--plumber-black)](https://github.com/LUKAWI/super-plumber)
 
 **中文版:** [README.md](README.md) · **npm:** [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)
@@ -34,17 +34,18 @@ todo: "build a registration module"  →   entry → l1_register → l1_login �
 
 | Capability | Description |
 |------------|-------------|
-| 🧭 **Typed topology** | 7 edge types: `depends_on` / `validates` participate in topological sort; `shares_context` / `fan_out` / `fan_in` / `fallback` / `iterates` express runtime control flow |
-| 🔄 **Enforced state machine** | 7 states + three hard rules: ready gate (gating predecessors must be `passed`), max_attempts cap, and a **passed hard gate** (no execution report / unaggregated checkpoints / failed verdict → `passed` rejected); concurrent claims are atomic under a lock |
-| 🤖 **Native MCP** | 19 `graph_*` tools covering the whole flow: design (batch create / add edge / edit entry-exit), execution (atomic claim / checkpoint / report / **reclaim of dead claims**), adjudication (verdict), versioning (snapshot/diff/rollback) — all with zod-validated params |
-| 🎯 **Scheduling decisions** | `graph next` / `graph_get_next_actions` returns claimable / ready-eligible (cold-start entry) / waiting-on-deps / running / possibly-stale in one screen, with per-bucket pagination + truncated flags; ready buckets ordered by node `priority`; staleness = last activity (reporting acts as a heartbeat) — the agent planning loop's first call |
+| 🧭 **Typed topology** | 9 edge types: `depends_on` / `validates` participate in topological sort; `shares_context` / `fan_out` / `fan_in` / `fallback` / `iterates` express runtime control flow; `decides` / `relates` (v0.5) carry domain knowledge |
+| 🏛️ **Domain semantics (v0.5)** | **Bounded contexts and ADRs are first-class graph citizens**: context vertices follow "node as document" (boundary + glossary); node membership (`--context`) derives workflow/domain maps; **ADR state machine** proposed→accepted→superseded (supersede requires a successor; propose/adjudicate separation); `graph adr` command group + MCP `graph_create_adr`; decision changes propagate along decides edges (claim responses inject `governing_adrs` pointers, scheduling entries get `adr_flags` ⚠️); cross-context workflow edges are contract edges (contract required); `graph export --docs` regenerates docs/adr + CONTEXT-MAP.md + per-context CONTEXT.md (graph is the source of truth, markdown is a view) |
+| 🔄 **Enforced state machine** | 7 states + three hard rules: ready gate (gating predecessors must be `passed`), max_attempts cap, and a **passed hard gate** (no execution report / unaggregated checkpoints / failed verdict → `passed` rejected); concurrent claims are atomic under a lock; knowledge vertices are exempt (context is stateless, ADR has its own 3-state machine) |
+| 🤖 **Native MCP** | 20 `graph_*` tools covering the whole flow: design (batch create / add edge / edit entry-exit / **graph_create_adr**), execution (atomic claim with governing-ADR pointers / checkpoint / report / **reclaim of dead claims**), adjudication (verdict), versioning (snapshot/diff/rollback) — all with zod-validated params |
+| 🎯 **Scheduling decisions** | `graph next` / `graph_get_next_actions` returns claimable / ready-eligible (cold-start entry) / waiting-on-deps / running / possibly-stale in one screen, with per-bucket pagination + truncated flags; ready buckets ordered by node `priority`; staleness = last activity (reporting acts as a heartbeat); entries may carry `adr_flags` (stale decision basis ⚠️); knowledge vertices never enter scheduling buckets — the agent planning loop's first call |
 | 🗂️ **Versioning** | `snapshot` / `diff` / `rollback` primitives (auto-backup before rollback, explicit confirm required; **design-only rollback** rewinds design fields while keeping execution progress); Branch/Merge stays with Git |
-| 🧾 **Event log** | `.graph/events.jsonl` append-only audit: who created/deleted/transitioned/claimed/overrode/reset/rolled back what and when — `graph events` for one-command traceability |
-| 📉 **Context economy** | All MCP read endpoints paginate: `graph_get_graph` defaults to summary mode (compact fields) + paginated full mode, `graph_search` limit, `graph_traverse` max_nodes, `graph_get_node` optional topology neighbors — no more token explosions on large graphs |
-| ⚡ **Large-graph hot paths** | Two-level index cache (in-memory + on-disk graph.json, exact mtime freshness validation): gate/scheduling drop from full-graph scans (~9s @10k) to table lookup + single-file reads; scheduling is O(N+M) |
-| 🌐 **Web visualization** | Force-directed graph, per-edge-type colors, flow dots on `running` nodes, checkpoint progress bars, WebSocket delta push |
+| 🧾 **Event log** | `.graph/events.jsonl` append-only audit: who created/deleted/transitioned/claimed/overrode/reset/rolled back what and when, including the ADR lifecycle (adr_created/accepted/superseded) — `graph events` for one-command traceability |
+| 📉 **Context economy** | All MCP read endpoints paginate: `graph_get_graph` defaults to summary mode (compact fields) + paginated full mode, `graph_search` limit, `graph_traverse` max_nodes, `graph_get_node` optional topology neighbors — no more token explosions on large graphs; ADRs are injected as title-level pointers only, never full-text |
+| ⚡ **Large-graph hot paths** | Two-level index cache (in-memory + on-disk graph.json): gate/scheduling drop from full-graph scans (~9s @10k) to table lookup + single-file reads; scheduling is O(N+M); **write paths actively invalidate the cache** (no betting on filesystem mtimes — long-running processes read-after-write consistent) |
+| 🌐 **Web visualization** | Force-directed graph, per-edge-type colors, flow dots on `running` nodes, checkpoint progress bars, WebSocket delta push; **v0.5 map lenses**: checkbox workflow/domain maps in any subset — domain view (contexts + relates + glossary detail), overlay view (cluster hulls wrapping members, ADR badges, contract-edge highlighting); the UI stays strictly read-only |
 | 📁 **File-first storage** | One YAML file per node/edge, Git as the single source of truth, human-editable, no database |
-| 🧩 **Agent collaboration protocol** | Built-in `plumber-design` (topology design + preview review) and `plumber-execute` (topology execution + 3-layer acceptance) skills + 2 dedicated subagents (designer / adjudicator) |
+| 🧩 **Agent collaboration protocol** | Built-in `plumber-design` (topology design + domain modeling + ADR triage + preview review gate) and `plumber-execute` (topology execution + 3-layer acceptance + governing-ADR discipline) skills + 2 dedicated subagents (designer / adjudicator) |
 
 ---
 
@@ -75,8 +76,8 @@ npm install -g @lukawi/super-plumber
 ### 2. Verify the install
 
 ```bash
-graph --version     # prints 0.2.0 on success
-graph --help        # lists all 19 commands
+graph --version     # prints 0.5.0 on success
+graph --help        # lists all 22 commands
 which graph         # confirm location (Windows: where graph)
 ```
 
@@ -266,7 +267,7 @@ graph serve                           # open http://localhost:8934 for the force
 
 ---
 
-## CLI Reference (19 commands)
+## CLI Reference (22 commands)
 
 | Command | Purpose | Key flags |
 |---------|---------|-----------|
@@ -469,7 +470,7 @@ cd super-plumber
 npm install
 npm run build && npm --prefix web-ui run build
 
-# Tests (274 backend + 12 frontend cases)
+# Tests (316 backend + 36 frontend cases)
 npm test
 
 # Link globally for local dev
@@ -497,7 +498,7 @@ graph --version
 ## Project Status
 
 ```text
-Tests: 274 backend + 12 frontend ✅ | CLI: 21 commands | MCP: 19 tools | State machine: 7 states + ready gate + max_attempts + passed hard gate + event-log audit | Edge types: 7 | Versioning: snapshot/diff/rollback (incl. design-only) | Web UI: Svelte 5 + D3.js
+Tests: 316 backend + 36 frontend ✅ | CLI: 22 commands | MCP: 20 tools | State machine: 7 states + ready gate + max_attempts + passed hard gate + event-log audit + ADR 3-state machine (knowledge vertices exempt) | Edge types: 9 | Versioning: snapshot/diff/rollback (incl. design-only) | Web UI: Svelte 5 + D3.js (map lenses)
 ```
 
 - **npm**: [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)

@@ -193,7 +193,10 @@ pending → ready → running → passed → blocked
 | `Invalid transition: X → Y. Allowed: [...]` | 状态机顺序违反 | 走允许路径 |
 | `Node X 前置未满足，不能进入 ready/running: [...]` | ready 门禁拦截 | 先完成前驱；**不要用 force** |
 | `Node X already claimed by Y` | 并发认领竞争失败（原子保护） | 换一个 ready 节点认领 |
-| `Node X 已达最大重试次数` | attempts 用尽 | 人工介入；或改 plan（attempts 自动归零） |
+| `Node X 已达最大重试次数` | attempts 用尽 | 人工介入；或显式重置 attempts（CLI `--reset-attempts` / MCP `reset_attempts: true`，写审计事件——改 plan **不**自动归零） |
+| `Invalid ADR transition: X → Y` | ADR 状态机仅 proposed→accepted→superseded | 走合法转换；accept/supersede 归裁决方（super-mario/人类），执行 agent 不改 ADR 状态 |
+| `ADR X 置 superseded 前必须设置 superseded_by` | 废弃必须带接替者 | CLI `graph adr supersede -i X --by Y` 一步完成；MCP 两步（先 `graph_update_node {superseded_by}` 再置状态） |
+| `Node X 是 context 顶点：无状态…不支持任何状态变更` | 知识顶点豁免状态机 | context 顶点没有执行语义——改内容用 `graph_update_node`，不要动状态 |
 | `Node X 无执行报告，不能标记 passed` | passed 硬门禁（规则 3） | 先填 execution_report；force 仅人类 |
 | `Node X 存在未完成 checkpoint，不能标记 passed` | passed 硬门禁（规则 3） | 补完 checkpoint 再 passed |
 | `Node X 已有 failed 裁决，不能标记 passed` | passed 硬门禁（规则 3） | 修复缺陷，重新 verdict 后 passed |

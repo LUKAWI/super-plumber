@@ -34,12 +34,13 @@ description: Use when 拓扑图已设计并审核通过、需要执行 .graph/ �
    - **绝不 claim 非 ready 节点**——状态机/门禁会拒绝（`Invalid transition` 或 `前置未满足`），先用 `graph_get_next_actions` 确认 ready。
    - 并发 claim 是原子的：拿到 `already claimed by X` 说明别的 agent 抢先了——换节点，别重试同节点。
    - `force` 在 MCP 通道被**协议级拒绝**（v0.4 起）——传了直接报错；人类运维走 CLI `--force` 并留审计事件。
+   - **v0.5 claim 响应附 `governing_adrs`（管辖 ADR 标题级指针）——必读**：所依据的架构决策（decides 指向该节点或其 context、且非 superseded 的 ADR）。觉得相关再用 `graph_get_node` 取全文；指针为空则无此纪律。**adr_flags ⚠️ 出现（决策依据已过时）→ 停下重审**：该节点依据的 ADR 已被接替，先弄清新决策再动手；ADR 状态只能由裁决方（super-mario/人类）改，执行 agent 不改。
 2. **WORK** — 执行 `plan.description`；把 `checkpoints` 当你的清单逐条完成。
 3. **REPORT AS YOU GO** — **每完成一个 checkpoint 立即上报** `graph_update_checkpoint {node_id, checkpoint_id, status}`。**绝不攒到结尾**——完成的未上报 = 丢失的进度。（checkpoint 状态机：pending→running→passed 等；同状态重复上报幂等）
 4. **HAND OFF** — 干完立刻 `graph_update_execution_report {node_id, summary, artifacts, blockers, notes}`。artifacts 填**真实文件路径**（验收时会抽查）。
 5. **passed** — **核心层硬门禁**：有 execution_report（summary 非空）+ checkpoint 全部 passed/skipped + 无 failed 裁决，才能标 `passed`。**无报告标 passed 会被核心拒绝**——这不是可选的礼仪，是状态机规则。
 
-> 状态流转：`failed` → `pending` 重试（attempts 自动 +1，到 `max_attempts` 被拦截；修改 plan.description 自动归零）；`blocked` → 等依赖解除转 `ready`。见 reference.md 状态机全表。
+> 状态流转：`failed` → `pending` 重试（attempts 自动 +1，到 `max_attempts` 被拦截；重置必须显式——CLI `--reset-attempts` / MCP `reset_attempts: true`，写 attempts_reset 审计事件；修改 plan.description **不再**自动归零）。`blocked` → 等依赖解除转 `ready`。见 reference.md 状态机全表。
 
 ---
 
