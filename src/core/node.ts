@@ -572,6 +572,8 @@ export interface NodeUpdateParams {
   set_context?: string;
   boundary?: string;
   glossary_add?: { term: string; definition: string }[];
+  /** v0.5（adr 顶点）：接替者——置 superseded 前必须设置（MCP supersede 两步法的第一步） */
+  superseded_by?: string;
   /** FIX-A2：显式重置 attempts（由 CLI --reset-attempts / MCP reset_attempts 传入，
    * buildNodeUpdates 不消费此字段——由调用方转为 updateNodeContent 的 opts.resetAttempts） */
   reset_attempts?: boolean;
@@ -592,6 +594,7 @@ export function buildNodeUpdates(
     | "context"
     | "boundary"
     | "glossary"
+    | "superseded_by"
   >
 > {
   const updates: Record<string, unknown> = {};
@@ -659,6 +662,9 @@ export function buildNodeUpdates(
   if (params.glossary_add && params.glossary_add.length > 0) {
     updates.glossary = [...(node.glossary ?? []), ...params.glossary_add];
   }
+  if (params.superseded_by !== undefined) {
+    updates.superseded_by = params.superseded_by;
+  }
   return updates as Partial<
     Pick<
       NodeSchema,
@@ -672,6 +678,7 @@ export function buildNodeUpdates(
       | "context"
       | "boundary"
       | "glossary"
+      | "superseded_by"
     >
   >;
 }
