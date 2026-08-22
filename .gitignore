@@ -11,3 +11,4 @@ web-ui/.npm-cache/
 
 # 公众号推文草稿（不入库）
 wechat-*.md
+.zcode/
