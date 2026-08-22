@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.5.0] — 2026-08-22
+## [0.5.0] — 2026-08-22（已发布 GitHub，未发 npm）
 
 > 本版本把 domain-modeling 的设计融合进工具：**bounded context 与 ADR 成为图中一等公民**，
 > 直接进入 agent 的设计与执行工作流。设计经一轮 grilling 对齐（D1-D8 决策点），下表可溯源。
