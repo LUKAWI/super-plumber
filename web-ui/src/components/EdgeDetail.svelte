@@ -27,6 +27,8 @@
     fan_in: "多个上游都完成后才可执行（参与 ready 门禁）",
     fallback: "B 失败时回退到 A 重试",
     iterates: "A ⇄ B 反复迭代优化",
+    decides: "决策管辖：ADR 决定该节点/簇的架构走向（叠加视图以徽章呈现，不作连线）",
+    relates: "领域关系：context 之间的领域关联（rel_kind 自由标注，仅领域视图可见）",
   };
 </script>
 
@@ -54,6 +56,12 @@
       <section class="section">
         <h3 class="section-title"><span class="section-icon">▸</span>SEMANTICS</h3>
         <p class="plan-desc">{EDGE_SEMANTICS[graphState.selectedEdge.type]}</p>
+        {#if graphState.selectedEdge.type === "relates" && graphState.selectedEdge.rel_kind}
+          <div class="sub-list">
+            <span class="sub-label">rel_kind:</span>
+            <span class="chip">{graphState.selectedEdge.rel_kind}</span>
+          </div>
+        {/if}
       </section>
 
       <section class="section">

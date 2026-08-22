@@ -1,6 +1,12 @@
 <script lang="ts">
   import { graphState } from "../lib/store.svelte";
-  import { STATUS_COLORS, type NodeStatus, type Checkpoint } from "../lib/types";
+  import {
+    statusColorOf,
+    type NodeSchema,
+    type Checkpoint,
+    isKnowledgeType,
+  } from "../lib/types";
+  import { adrFlagsFor } from "../lib/maps";
 
   let visible = $state(false);
   let prevId: string | undefined;
@@ -38,6 +44,27 @@
     };
     return m[status] ?? "cp-pending";
   }
+
+  // v0.5：知识顶点（context/adr）以文档形态呈现
+  const isContext = $derived(graphState.selectedNode?.type === "context");
+  const isAdr = $derived(graphState.selectedNode?.type === "adr");
+  const isKnowledge = $derived(isContext || isAdr);
+
+  // adr_flags：superseded ADR 沿 decides 边传播的"决策依据已过时"警告（客户端预计算，纯只读展示）
+  const adrFlags = $derived.by(() => {
+    const g = graphState.graph;
+    const n = graphState.selectedNode;
+    if (!g || !n) return [] as string[];
+    return adrFlagsFor(g.nodes, g.edges).get(n.id) ?? [];
+  });
+
+  // context 成员（归属该上下文的工作流节点）
+  const contextMembers = $derived.by(() => {
+    const g = graphState.graph;
+    const n = graphState.selectedNode;
+    if (!g || !n || n.type !== "context") return [] as NodeSchema[];
+    return g.nodes.filter((m) => m.context === n.id && !isKnowledgeType(m.type));
+  });
 </script>
 
 {#if graphState.selectedNode}
@@ -60,14 +87,103 @@
         <span class="meta-tag type-tag">{graphState.selectedNode.type}</span>
         <span class="meta-tag level-tag">L{graphState.selectedNode.level}</span>
         <span class="meta-tag status-tag"
-          style="border-color: {STATUS_COLORS[graphState.selectedNode.status as NodeStatus]}">
-          <span class="status-dot" style="background: {STATUS_COLORS[graphState.selectedNode.status as NodeStatus]}"></span>
+          style="border-color: {statusColorOf(graphState.selectedNode.status)}">
+          <span class="status-dot" style="background: {statusColorOf(graphState.selectedNode.status)}"></span>
           {graphState.selectedNode.status}
         </span>
         {#if graphState.selectedNode.assigned_to}
           <span class="meta-tag assign-tag">{graphState.selectedNode.assigned_to}</span>
         {/if}
       </div>
+
+      <!-- adr_flags ⚠️：superseded ADR 沿 decides 边传播的"决策依据已过时"警告 -->
+      {#if adrFlags.length > 0}
+        <div class="adr-flags" role="alert">
+          {#each adrFlags as f}
+            <p class="adr-flag-item">⚠️ {f}</p>
+          {/each}
+        </div>
+      {/if}
+
+      <!-- context 顶点：节点即文档（boundary 全文 + glossary 全部术语 + 成员清单） -->
+      {#if isContext}
+        {#if graphState.selectedNode.boundary}
+          <section class="section">
+            <h3 class="section-title"><span class="section-icon">▸</span>BOUNDARY</h3>
+            <p class="plan-desc">{graphState.selectedNode.boundary}</p>
+          </section>
+        {/if}
+        {#if graphState.selectedNode.glossary && graphState.selectedNode.glossary.length > 0}
+          <section class="section">
+            <h3 class="section-title">
+              <span class="section-icon">▸</span>GLOSSARY
+              <span class="section-count">{graphState.selectedNode.glossary.length}</span>
+            </h3>
+            <dl class="glossary-list">
+              {#each graphState.selectedNode.glossary as entry}
+                <div class="glossary-entry">
+                  <dt class="glossary-term">{entry.term}</dt>
+                  <dd class="glossary-def">{entry.definition}</dd>
+                </div>
+              {/each}
+            </dl>
+          </section>
+        {/if}
+        <section class="section">
+          <h3 class="section-title">
+            <span class="section-icon">▸</span>MEMBERS
+            <span class="section-count">{contextMembers.length}</span>
+          </h3>
+          {#if contextMembers.length > 0}
+            <div class="member-list">
+              {#each contextMembers as m}
+                <span class="chip member-chip">{m.label} <span class="member-id">{m.id}</span></span>
+              {/each}
+            </div>
+          {:else}
+            <p class="plan-desc">(no members)</p>
+          {/if}
+        </section>
+      {/if}
+
+      <!-- adr 顶点：决策文档（decision/background/options/why/consequences） -->
+      {#if isAdr}
+        {#if graphState.selectedNode.status === "superseded" && graphState.selectedNode.superseded_by}
+          <div class="adr-superseded" role="note">
+            ⊘ 已被 <code>{graphState.selectedNode.superseded_by}</code> 接替——本决策不再生效
+          </div>
+        {/if}
+        {#if graphState.selectedNode.decision}
+          <section class="section">
+            <h3 class="section-title"><span class="section-icon">▸</span>DECISION</h3>
+            <p class="plan-desc">{graphState.selectedNode.decision}</p>
+          </section>
+        {/if}
+        {#if graphState.selectedNode.background}
+          <section class="section">
+            <h3 class="section-title"><span class="section-icon">▸</span>BACKGROUND</h3>
+            <p class="plan-desc">{graphState.selectedNode.background}</p>
+          </section>
+        {/if}
+        {#if graphState.selectedNode.considered_options}
+          <section class="section">
+            <h3 class="section-title"><span class="section-icon">▸</span>CONSIDERED OPTIONS</h3>
+            <p class="plan-desc">{graphState.selectedNode.considered_options}</p>
+          </section>
+        {/if}
+        {#if graphState.selectedNode.why}
+          <section class="section">
+            <h3 class="section-title"><span class="section-icon">▸</span>WHY</h3>
+            <p class="plan-desc">{graphState.selectedNode.why}</p>
+          </section>
+        {/if}
+        {#if graphState.selectedNode.consequences}
+          <section class="section">
+            <h3 class="section-title"><span class="section-icon">▸</span>CONSEQUENCES</h3>
+            <p class="plan-desc">{graphState.selectedNode.consequences}</p>
+          </section>
+        {/if}
+      {/if}
 
       <!-- Build plan -->
       {#if graphState.selectedNode.plan?.description}
@@ -210,7 +326,8 @@
         </section>
       {/if}
 
-      <!-- Footer info -->
+      <!-- Footer info（工作流顶点专属：attempts/时间戳对知识顶点无意义） -->
+      {#if !isKnowledge}
       <div class="footer-info">
         <span>
           <span class="footer-label">attempts:</span>
@@ -235,6 +352,7 @@
           </span>
         {/if}
       </div>
+      {/if}
     </div>
   </div>
 {/if}
@@ -645,6 +763,96 @@
   .chip-warn {
     color: var(--status-failed);
     border-color: rgba(229, 80, 79, 0.4);
+  }
+
+  /* adr_flags ⚠️ 警告区 */
+  .adr-flags {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-1);
+    margin-bottom: var(--sp-4);
+    padding: var(--sp-3);
+    background: rgba(229, 80, 79, 0.1);
+    border: 1px solid rgba(229, 80, 79, 0.4);
+    border-radius: var(--r);
+  }
+
+  .adr-flag-item {
+    font-family: var(--font-sans);
+    font-size: var(--text-xs);
+    line-height: 1.6;
+    color: var(--status-failed);
+    margin: 0;
+  }
+
+  /* ADR superseded 横幅 */
+  .adr-superseded {
+    font-family: var(--font-sans);
+    font-size: var(--text-xs);
+    line-height: 1.6;
+    color: var(--status-failed);
+    background: rgba(229, 80, 79, 0.1);
+    border: 1px dashed rgba(229, 80, 79, 0.5);
+    border-radius: var(--r-sm);
+    padding: var(--sp-2) var(--sp-3);
+    margin-bottom: var(--sp-4);
+  }
+
+  .adr-superseded code {
+    font-family: var(--font-mono);
+    background: var(--surface-3);
+    padding: 1px var(--sp-1);
+    border-radius: var(--r-sm);
+  }
+
+  /* context glossary（节点即文档） */
+  .glossary-list {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+  }
+
+  .glossary-entry {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    padding: var(--sp-2) var(--sp-3);
+  }
+
+  .glossary-term {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    color: var(--ink);
+    letter-spacing: var(--track-label);
+    margin: 0 0 var(--sp-1);
+  }
+
+  .glossary-def {
+    font-family: var(--font-sans);
+    font-size: var(--text-xs);
+    line-height: 1.7;
+    color: var(--ink-muted);
+    margin: 0;
+  }
+
+  /* context 成员清单 */
+  .member-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+  }
+
+  .member-chip {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--sp-1);
+  }
+
+  .member-id {
+    color: var(--ink-faint);
+    font-size: var(--text-2xs);
   }
 
   /* Responsive */

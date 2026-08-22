@@ -40,6 +40,7 @@ describe("graphState store", () => {
     graphState.setLevelFilter(null);
     graphState.setQuery("");
     graphState.clearDiff();
+    graphState.setActiveMaps({ workflow: true, domain: false });
   });
 
   it("patchNode 就地替换节点对象（保持数组引用）", () => {
@@ -86,5 +87,33 @@ describe("graphState store", () => {
     expect(graphState.levelFilter).toEqual([2]);
     graphState.toggleLevel(2);
     expect(graphState.levelFilter).toBeNull();
+  });
+
+  it("默认透镜：工作流开、领域关", () => {
+    expect(graphState.activeMaps).toEqual({ workflow: true, domain: false });
+  });
+
+  it("toggleMap 可开领域透镜成叠加视图，再关回工作流视图", () => {
+    graphState.toggleMap("domain");
+    expect(graphState.activeMaps).toEqual({ workflow: true, domain: true });
+    graphState.toggleMap("domain");
+    expect(graphState.activeMaps).toEqual({ workflow: true, domain: false });
+  });
+
+  it("toggleMap 允许两透镜全关（空视图，由画布提示）", () => {
+    // 默认 { workflow: true, domain: false }：只关工作流即两透镜全关
+    graphState.toggleMap("workflow");
+    expect(graphState.activeMaps).toEqual({ workflow: false, domain: false });
+    // 再关领域仍是全关（幂等路径：先开再关）
+    graphState.toggleMap("domain");
+    graphState.toggleMap("domain");
+    expect(graphState.activeMaps).toEqual({ workflow: false, domain: false });
+  });
+
+  it("toggleMap 不 mutate 旧对象（替换引用触发响应）", () => {
+    const before = graphState.activeMaps;
+    graphState.toggleMap("domain");
+    expect(graphState.activeMaps).not.toBe(before);
+    expect(before.domain).toBe(false); // 旧对象不被改写
   });
 });

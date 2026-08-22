@@ -3,11 +3,29 @@
   import * as d3 from "d3";
   import { graphState } from "../lib/store.svelte";
   import { computeFitTransform } from "../lib/layout";
-  import { STATUS_COLORS, EDGE_TYPE_COLORS, EDGE_TYPE_LABELS } from "../lib/types";
-  import type { GraphIndex, NodeSchema, EdgeSchema } from "../lib/types";
+  import {
+    STATUS_COLORS,
+    EDGE_TYPE_COLORS,
+    EDGE_TYPE_LABELS,
+    statusColorOf,
+    type GraphIndex,
+    type NodeSchema,
+    type EdgeSchema,
+    type EdgeType,
+  } from "../lib/types";
+  import {
+    adrBadgesFor,
+    contextColors,
+    contextHullGroups,
+    isContractEdge,
+    isEdgeVisibleInMaps,
+    isNodeVisibleInMaps,
+    type AdrBadge,
+  } from "../lib/maps";
 
   // Extend NodeSchema with D3 simulation properties
   type SimNode = NodeSchema & d3.SimulationNodeDatum;
+  type SimEdge = EdgeSchema & { source: SimNode | string; target: SimNode | string };
 
   let svgEl: SVGSVGElement;
   let wrapperEl: HTMLDivElement;
@@ -19,8 +37,27 @@
   // 布局持久化：全量重渲染时复用节点坐标（P4-2：加一条边不再全图重抖）
   const positions = new Map<string, { x: number; y: number }>();
   let currentNodes: SimNode[] = [];
-  let currentEdges: (EdgeSchema & { source: SimNode | string; target: SimNode | string })[] = [];
+  let currentEdges: SimEdge[] = [];
   let pinned = $state(false);
+
+  // v0.5 map 透镜渲染上下文（renderGraph 时重建）
+  let currentGraph: GraphIndex | null = null;
+  let byIdCache: Map<string, NodeSchema> = new Map();
+  let currentContextColors: Map<string, string> = new Map();
+
+  interface HullRender {
+    contextId: string;
+    label: string;
+    color: string;
+    members: SimNode[];
+    ctxNode?: SimNode;
+  }
+  let currentHulls: HullRender[] = [];
+
+  interface BadgeRender extends AdrBadge {
+    stack: number;
+  }
+  let currentBadges: BadgeRender[] = [];
 
   const prefersReducedMotion = typeof window !== "undefined"
     ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
@@ -29,18 +66,68 @@
   const ENTER_DURATION = prefersReducedMotion ? 0 : 400;
   const HOVER_DURATION = prefersReducedMotion ? 0 : 150;
   const NODE_R = 20;
+  const CONTEXT_R = 26; // context 顶点（领域视图）：虚线大圆
+  const HULL_PAD = NODE_R + 14; // hull 外扩半径
+
+  function nodeR(d: SimNode): number {
+    return d.type === "context" ? CONTEXT_R : NODE_R;
+  }
 
   function getContainerSize() {
     return { w: wrapperEl?.clientWidth || 960, h: wrapperEl?.clientHeight || 680 };
   }
 
-  // ── 过滤（层级 + 搜索）与 diff 着色的命中判断 ──
+  const isOverlay = $derived(graphState.activeMaps.workflow && graphState.activeMaps.domain);
+
+  /** 当前透镜下可见顶点数（两个 map 都关 = 0 → 空视图提示） */
+  const lensVisibleCount = $derived.by(() => {
+    const g = graphState.graph;
+    const m = graphState.activeMaps;
+    if (!g) return 0;
+    return g.nodes.filter((n) => isNodeVisibleInMaps(n, m)).length;
+  });
+
+  // ── 过滤（map 透镜 + 层级 + 搜索）与 diff 着色的命中判断 ──
+
+  /** 顶点在当前透镜下是否以节点圆呈现：
+   *  workflow/domain 单独视图 → 所属 map 勾选即可见；
+   *  叠加视图 → context 由 hull 簇壳替代，节点圆隐藏（模拟仍参与以锚定 relates） */
+  function nodeRendered(n: NodeSchema): boolean {
+    if (!isNodeVisibleInMaps(n, graphState.activeMaps)) return false;
+    if (isOverlay && n.type === "context") return false;
+    return true;
+  }
+
   function nodeMatchesFilters(n: NodeSchema): boolean {
     const levels = graphState.levelFilter;
     if (levels !== null && !levels.includes(n.level)) return false;
     const q = graphState.query.trim().toLowerCase();
     if (q && !n.id.toLowerCase().includes(q) && !n.label.toLowerCase().includes(q)) return false;
     return true;
+  }
+
+  function edgeEndId(v: SimNode | string): string {
+    return typeof v === "object" ? (v as SimNode).id : v;
+  }
+
+  /** 边可见性规则：两端顶点所属 map 全部勾选（decides 边已在渲染前剔除） */
+  function edgeRendered(e: SimEdge): boolean {
+    const sid = edgeEndId(e.source);
+    const tid = edgeEndId(e.target);
+    return isEdgeVisibleInMaps(
+      { id: e.id, source: sid, target: tid, type: e.type },
+      byIdCache,
+      graphState.activeMaps,
+    );
+  }
+
+  /** 契约边（叠加视图）：非知识边 + 两端分属不同 context */
+  function edgeIsContract(e: SimEdge): boolean {
+    if (!isOverlay) return false;
+    return isContractEdge(
+      { id: e.id, source: edgeEndId(e.source), target: edgeEndId(e.target), type: e.type },
+      byIdCache,
+    );
   }
 
   function diffClassOf(kind: "node" | "edge", id: string): string | null {
@@ -53,57 +140,279 @@
     return null;
   }
 
+  // 边视觉基线（契约边高亮 = 提高不透明度/线宽 + 虚线；hover 恢复时回到此基线）
+  function edgeBaseOpacity(e: EdgeSchema): number {
+    return edgeIsContract(e as SimEdge) ? 0.6 : 0.28;
+  }
+  function edgeBaseWidth(e: EdgeSchema): number {
+    return edgeIsContract(e as SimEdge) ? 2.2 : 1.5;
+  }
+
+  function edgeLabelOf(e: EdgeSchema): string {
+    if (e.type === "relates") return e.rel_kind || EDGE_TYPE_LABELS.relates;
+    return EDGE_TYPE_LABELS[e.type] ?? e.type;
+  }
+
   function applyFiltersAndDiff() {
     if (!svgEl || !zoomGroup) return;
     const nodeSel = zoomGroup.selectAll<SVGGElement, SimNode>(".nodes > g.node");
-    nodeSel.classed("dimmed", (d: any) => !nodeMatchesFilters(d));
+    nodeSel
+      .classed("map-hidden", (d: SimNode) => !nodeRendered(d))
+      .classed("dimmed", (d: SimNode) => !nodeMatchesFilters(d));
     const diffMap = new Map<string, string | null>();
     for (const n of currentNodes) diffMap.set(n.id, diffClassOf("node", n.id));
     nodeSel
-      .classed("diff-added", (d: any) => diffMap.get(d.id) === "diff-added")
-      .classed("diff-removed", (d: any) => diffMap.get(d.id) === "diff-removed")
-      .classed("diff-modified", (d: any) => diffMap.get(d.id) === "diff-modified");
+      .classed("diff-added", (d: SimNode) => diffMap.get(d.id) === "diff-added")
+      .classed("diff-removed", (d: SimNode) => diffMap.get(d.id) === "diff-removed")
+      .classed("diff-modified", (d: SimNode) => diffMap.get(d.id) === "diff-modified");
 
-    const edgeSel = zoomGroup.selectAll<SVGGElement, unknown>(".edges .edge-group");
-    edgeSel.classed("dimmed", function (this: SVGGElement) {
-      const g = d3.select(this);
-      const d = g.datum() as { source: SimNode | string; target: SimNode | string };
-      const src = typeof d.source === "object" ? (d.source as SimNode).id : d.source;
-      const tgt = typeof d.target === "object" ? (d.target as SimNode).id : d.target;
-      const srcNode = currentNodes.find((n) => n.id === src);
-      const tgtNode = currentNodes.find((n) => n.id === tgt);
-      return (
-        (srcNode !== undefined && !nodeMatchesFilters(srcNode)) ||
-        (tgtNode !== undefined && !nodeMatchesFilters(tgtNode))
-      );
-    });
+    const edgeSel = zoomGroup.selectAll<SVGGElement, SimEdge>(".edges .edge-group");
+    edgeSel
+      .classed("map-hidden", (d: SimEdge) => !edgeRendered(d))
+      .classed("contract-edge", (d: SimEdge) => edgeIsContract(d));
     const edgeDiff = new Map<string, string | null>();
     for (const e of currentEdges) edgeDiff.set(e.id, diffClassOf("edge", e.id));
     edgeSel
-      .classed("diff-added", function (this: SVGGElement) {
-        const d = d3.select(this).datum() as { id: string };
-        return edgeDiff.get(d.id) === "diff-added";
-      })
-      .classed("diff-removed", function (this: SVGGElement) {
-        const d = d3.select(this).datum() as { id: string };
-        return edgeDiff.get(d.id) === "diff-removed";
-      })
-      .classed("diff-modified", function (this: SVGGElement) {
-        const d = d3.select(this).datum() as { id: string };
-        return edgeDiff.get(d.id) === "diff-modified";
+      .classed("diff-added", (d: SimEdge) => edgeDiff.get(d.id) === "diff-added")
+      .classed("diff-removed", (d: SimEdge) => edgeDiff.get(d.id) === "diff-removed")
+      .classed("diff-modified", (d: SimEdge) => edgeDiff.get(d.id) === "diff-modified");
+    // 契约边高亮（属性级，hover 恢复用 edgeBase* 基线）
+    edgeSel.select<SVGLineElement>(".edge-line")
+      .attr("stroke-opacity", (d: SimEdge) => edgeBaseOpacity(d))
+      .attr("stroke-width", (d: SimEdge) => edgeBaseWidth(d))
+      .attr("stroke-dasharray", (d: SimEdge) => (edgeIsContract(d) ? "7 4" : null));
+  }
+
+  // ── 叠加视图装饰：hull 簇壳 + ADR 徽章 ──
+
+  /** 从模拟节点重建 hull 分组与徽章（渲染/数据变化时调用） */
+  function refreshOverlayDecorations() {
+    if (!zoomGroup) return;
+    if (!isOverlay) {
+      zoomGroup.selectAll(".hulls,.adr-badges").remove();
+      currentHulls = [];
+      currentBadges = [];
+      return;
+    }
+    // hull：context id → 成员工作流节点
+    currentHulls = [...contextHullGroups(currentNodes as NodeSchema[])]
+      .map(([contextId, members]) => ({
+        contextId,
+        label: byIdCache.get(contextId)?.label ?? contextId,
+        color: currentContextColors.get(contextId) ?? "#8a8f98",
+        members: members as SimNode[],
+        ...(currentNodes.find((n) => n.id === contextId) ? { ctxNode: currentNodes.find((n) => n.id === contextId) } : {}),
+      }));
+
+    // 徽章：decides 边 → ADR 附着（同锚点堆叠）
+    const badges = currentGraph ? adrBadgesFor(currentGraph.nodes, currentGraph.edges) : [];
+    const stackCount = new Map<string, number>();
+    currentBadges = badges.map((b) => {
+      const stack = stackCount.get(b.anchorNodeId) ?? 0;
+      stackCount.set(b.anchorNodeId, stack + 1);
+      return { ...b, stack };
+    });
+
+    renderHullLayer();
+    renderBadgeLayer();
+    updateHullsAndBadges();
+  }
+
+  /** hull 平滑路径：顶点外扩 + Catmull-Rom 闭合曲线；<3 点时以质心合成圆环 */
+  function hullGeometry(members: SimNode[], pad: number): { d: string; cx: number; topY: number } | null {
+    const pts: [number, number][] = [];
+    for (const m of members) {
+      if (Number.isFinite(m.x) && Number.isFinite(m.y)) pts.push([m.x as number, m.y as number]);
+    }
+    if (pts.length === 0) return null;
+    let cx = 0;
+    let cy = 0;
+    for (const p of pts) {
+      cx += p[0];
+      cy += p[1];
+    }
+    cx /= pts.length;
+    cy /= pts.length;
+    let base: [number, number][];
+    if (pts.length < 3) {
+      let r = pad;
+      for (const p of pts) r = Math.max(r, Math.hypot(p[0] - cx, p[1] - cy) + pad);
+      base = Array.from({ length: 12 }, (_, i) => {
+        const a = (i / 12) * Math.PI * 2;
+        return [cx + r * Math.cos(a), cy + r * Math.sin(a)] as [number, number];
       });
+    } else {
+      const hull = d3.polygonHull(pts);
+      if (!hull) return null;
+      base = hull.map((p) => {
+        const dx = p[0] - cx;
+        const dy = p[1] - cy;
+        const len = Math.hypot(dx, dy) || 1;
+        return [p[0] + (dx / len) * pad, p[1] + (dy / len) * pad] as [number, number];
+      });
+    }
+    let minY = Infinity;
+    let sumX = 0;
+    for (const p of base) {
+      minY = Math.min(minY, p[1]);
+      sumX += p[0];
+    }
+    const line = d3.line<[number, number]>()
+      .x((p) => p[0])
+      .y((p) => p[1])
+      .curve(d3.curveCatmullRomClosed.alpha(0.8));
+    const d = line(base);
+    if (!d) return null;
+    return { d, cx: sumX / base.length, topY: minY };
+  }
+
+  function renderHullLayer() {
+    if (!zoomGroup) return;
+    let hullG = zoomGroup.select<SVGGElement>("g.hulls");
+    if (hullG.empty()) {
+      // 插到最底层（edges/nodes 之前）
+      hullG = zoomGroup.insert<SVGGElement>("g", ":first-child").attr("class", "hulls");
+    }
+    const sel = hullG
+      .selectAll<SVGGElement, HullRender>("g.hull")
+      .data(currentHulls, (h) => h.contextId);
+    sel.exit().remove();
+    const enter = sel.enter().append("g").attr("class", "hull");
+    enter.append("path").attr("class", "hull-path");
+    enter.append("text").attr("class", "hull-label");
+    const all = enter.merge(sel);
+    all.select(".hull-path")
+      .attr("fill", (h) => h.color)
+      .attr("fill-opacity", 0.07)
+      .attr("stroke", (h) => h.color)
+      .attr("stroke-opacity", 0.45)
+      .attr("stroke-width", 1.5)
+      .attr("stroke-dasharray", "6 4")
+      .style("cursor", "pointer")
+      .on("click", (_event: MouseEvent, h: HullRender) => {
+        const full = currentGraph?.nodes.find((n) => n.id === h.contextId);
+        if (full) graphState.selectNode(full);
+      });
+    all.select(".hull-label")
+      .text((h) => `${h.label} · ${h.members.length}`)
+      .attr("text-anchor", "middle")
+      .attr("font-family", "var(--font-mono)")
+      .attr("font-size", "10px")
+      .attr("font-weight", "600")
+      .attr("fill", (h) => h.color)
+      .attr("paint-order", "stroke")
+      .attr("stroke", "#000000")
+      .attr("stroke-width", "3px")
+      .attr("stroke-linejoin", "round")
+      .style("pointer-events", "none")
+      .style("user-select", "none");
+  }
+
+  function renderBadgeLayer() {
+    if (!zoomGroup) return;
+    let badgeG = zoomGroup.select<SVGGElement>("g.adr-badges");
+    if (badgeG.empty()) badgeG = zoomGroup.append("g").attr("class", "adr-badges");
+    const sel = badgeG
+      .selectAll<SVGGElement, BadgeRender>("g.adr-badge")
+      .data(currentBadges, (b) => `${b.adrId}:${b.anchorNodeId}`);
+    sel.exit().remove();
+    const enter = sel.enter().append("g").attr("class", "adr-badge");
+    enter.append("rect").attr("class", "adr-badge-box");
+    enter.append("text").attr("class", "adr-badge-text");
+    const all = enter.merge(sel);
+    all.select(".adr-badge-box")
+      .attr("rx", 3)
+      .attr("height", 14)
+      .attr("fill", "#14161a")
+      .attr("fill-opacity", 0.92)
+      .attr("stroke", (b) => statusColorOf(b.status))
+      .attr("stroke-width", (b) => (b.status === "superseded" ? 1.5 : 1))
+      .attr("stroke-dasharray", (b) => (b.status === "proposed" ? "3 2" : null));
+    all.select(".adr-badge-text")
+      .attr("font-family", "var(--font-mono)")
+      .attr("font-size", "8.5px")
+      .attr("font-weight", "600")
+      .attr("dominant-baseline", "central")
+      .attr("fill", (b) => statusColorOf(b.status))
+      .attr("paint-order", "stroke")
+      .attr("stroke", "#000000")
+      .attr("stroke-width", "2.5px")
+      .attr("stroke-linejoin", "round")
+      .style("user-select", "none")
+      .text((b) => {
+        const mark = b.status === "superseded" ? "⊘" : b.status === "accepted" ? "●" : "○";
+        const t = b.title.length > 12 ? `${b.title.slice(0, 11)}…` : b.title;
+        return `${mark} ${t}`;
+      });
+    all
+      .attr("cursor", "pointer")
+      .on("click", (event: MouseEvent, b: BadgeRender) => {
+        event.stopPropagation();
+        const full = currentGraph?.nodes.find((n) => n.id === b.adrId);
+        if (full) graphState.selectNode(full);
+      });
+    all.select<SVGRectElement>(".adr-badge-box").each(function (this: SVGRectElement, b: BadgeRender) {
+      const text = this.parentElement?.querySelector(".adr-badge-text") as SVGTextElement | null;
+      const w = 12 + (text?.getComputedTextLength?.() ?? b.title.length * 5);
+      d3.select(this)
+        .attr("width", Math.max(30, w))
+        .attr("x", -2)
+        .attr("y", -14);
+    });
+    all.select(".adr-badge-text").attr("x", 4).attr("y", -7);
+  }
+
+  /** 每 tick 更新 hull 路径 / 标签 / 徽章锚点 */
+  function updateHullsAndBadges() {
+    if (!zoomGroup || !isOverlay) return;
+    const hullGeom = new Map<string, { d: string; cx: number; topY: number } | null>();
+    zoomGroup.selectAll<SVGGElement, HullRender>(".hulls g.hull").each(function (this: SVGGElement, h: HullRender) {
+      const geom = hullGeometry(h.members, HULL_PAD);
+      hullGeom.set(h.contextId, geom);
+      const g = d3.select(this);
+      if (!geom) {
+        g.attr("display", "none");
+        return;
+      }
+      g.attr("display", null);
+      g.select(".hull-path").attr("d", geom.d);
+      g.select(".hull-label").attr("x", geom.cx).attr("y", geom.topY + 15);
+    });
+    zoomGroup.selectAll<SVGGElement, BadgeRender>(".adr-badges g.adr-badge").each(function (this: SVGGElement, b: BadgeRender) {
+      const g = d3.select(this);
+      let x: number | null = null;
+      let y: number | null = null;
+      if (b.anchorIsContext) {
+        const geom = hullGeom.get(b.anchorNodeId);
+        if (geom) {
+          x = geom.cx;
+          y = geom.topY - 12 - b.stack * 17;
+        }
+      } else {
+        const node = currentNodes.find((n) => n.id === b.anchorNodeId);
+        if (node && Number.isFinite(node.x) && Number.isFinite(node.y)) {
+          x = (node.x as number) + nodeR(node) + 6;
+          y = (node.y as number) - nodeR(node) - 6 - b.stack * 17;
+        }
+      }
+      if (x === null || y === null) {
+        g.attr("display", "none");
+        return;
+      }
+      g.attr("display", null).attr("transform", `translate(${x},${y})`);
+    });
   }
 
   // ── 边层渲染（全量/增量共用）──
   function renderEdgeLayer(
     parent: d3.Selection<SVGGElement, unknown, null, undefined>,
-    edges: (EdgeSchema & { source: SimNode | string; target: SimNode | string })[],
+    edges: SimEdge[],
   ) {
     let linkG = parent.select<SVGGElement>(".edges");
     if (linkG.empty()) linkG = parent.append("g").attr("class", "edges");
 
     const link = linkG
-      .selectAll<SVGGElement, EdgeSchema & { source: SimNode | string; target: SimNode | string }>("g.edge-group")
+      .selectAll<SVGGElement, SimEdge>("g.edge-group")
       .data(edges, (d) => d.id);
 
     link.exit().remove();
@@ -121,12 +430,9 @@
 
     all
       .select(".edge-line")
-      .attr("stroke", (d: unknown) => {
-        const e = d as EdgeSchema;
-        return EDGE_TYPE_COLORS[e.type] ?? "#ffffff";
-      })
-      .attr("stroke-opacity", 0.28) // 默认微妙色相
-      .attr("stroke-width", 1.5)
+      .attr("stroke", (d: SimEdge) => EDGE_TYPE_COLORS[d.type] ?? "#ffffff")
+      .attr("stroke-opacity", edgeBaseOpacity)
+      .attr("stroke-width", edgeBaseWidth)
       .attr("marker-end", "url(#arrowhead)");
 
     all
@@ -134,13 +440,13 @@
       .attr("text-anchor", "middle")
       .attr("font-size", "9px")
       .attr("font-family", "var(--font-mono)")
-      .attr("fill", (d: unknown) => EDGE_TYPE_COLORS[(d as EdgeSchema).type] ?? "#fff")
+      .attr("fill", (d: SimEdge) => EDGE_TYPE_COLORS[d.type] ?? "#fff")
       .attr("paint-order", "stroke")
       .attr("stroke", "#000000")
       .attr("stroke-width", "3px")
       .attr("stroke-linejoin", "round")
       .attr("opacity", 0)
-      .text((d: unknown) => EDGE_TYPE_LABELS[(d as EdgeSchema).type] ?? (d as EdgeSchema).type);
+      .text(edgeLabelOf);
 
     // hover 高亮 + 点击选中（边详情）
     all
@@ -150,9 +456,9 @@
           .attr("stroke-opacity", 0.9)
           .attr("stroke-width", 2.5);
         group.select(".edge-label").attr("opacity", 1);
-        const d = group.datum() as { source: SimNode | string; target: SimNode | string };
-        const srcId = typeof d.source === "object" ? (d.source as SimNode).id : d.source;
-        const tgtId = typeof d.target === "object" ? (d.target as SimNode).id : d.target;
+        const d = group.datum() as SimEdge;
+        const srcId = edgeEndId(d.source);
+        const tgtId = edgeEndId(d.target);
         const nodeSel = parent.selectAll<SVGGElement, SimNode>(".nodes > g.node");
         nodeSel
           .filter((n: SimNode) => n.id === srcId || n.id === tgtId)
@@ -162,34 +468,45 @@
       })
       .on("mouseleave", function (this: SVGGElement) {
         const group = d3.select(this);
+        const d = group.datum() as SimEdge;
         group.select(".edge-line")
-          .attr("stroke-opacity", (d: unknown) => EDGE_TYPE_COLORS[(d as EdgeSchema).type] ? 0.28 : 0.18)
-          .attr("stroke-width", 1.5);
+          .attr("stroke-opacity", edgeBaseOpacity(d))
+          .attr("stroke-width", edgeBaseWidth(d));
         group.select(".edge-label").attr("opacity", 0);
-        const d = group.datum() as { source: SimNode | string; target: SimNode | string };
-        const srcId = typeof d.source === "object" ? (d.source as SimNode).id : d.source;
-        const tgtId = typeof d.target === "object" ? (d.target as SimNode).id : d.target;
+        const srcId = edgeEndId(d.source);
+        const tgtId = edgeEndId(d.target);
         const selected = graphState.selectedNode?.id;
         const nodeSel = parent.selectAll<SVGGElement, SimNode>(".nodes > g.node");
         nodeSel
           .filter((n: SimNode) => n.id === srcId || n.id === tgtId)
           .select(".node-circle")
-          .attr("stroke", (n: SimNode) => (n.id === selected ? "var(--ink)" : "rgba(255, 255, 255, 0.6)"))
-          .attr("stroke-width", (n: SimNode) => (n.id === selected ? 3 : 1.5));
+          .attr("stroke", (n: SimNode) => (n.id === selected ? "var(--ink)" : defaultNodeStroke(n)))
+          .attr("stroke-width", (n: SimNode) => (n.id === selected ? 3 : defaultNodeStrokeWidth(n)));
       })
       .on("click", function (this: SVGGElement) {
         const group = d3.select(this);
-        const d = group.datum() as EdgeSchema & { source: SimNode | string; target: SimNode | string };
+        const d = group.datum() as SimEdge;
         graphState.selectEdge({
           id: d.id,
-          source: typeof d.source === "object" ? (d.source as SimNode).id : d.source,
-          target: typeof d.target === "object" ? (d.target as SimNode).id : d.target,
+          source: edgeEndId(d.source),
+          target: edgeEndId(d.target),
           type: d.type,
           ...(d.contract ? { contract: d.contract } : {}),
+          ...(d.rel_kind ? { rel_kind: d.rel_kind } : {}),
         });
       });
 
     return { linkG, all };
+  }
+
+  // ── 节点视觉基线（context 顶点用 hull 色 + 虚线，选中/悬停恢复时回此基线）──
+  function defaultNodeStroke(d: SimNode): string {
+    if (d.type === "context") return currentContextColors.get(d.id) ?? "rgba(255, 255, 255, 0.6)";
+    return d.status === "running" ? STATUS_COLORS.running : "rgba(255, 255, 255, 0.6)";
+  }
+  function defaultNodeStrokeWidth(d: SimNode): number {
+    if (d.type === "context") return 2;
+    return d.status === "running" ? 2.5 : 1.5;
   }
 
   // ── 节点层渲染 ──
@@ -214,79 +531,87 @@
 
     const all = enter.merge(node);
 
-    // Node circles: white fill + status color ring
+    // Node circles: context 顶点 = 虚线大圆 + hull 色；工作流顶点 = 白描边圆
     all.select(".node-circle")
-      .attr("r", NODE_R)
-      .attr("fill", "rgba(255, 255, 255, 0.02)")
-      .attr("stroke", "rgba(255, 255, 255, 0.6)")
-      .attr("stroke-width", 1.5);
+      .attr("r", (d: SimNode) => nodeR(d))
+      .attr("fill", (d: SimNode) =>
+        d.type === "context"
+          ? (currentContextColors.get(d.id) ?? "#8a8f98")
+          : "rgba(255, 255, 255, 0.02)")
+      .attr("fill-opacity", (d: SimNode) => (d.type === "context" ? 0.16 : null))
+      .attr("stroke", defaultNodeStroke)
+      .attr("stroke-dasharray", (d: SimNode) => (d.type === "context" ? "5 4" : null))
+      .attr("stroke-width", defaultNodeStrokeWidth);
 
     all.select(".status-ring")
-      .attr("r", NODE_R + 3)
+      .attr("r", (d: SimNode) => nodeR(d) + 3)
       .attr("fill", "none")
-      .attr("stroke", (d: any) => STATUS_COLORS[d.status as keyof typeof STATUS_COLORS] ?? "var(--status-pending)")
-      .attr("stroke-width", 2)
-      .attr("stroke-opacity", 0.7);
+      .attr("stroke", (d: SimNode) => statusColorOf(d.status))
+      .attr("stroke-width", (d: SimNode) => (d.status === "running" ? 3 : 2))
+      .attr("stroke-opacity", (d: SimNode) => (d.type === "context" ? 0 : 0.7));
 
     all.select(".node-label")
-      .text((d: any) => (d.label.length > 14 ? d.label.slice(0, 12) + "…" : d.label))
+      .text((d: SimNode) => {
+        const max = d.type === "context" ? 18 : 14;
+        return d.label.length > max ? `${d.label.slice(0, max - 2)}…` : d.label;
+      })
       .attr("text-anchor", "middle")
       .attr("dy", 4)
       .attr("font-family", "var(--font-mono)")
       .attr("font-size", "10px")
       .attr("font-weight", "600")
-      .attr("fill", "var(--ink)")
+      .attr("fill", (d: SimNode) => (d.type === "context" ? currentContextColors.get(d.id) ?? "var(--ink)" : "var(--ink)"))
       .attr("letter-spacing", "0.04em")
       .style("pointer-events", "none")
       .style("user-select", "none");
 
     // checkpoint 进度条
     all.select(".cp-track")
-      .attr("x", -14).attr("y", NODE_R + 12)
+      .attr("x", -14).attr("y", (d: SimNode) => nodeR(d) + 12)
       .attr("width", 28).attr("height", 3)
       .attr("rx", 1.5)
       .attr("fill", "rgba(255, 255, 255, 0.1)")
-      .attr("opacity", (d: any) => (d.checkpoints?.length ? 1 : 0));
+      .attr("opacity", (d: SimNode) => (d.checkpoints?.length ? 1 : 0));
     all.select(".cp-fill")
-      .attr("x", -14).attr("y", NODE_R + 12)
-      .attr("width", (d: any) => {
+      .attr("x", -14).attr("y", (d: SimNode) => nodeR(d) + 12)
+      .attr("width", (d: SimNode) => {
         const cps = d.checkpoints ?? [];
-        const done = cps.filter((c: any) => c.status === "passed").length;
+        const done = cps.filter((c) => c.status === "passed").length;
         return cps.length ? (done / cps.length) * 28 : 0;
       })
       .attr("height", 3)
       .attr("rx", 1.5)
-      .attr("fill", (d: any) => (d.status === "failed" ? "#e5504f" : "#34c964"))
-      .attr("opacity", (d: any) => (d.checkpoints?.length ? 1 : 0));
+      .attr("fill", (d: SimNode) => (d.status === "failed" ? "#e5504f" : "#34c964"))
+      .attr("opacity", (d: SimNode) => (d.checkpoints?.length ? 1 : 0));
 
     // 执行者标签（running 节点）
     all.select(".assign-label")
-      .text((d: any) => (d.status === "running" && d.assigned_to ? d.assigned_to : ""))
+      .text((d: SimNode) => (d.status === "running" && d.assigned_to ? d.assigned_to : ""))
       .attr("text-anchor", "middle")
-      .attr("y", -NODE_R - 8)
+      .attr("y", (d: SimNode) => -nodeR(d) - 8)
       .attr("font-family", "var(--font-mono)")
       .attr("font-size", "8px")
       .attr("font-weight", "500")
       .attr("fill", "#f0a73a")
-      .attr("opacity", (d: any) => (d.status === "running" && d.assigned_to ? 0.9 : 0))
+      .attr("opacity", (d: SimNode) => (d.status === "running" && d.assigned_to ? 0.9 : 0))
       .style("pointer-events", "none")
       .style("user-select", "none");
 
     // running 高亮
     all.select(".node-circle")
-      .attr("filter", (d: any) => (d.status === "running" ? "url(#glow)" : null))
-      .attr("stroke", (d: any) =>
-        d.status === "running" ? STATUS_COLORS.running : "rgba(255, 255, 255, 0.6)")
-      .attr("stroke-width", (d: any) => (d.status === "running" ? 2.5 : 1.5));
+      .attr("filter", (d: SimNode) => (d.status === "running" ? "url(#glow)" : null))
+      .attr("stroke", defaultNodeStroke)
+      .attr("stroke-width", defaultNodeStrokeWidth);
     all.select(".status-ring")
-      .attr("stroke-width", (d: any) => (d.status === "running" ? 3 : 2));
+      .attr("stroke-width", (d: SimNode) => (d.status === "running" ? 3 : 2));
 
     // 交互：hover 放大 + tooltip + 点击选中
     all
       .on("mouseenter", function (this: SVGGElement, event: MouseEvent) {
         const el = this;
         const d = d3.select(el).datum() as SimNode;
-        if (d.label.length > 14 && tooltipEl) {
+        const max = d.type === "context" ? 18 : 14;
+        if (d.label.length > max && tooltipEl) {
           const rect = wrapperEl.getBoundingClientRect();
           tooltipEl.textContent = d.label;
           tooltipEl.style.display = "block";
@@ -296,36 +621,37 @@
         if (prefersReducedMotion) return;
         d3.select(el).select(".node-circle")
           .transition().duration(HOVER_DURATION)
-          .attr("r", NODE_R + 4)
+          .attr("r", nodeR(d) + 4)
           .attr("stroke", "rgba(255, 255, 255, 0.9)")
           .attr("stroke-width", 2);
         d3.select(el).select(".status-ring")
           .transition().duration(HOVER_DURATION)
-          .attr("r", NODE_R + 7)
+          .attr("r", nodeR(d) + 7)
           .attr("stroke-opacity", 1);
       })
       .on("mouseleave", function (this: SVGGElement) {
         if (tooltipEl) tooltipEl.style.display = "none";
         if (prefersReducedMotion) return;
         const el = this;
+        const d = d3.select(el).datum() as SimNode;
         d3.select(el).select(".node-circle")
           .transition().duration(HOVER_DURATION)
-          .attr("r", NODE_R)
-          .attr("stroke", "rgba(255, 255, 255, 0.6)")
-          .attr("stroke-width", 1.5);
+          .attr("r", nodeR(d))
+          .attr("stroke", defaultNodeStroke(d))
+          .attr("stroke-width", defaultNodeStrokeWidth(d));
         d3.select(el).select(".status-ring")
           .transition().duration(HOVER_DURATION)
-          .attr("r", NODE_R + 3)
-          .attr("stroke-opacity", 0.7);
+          .attr("r", nodeR(d) + 3)
+          .attr("stroke-opacity", d.type === "context" ? 0 : 0.7);
       })
       .on("click", function (event: MouseEvent, d: SimNode) {
         graphState.selectNode(d);
         if (!prefersReducedMotion) {
           d3.select(event.currentTarget as SVGGElement).select(".node-circle")
             .transition().duration(100)
-            .attr("r", NODE_R + 6)
+            .attr("r", nodeR(d) + 6)
             .transition().duration(150)
-            .attr("r", NODE_R);
+            .attr("r", nodeR(d));
         }
       });
 
@@ -357,10 +683,38 @@
     return { nodeG, all };
   }
 
-  // ── 全量渲染（节点集合变化时；位置缓存 + 缩放保持）──
+  /** 叠加视图专属力：成员 ↔ context 质心弹簧（空间归属，不画归属连线） */
+  function contextClusterForce(alpha: number) {
+    for (const h of currentHulls) {
+      if (!h.ctxNode || h.members.length === 0) continue;
+      const ctx = h.ctxNode;
+      let cx = 0;
+      let cy = 0;
+      for (const m of h.members) {
+        cx += (m.x ?? 0);
+        cy += (m.y ?? 0);
+      }
+      cx /= h.members.length;
+      cy /= h.members.length;
+      const k = 0.08 * alpha;
+      // context 拉向成员质心（快），成员拉向 context（慢，避免压塌工作流结构）
+      if (ctx.vx !== undefined && ctx.vy !== undefined) {
+        ctx.vx += (cx - (ctx.x ?? 0)) * k * 2;
+        ctx.vy += (cy - (ctx.y ?? 0)) * k * 2;
+      }
+      for (const m of h.members) {
+        if (m.vx === undefined || m.vy === undefined) continue;
+        m.vx += ((ctx.x ?? 0) - (m.x ?? 0)) * k;
+        m.vy += ((ctx.y ?? 0) - (m.y ?? 0)) * k;
+      }
+    }
+  }
+
+  // ── 全量渲染（节点集合 / 透镜变化时；位置缓存 + 缩放保持）──
   function renderGraph(graph: GraphIndex) {
     if (!svgEl || !graph || !wrapperEl) return;
     const { w, h } = getContainerSize();
+    const overlay = isOverlay;
 
     stopFlowDots();
     const svg = d3.select(svgEl);
@@ -368,6 +722,11 @@
 
     svg.selectAll("*").remove();
     svg.attr("viewBox", `0 0 ${w} ${h}`).attr("preserveAspectRatio", "xMidYMid meet");
+
+    // 渲染上下文重建
+    currentGraph = graph;
+    byIdCache = new Map(graph.nodes.map((n) => [n.id, n]));
+    currentContextColors = contextColors(graph.nodes.filter((n) => n.type === "context").map((n) => n.id));
 
     // defs
     const defs = svg.append("defs");
@@ -428,23 +787,32 @@
       zoomGroup.attr("transform", previousTransform as unknown as string);
     }
 
-    // 节点（位置缓存种子）
-    const nodes: SimNode[] = graph.nodes.map((n) => {
-      const cached = positions.get(n.id);
-      return { ...n, ...(cached ? { x: cached.x, y: cached.y } : {}) };
-    });
-    const edges = graph.edges.map((e) => ({ ...e })) as typeof currentEdges;
+    // 节点（位置缓存种子；ADR 顶点不进模拟——以徽章呈现，无连线）
+    const nodes: SimNode[] = graph.nodes
+      .filter((n) => n.type !== "adr")
+      .map((n) => {
+        const cached = positions.get(n.id);
+        return { ...n, ...(cached ? { x: cached.x, y: cached.y } : {}) };
+      });
+    // 边（decides 不画连线——由 ADR 徽章体现；其余进 link 力）
+    const edges = graph.edges
+      .filter((e) => e.type !== "decides")
+      .map((e) => ({ ...e })) as SimEdge[];
 
     currentNodes = nodes;
     currentEdges = edges;
 
+    // hull / 徽章数据（叠加视图才有）
+    refreshOverlayDecorations();
+
     simulation?.stop();
     const chargeStrength = -Math.min(800, 300 + nodes.length * 25);
     simulation = d3.forceSimulation(nodes)
-      .force("link", d3.forceLink(edges as any).id((d: any) => (d as SimNode).id).distance(160))
+      .force("link", d3.forceLink<SimNode, SimEdge>(edges).id((d) => d.id).distance(160))
       .force("charge", d3.forceManyBody().strength(chargeStrength))
       .force("center", d3.forceCenter(w / 2, h / 2))
-      .force("collision", d3.forceCollide(NODE_R + 8))
+      .force("collision", d3.forceCollide<SimNode>().radius((d) => nodeR(d) + 8))
+      .force("ctxCluster", overlay ? contextClusterForce : null)
       .alphaDecay(0.02);
 
     renderEdgeLayer(zoomGroup, edges);
@@ -454,7 +822,7 @@
     // running 呼吸动画
     if (!prefersReducedMotion) {
       zoomGroup.selectAll<SVGGElement, SimNode>(".nodes > g.node")
-        .filter((d: any) => d.status === "running")
+        .filter((d: SimNode) => d.status === "running")
         .select(".status-ring")
         .transition().duration(1200).ease(d3.easeSinInOut)
         .attr("stroke-opacity", 0.3)
@@ -474,22 +842,20 @@
 
     // tick
     simulation.on("tick", () => {
-      zoomGroup?.selectAll<SVGGElement, unknown>(".edges .edge-group").each(function (this: SVGGElement) {
-        const d = d3.select(this).datum() as {
-          source: SimNode | string;
-          target: SimNode | string;
-        };
-        const sx = (typeof d.source === "object" ? (d.source as any).x : 0) ?? 0;
-        const sy = (typeof d.source === "object" ? (d.source as any).y : 0) ?? 0;
-        const tx = (typeof d.target === "object" ? (d.target as any).x : 0) ?? 0;
-        const ty = (typeof d.target === "object" ? (d.target as any).y : 0) ?? 0;
+      zoomGroup?.selectAll<SVGGElement, SimEdge>(".edges .edge-group").each(function (this: SVGGElement) {
+        const d = d3.select(this).datum() as SimEdge;
+        const sx = (typeof d.source === "object" ? (d.source as SimNode).x : 0) ?? 0;
+        const sy = (typeof d.source === "object" ? (d.source as SimNode).y : 0) ?? 0;
+        const tx = (typeof d.target === "object" ? (d.target as SimNode).x : 0) ?? 0;
+        const ty = (typeof d.target === "object" ? (d.target as SimNode).y : 0) ?? 0;
         d3.select(this).select(".edge-line")
           .attr("x1", sx).attr("y1", sy).attr("x2", tx).attr("y2", ty);
         d3.select(this).select(".edge-label")
           .attr("x", (sx + tx) / 2).attr("y", (sy + ty) / 2 - 4);
       });
       zoomGroup?.selectAll<SVGGElement, SimNode>(".nodes > g.node")
-        .attr("transform", (d: any) => `translate(${d.x ?? 0},${d.y ?? 0})`);
+        .attr("transform", (d: SimNode) => `translate(${d.x ?? 0},${d.y ?? 0})`);
+      updateHullsAndBadges();
 
       if (!prefersReducedMotion && simulation && simulation.alpha() > 0.8) {
         zoomGroup?.selectAll<SVGGElement, SimNode>(".nodes > g.node")
@@ -524,16 +890,22 @@
     }
     const newNodeIds = new Set(graph.nodes.map((n) => n.id));
     const sameNodes =
-      currentNodes.length === graph.nodes.length &&
+      currentNodes.length === graph.nodes.filter((n) => n.type !== "adr").length &&
       currentNodes.every((n) => newNodeIds.has(n.id));
     if (!sameNodes) {
       renderGraph(graph);
       return;
     }
-    const edges = graph.edges.map((e) => ({ ...e })) as typeof currentEdges;
+    currentGraph = graph;
+    byIdCache = new Map(graph.nodes.map((n) => [n.id, n]));
+    currentContextColors = contextColors(graph.nodes.filter((n) => n.type === "context").map((n) => n.id));
+    const edges = graph.edges
+      .filter((e) => e.type !== "decides")
+      .map((e) => ({ ...e })) as SimEdge[];
     currentEdges = edges;
     renderEdgeLayer(zoomGroup, edges);
-    simulation.force("link", d3.forceLink(edges as any).id((d: any) => (d as SimNode).id).distance(160));
+    refreshOverlayDecorations();
+    simulation.force("link", d3.forceLink<SimNode, SimEdge>(edges).id((d) => d.id).distance(160));
     simulation.alpha(0.3).restart();
     applyFiltersAndDiff();
     stopFlowDots();
@@ -551,14 +923,14 @@
 
   function startFlowDots(
     nodes: SimNode[],
-    edges: typeof currentEdges,
+    edges: SimEdge[],
     running: Set<string>,
   ) {
     if (!zoomGroup) return;
     if (prefersReducedMotion || running.size === 0) return;
 
     const flowEdges = edges.filter((e) =>
-      running.has(String(typeof e.source === "object" ? (e.source as SimNode).id : e.source)),
+      running.has(edgeEndId(e.source)) && edgeRendered(e),
     );
     if (flowEdges.length === 0) return;
 
@@ -590,10 +962,10 @@
         d.t += d.speed;
         if (d.t >= 1) d.t -= 1;
         const e = d.edge;
-        const sx = (typeof e.source === "object" ? (e.source as any).x : 0) ?? 0;
-        const sy = (typeof e.source === "object" ? (e.source as any).y : 0) ?? 0;
-        const tx = (typeof e.target === "object" ? (e.target as any).x : 0) ?? 0;
-        const ty = (typeof e.target === "object" ? (e.target as any).y : 0) ?? 0;
+        const sx = (typeof e.source === "object" ? (e.source as SimNode).x : 0) ?? 0;
+        const sy = (typeof e.source === "object" ? (e.source as SimNode).y : 0) ?? 0;
+        const tx = (typeof e.target === "object" ? (e.target as SimNode).x : 0) ?? 0;
+        const ty = (typeof e.target === "object" ? (e.target as SimNode).y : 0) ?? 0;
         const x = sx + (tx - sx) * d.t;
         const y = sy + (ty - sy) * d.t;
         dotSel.filter((dd: unknown) => dd === d).attr("cx", x).attr("cy", y);
@@ -617,7 +989,9 @@
     if (!svgEl || !zoomBehavior) return;
     const { w, h } = getContainerSize();
     const t = computeFitTransform(
-      currentNodes.filter((n) => n.x !== undefined && n.y !== undefined) as { x: number; y: number }[],
+      currentNodes.filter(
+        (n) => isNodeVisibleInMaps(n, graphState.activeMaps) && n.x !== undefined && n.y !== undefined,
+      ) as { x: number; y: number }[],
       w,
       h,
       { nodeRadius: NODE_R + 8 },
@@ -664,14 +1038,18 @@
 
   // ── 数据流 ──
   let lastGraphRef: GraphIndex | null = null;
+  let lastMapsRef: { workflow: boolean; domain: boolean } | null = null;
   $effect(() => {
     const g = graphState.graph;
     if (!g || !svgEl) return;
-    if (g !== lastGraphRef) {
+    const maps = graphState.activeMaps;
+    const mapsChanged = maps !== lastMapsRef;
+    if (g !== lastGraphRef || mapsChanged) {
       const isFirst = lastGraphRef === null;
       lastGraphRef = g;
-      if (isFirst) {
-        renderGraph(g);
+      lastMapsRef = maps;
+      if (isFirst || mapsChanged) {
+        renderGraph(g); // 透镜切换 → 力系不同（ctxCluster），全量重渲染（位置缓存保形）
       } else {
         syncEdges(g); // 节点集相同 → 边增量；否则内部回退全量
       }
@@ -682,6 +1060,12 @@
   $effect(() => {
     const patched = graphState.lastPatched;
     if (!patched || !svgEl) return;
+    // 知识顶点（context/adr）不在模拟里：刷新叠加装饰即可
+    if (patched.type === "adr") {
+      refreshOverlayDecorations();
+      applyFiltersAndDiff();
+      return;
+    }
     // 同步 store 中的节点对象到模拟数据
     const simNode = currentNodes.find((n) => n.id === patched.id);
     if (simNode) {
@@ -692,30 +1076,32 @@
     if (zoomGroup) {
       const target = zoomGroup
         .selectAll<SVGGElement, SimNode>(".nodes > g.node")
-        .filter((d: any) => d.id === patched.id);
-      if (target.empty()) return;
-      const d = target.datum() as SimNode;
-      target.select(".status-ring")
-        .attr("stroke", () => STATUS_COLORS[d.status] ?? "var(--status-pending)")
-        .attr("stroke-width", d.status === "running" ? 3 : 2);
-      target.select(".node-label")
-        .text(d.label.length > 14 ? d.label.slice(0, 12) + "…" : d.label);
-      const cps = d.checkpoints ?? [];
-      const done = cps.filter((c: any) => c.status === "passed").length;
-      const fillW = cps.length ? (done / cps.length) * 28 : 0;
-      target.select(".cp-track").attr("opacity", cps.length ? 1 : 0);
-      target.select(".cp-fill")
-        .attr("width", fillW)
-        .attr("fill", d.status === "failed" ? "#e5504f" : "#34c964")
-        .attr("opacity", cps.length ? 1 : 0);
-      target.select(".node-circle")
-        .attr("filter", d.status === "running" ? "url(#glow)" : null)
-        .attr("stroke", d.status === "running" ? STATUS_COLORS.running : "rgba(255, 255, 255, 0.6)")
-        .attr("stroke-width", d.status === "running" ? 2.5 : 1.5);
-      target.select(".assign-label")
-        .text(d.status === "running" && d.assigned_to ? d.assigned_to : "")
-        .attr("opacity", d.status === "running" && d.assigned_to ? 0.9 : 0);
-      if (d.status === "running") {
+        .filter((d: SimNode) => d.id === patched.id);
+      if (!target.empty()) {
+        const d = target.datum() as SimNode;
+        target.select(".status-ring")
+          .attr("stroke", statusColorOf(d.status))
+          .attr("stroke-width", d.status === "running" ? 3 : 2);
+        target.select(".node-label")
+          .text(d.label.length > 14 ? `${d.label.slice(0, 12)}…` : d.label);
+        const cps = d.checkpoints ?? [];
+        const done = cps.filter((c) => c.status === "passed").length;
+        const fillW = cps.length ? (done / cps.length) * 28 : 0;
+        target.select(".cp-track").attr("opacity", cps.length ? 1 : 0);
+        target.select(".cp-fill")
+          .attr("width", fillW)
+          .attr("fill", d.status === "failed" ? "#e5504f" : "#34c964")
+          .attr("opacity", cps.length ? 1 : 0);
+        target.select(".node-circle")
+          .attr("filter", d.status === "running" ? "url(#glow)" : null)
+          .attr("stroke", defaultNodeStroke(d))
+          .attr("stroke-width", defaultNodeStrokeWidth(d));
+        target.select(".assign-label")
+          .text(d.status === "running" && d.assigned_to ? d.assigned_to : "")
+          .attr("opacity", d.status === "running" && d.assigned_to ? 0.9 : 0);
+      }
+      refreshOverlayDecorations();
+      if (patched.status === "running") {
         stopFlowDots();
         startFlowDots(currentNodes, currentEdges, runningNodeIds(currentNodes));
       }
@@ -739,9 +1125,9 @@
     const selectedId = graphState.selectedNode?.id;
     if (!zoomGroup) return;
     zoomGroup.selectAll<SVGGElement, SimNode>(".nodes > g.node").select(".node-circle")
-      .attr("stroke", (d: any) =>
-        d.id === selectedId ? "var(--ink)" : "rgba(255, 255, 255, 0.6)")
-      .attr("stroke-width", (d: any) => (d.id === selectedId ? 3 : 1.5));
+      .attr("stroke", (d: SimNode) =>
+        d.id === selectedId ? "var(--ink)" : defaultNodeStroke(d))
+      .attr("stroke-width", (d: SimNode) => (d.id === selectedId ? 3 : defaultNodeStrokeWidth(d)));
   });
 
   // 尺寸变化
@@ -785,6 +1171,12 @@
 <div bind:this={wrapperEl} class="canvas-wrapper">
   <svg bind:this={svgEl} class="graph-canvas"></svg>
   <div bind:this={tooltipEl} class="node-tooltip"></div>
+
+  {#if graphState.graph && lensVisibleCount === 0}
+    <div class="lens-empty" role="status">
+      所有 map 透镜已关闭——在左侧 MAPS 面板勾选至少一个 map
+    </div>
+  {/if}
 
   <div class="zoom-controls">
     <button class="zoom-btn" onclick={zoomIn} title="放大" aria-label="放大">
@@ -852,10 +1244,38 @@
     letter-spacing: var(--track-label);
   }
 
+  /* 空透镜提示 */
+  .lens-empty {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--ink-muted);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    padding: var(--sp-3) var(--sp-4);
+    pointer-events: none;
+    letter-spacing: var(--track-label);
+  }
+
+  /* map 过滤：非本透镜顶点/边整体隐藏（display，而非淡化） */
+  :global(.nodes > g.node.map-hidden),
+  :global(.edges > g.edge-group.map-hidden) {
+    display: none;
+  }
+
   /* 过滤：不匹配节点/边淡化 */
   :global(.nodes > g.node.dimmed),
   :global(.edges > g.edge-group.dimmed) {
     opacity: 0.14;
+  }
+
+  /* 叠加视图：ADR 徽章 */
+  :global(.adr-badges g.adr-badge) {
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
   }
 
   /* diff 着色（P4-5） */

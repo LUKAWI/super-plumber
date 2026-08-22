@@ -6,6 +6,7 @@
   import DiffPanel from "./components/DiffPanel.svelte";
   import { connectGraph } from "./lib/api";
   import { graphState } from "./lib/store.svelte";
+  import { deriveMaps } from "./lib/maps";
 
   let disconnect: (() => void) | null = null;
   let connected = $state(false);
@@ -42,6 +43,14 @@
       else if (n.status === "ready") s.ready++;
     }
     return s;
+  });
+
+  // map 透镜计数（左侧勾选器展示每个 map 的顶点规模）
+  const mapCounts = $derived.by(() => {
+    const g = graphState.graph;
+    if (!g) return { workflow: 0, domain: 0 };
+    const maps = deriveMaps(g.nodes);
+    return { workflow: maps.workflow.length, domain: maps.domain.length };
   });
 </script>
 
@@ -158,6 +167,29 @@
       </div>
     {:else}
       <GraphCanvas />
+      <aside class="map-selector" aria-label="map 透镜选择">
+        <span class="map-title">MAPS</span>
+        <label class="map-item" title="工作流图：任务/检查点/决策/门与调度边">
+          <input
+            type="checkbox"
+            class="map-checkbox"
+            checked={graphState.activeMaps.workflow}
+            onchange={() => graphState.toggleMap("workflow")}
+          />
+          <span class="map-name">工作流图</span>
+          <span class="map-count">{mapCounts.workflow}</span>
+        </label>
+        <label class="map-item" title="领域图：context 边界与 ADR（叠加视图显示簇壳/徽章/契约边）">
+          <input
+            type="checkbox"
+            class="map-checkbox"
+            checked={graphState.activeMaps.domain}
+            onchange={() => graphState.toggleMap("domain")}
+          />
+          <span class="map-name">领域图</span>
+          <span class="map-count">{mapCounts.domain}</span>
+        </label>
+      </aside>
       <DiffPanel />
     {/if}
   </main>
@@ -402,6 +434,75 @@
     min-height: 0;
     position: relative;
     overflow: hidden;
+  }
+
+  /* ── 左侧 map 勾选器（v0.5 透镜）── */
+  .map-selector {
+    position: absolute;
+    left: var(--sp-3);
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-1);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    padding: var(--sp-2);
+    z-index: var(--z-tooltip, 30);
+    min-width: 128px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  }
+
+  .map-title {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    font-weight: 700;
+    letter-spacing: var(--track-caps);
+    color: var(--ink-faint);
+    text-transform: uppercase;
+    padding: 0 var(--sp-1) var(--sp-1);
+  }
+
+  .map-item {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: var(--sp-1) var(--sp-2);
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    transition: background 0.15s var(--ease-out-quart);
+    user-select: none;
+  }
+
+  .map-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .map-checkbox {
+    accent-color: var(--status-ready);
+    width: 13px;
+    height: 13px;
+    cursor: pointer;
+    flex-shrink: 0;
+    margin: 0;
+  }
+
+  .map-name {
+    font-family: var(--font-sans);
+    font-size: var(--text-xs);
+    color: var(--ink);
+    flex: 1;
+  }
+
+  .map-count {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--ink-faint);
+    background: var(--surface-3);
+    border-radius: var(--r-sm);
+    padding: 1px var(--sp-1);
+    font-variant-numeric: tabular-nums;
   }
 
   /* ── Loading ── */
