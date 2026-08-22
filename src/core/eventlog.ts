@@ -37,7 +37,11 @@ export type GraphEventKind =
   | "attempts_reset"
   | "node_reclaimed"
   | "snapshot_created"
-  | "rollback";
+  | "rollback"
+  // v0.5 领域事件（ADR 生命周期）
+  | "adr_created"
+  | "adr_accepted"
+  | "adr_superseded";
 
 const EVENTS_LOCK = "__events__";
 const EVENTS_FILE = "events.jsonl";

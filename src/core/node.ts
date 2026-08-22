@@ -2,7 +2,8 @@
 import {
   type NodeSchema,
   NodeStatus,
-  type NodeType,
+  AdrStatus,
+  NodeType,
   type Checkpoint,
   GATE_EDGE_TYPES,
 } from "./types.js";
@@ -15,6 +16,7 @@ import {
 } from "./checkpoint.js";
 import { listNodeFileNames } from "./schema.js";
 import { buildGraphIndex } from "./index-service.js";
+import { governingAdrsFor } from "./domain.js";
 import { appendEvent } from "./eventlog.js";
 import * as fs from "node:fs";
 
@@ -87,6 +89,16 @@ export function getNode(rootDir: string, id: string): NodeSchema {
   }
 }
 
+// v0.5：节点（含其 context）的管辖 ADR——claim / get-node 时注入的标题级指针。
+// 复用缓存索引（O(1) 查表），纯逻辑在 domain.ts 的 governingAdrsFor。
+export function getGoverningAdrs(
+  rootDir: string,
+  nodeId: string,
+): ReturnType<typeof governingAdrsFor> {
+  const index = buildGraphIndex(rootDir, { useCache: true });
+  return governingAdrsFor(index.nodes, index.edges, nodeId);
+}
+
 // ── ready 前置门禁 ──
 // 进入 ready / 认领(running) 前，所有门控入边的前驱必须全部 passed。
 // 门控边类型：depends_on（顺序依赖）、validates（验证）、fan_in（汇聚，全部上游完成）、
@@ -143,13 +155,61 @@ export function checkReadyGate(rootDir: string, nodeId: string): GateResult {
 export function updateNodeStatus(
   rootDir: string,
   id: string,
-  to: NodeStatus,
+  to: NodeStatus | AdrStatus,
   claimBy?: string, // claim 语义：ready→running 时记录执行者
   opts: { force?: boolean; actor?: string } = {},
 ): NodeSchema {
   return withLockSync(rootDir, id, () => {
     // 锁内重读：并发 claim 只有一个能通过状态机（原子认领）
     const node = getNode(rootDir, id);
+
+    // v0.5 知识顶点：context 拒绝一切状态变更（无执行语义）
+    if (node.type === NodeType.Context) {
+      throw new Error(
+        `Node ${id} 是 context 顶点：无状态（status 恒 pending）、无执行语义，不支持任何状态变更`,
+      );
+    }
+
+    // v0.5 ADR：三态机（proposed→accepted→superseded），不经门禁/claim/completed_at。
+    // superseded 前校验接替者真实存在且为 adr 顶点（cross-file，锁内直读保证新鲜）。
+    if (node.type === NodeType.Adr) {
+      if (to === AdrStatus.Superseded) {
+        const by = node.superseded_by;
+        if (!by) {
+          throw new Error(`ADR ${id} 置 superseded 前必须设置 superseded_by（接替 ADR id）`);
+        }
+        if (by === id) {
+          throw new Error(`ADR ${id} 的 superseded_by 不能指向自身`);
+        }
+        let succ: NodeSchema;
+        try {
+          succ = getNode(rootDir, by);
+        } catch {
+          throw new Error(`ADR ${id} 的 superseded_by 指向的节点不存在: ${by}`);
+        }
+        if (succ.type !== NodeType.Adr) {
+          throw new Error(`ADR ${id} 的 superseded_by 指向的节点不是 adr 顶点: ${by}`);
+        }
+      }
+      const updated = transition(node, to);
+      writeNode(rootDir, updated);
+      appendEvent(rootDir, {
+        actor: opts.actor ?? claimBy ?? "unknown",
+        kind:
+          to === AdrStatus.Accepted
+            ? "adr_accepted"
+            : to === AdrStatus.Superseded
+              ? "adr_superseded"
+              : "node_status",
+        node: id,
+        from: node.status,
+        to,
+        ...(to === AdrStatus.Superseded
+          ? { detail: `superseded_by=${node.superseded_by}` }
+          : {}),
+      });
+      return updated;
+    }
 
     // 幂等：同一认领者重复 claim 返回成功（agent 重试友好）
     if (to === NodeStatus.Running && node.status === NodeStatus.Running) {

@@ -1,7 +1,8 @@
 import { Command } from "commander";
-import { getNode, checkReadyGate } from "../core/node.js";
+import { getNode, checkReadyGate, getGoverningAdrs } from "../core/node.js";
 import { buildGraphIndex } from "../core/graph.js";
-import { getAllowedTransitions, aggregateCheckpointStatus } from "../core/state-machine.js";
+import { allowedTransitionsFor, aggregateCheckpointStatus } from "../core/state-machine.js";
+import { isKnowledgeType } from "../core/types.js";
 
 export const getNodeCommand = new Command("get-node").alias("gn")
   .description("读取单个节点全部内容（解压压缩包）+ 合法转换 + 门禁状态")
@@ -16,11 +17,17 @@ export const getNodeCommand = new Command("get-node").alias("gn")
     const rootDir = process.cwd();
     try {
       const node = getNode(rootDir, options.id);
-      const allowed = getAllowedTransitions(node.status);
-      const gate = checkReadyGate(rootDir, node.id);
+      const allowed = allowedTransitionsFor(node);
+      const gate = isKnowledgeType(node.type)
+        ? { ok: true, unmet: [] }
+        : checkReadyGate(rootDir, node.id);
       const cpAgg = node.checkpoints?.length
         ? aggregateCheckpointStatus(node.checkpoints)
         : null;
+      // v0.5：管辖 ADR（context/adr 知识顶点不适用）
+      const governing = isKnowledgeType(node.type)
+        ? { current: [], superseded: [] }
+        : getGoverningAdrs(rootDir, node.id);
 
       // 拓扑邻居（基于索引缓存，无全图扫描）
       let neighborsUp: { id: string; status: string }[] = [];
@@ -45,6 +52,9 @@ export const getNodeCommand = new Command("get-node").alias("gn")
               allowed_transitions: allowed,
               checkpoint_aggregate: cpAgg,
               ready_gate: gate,
+              ...(governing.current.length > 0 || governing.superseded.length > 0
+                ? { governing_adrs: governing }
+                : {}),
               ...(neighborsUp.length > 0 ? { neighbors_up: neighborsUp } : {}),
               ...(neighborsDown.length > 0 ? { neighbors_down: neighborsDown } : {}),
             },
@@ -68,6 +78,12 @@ export const getNodeCommand = new Command("get-node").alias("gn")
             .map((u) => `${u.id}(${u.status}, via ${u.edgeType})`)
             .join(", ")}`,
         );
+      }
+      if (governing.current.length > 0) {
+        console.log(`📖 管辖 ADR（claim 后必读）: ${governing.current.map((g) => `${g.id} ${g.title}`).join(" | ")}`);
+      }
+      if (governing.superseded.length > 0) {
+        console.log(`⚠️  决策依据已过时: ${governing.superseded.map((g) => `${g.id}${g.superseded_by ? `（由 ${g.superseded_by} 接替）` : ""}`).join(" | ")}`);
       }
       if (node.plan?.description) {
         console.log(`\n计划: ${node.plan.description}`);

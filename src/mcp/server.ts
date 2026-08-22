@@ -21,6 +21,7 @@ import {
   updateNodeContent,
   buildNodeUpdates,
   checkReadyGate,
+  getGoverningAdrs,
   reclaimNode,
   listNodes,
 } from "../core/node.js";
@@ -30,14 +31,14 @@ import {
   buildGraphIndex,
   computeNextActions,
 } from "../core/graph.js";
-import { getAllowedTransitions, aggregateCheckpointStatus } from "../core/state-machine.js";
+import { allowedTransitionsFor, aggregateCheckpointStatus } from "../core/state-machine.js";
 import {
   createSnapshot,
   diffSnapshot,
   rollbackToSnapshot,
   listSnapshots,
 } from "../core/snapshot.js";
-import { NodeType, NodeStatus, EdgeType } from "../core/types.js";
+import { NodeType, NodeStatus, EdgeType, isKnowledgeType } from "../core/types.js";
 import { VERSION } from "../version.js";
 
 // ── 图目录定位（全局配置一次、随项目自动跟随）──
@@ -164,11 +165,22 @@ server.registerTool(
     const node = getNode(rootDir, id);
     const result: Record<string, unknown> = {
       node,
-      allowed_transitions: getAllowedTransitions(node.status),
+      allowed_transitions: allowedTransitionsFor(node),
       checkpoint_aggregate: node.checkpoints?.length
         ? aggregateCheckpointStatus(node.checkpoints)
         : null,
-      ready_gate: checkReadyGate(rootDir, node.id),
+      ready_gate: isKnowledgeType(node.type)
+        ? { ok: true, unmet: [] }
+        : checkReadyGate(rootDir, node.id),
+      // v0.5：管辖 ADR 指针（知识顶点不适用）
+      ...(isKnowledgeType(node.type)
+        ? {}
+        : (() => {
+            const g = getGoverningAdrs(rootDir, id);
+            return g.current.length > 0 || g.superseded.length > 0
+              ? { governing_adrs: g }
+              : {};
+          })()),
     };
     if (include_neighbors !== "none") {
       const index = buildGraphIndex(rootDir, { useCache: true });

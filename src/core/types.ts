@@ -142,7 +142,8 @@ export interface NodeSchema {
   plan?: Plan;
   expected_outcome?: ExpectedOutcome;
   checkpoints?: Checkpoint[];
-  status: NodeStatus;
+  /** 工作流七态；adr 顶点为三态（proposed/accepted/superseded）；context 恒 pending */
+  status: NodeStatus | AdrStatus;
   assigned_to?: string;
   execution_report?: ExecutionReport;
   attempts: number;

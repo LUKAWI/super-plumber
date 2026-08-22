@@ -2,6 +2,7 @@
 // 知识顶点（context/adr）与工作流顶点同图共存，分镜（map）呈现：
 // 归属由顶点类型派生（零新存储），校验规则做成纯函数供 CLI / MCP / Web UI 复用。
 import {
+  AdrStatus,
   EdgeType,
   NodeType,
   isKnowledgeType,
@@ -139,4 +140,105 @@ export function validateDomainRules(
   }
 
   return issues;
+}
+
+// ── 管辖 ADR（claim / get-node 注入的标题级指针；上下文经济红线：只给指针不给全文）──
+
+export interface GoverningAdrRef {
+  id: string;
+  title: string;
+}
+
+export interface SupersededAdrRef extends GoverningAdrRef {
+  superseded_by?: string;
+}
+
+export interface GoverningAdrsResult {
+  /** 生效中（proposed/accepted）的管辖 ADR——claim 时必读 */
+  current: GoverningAdrRef[];
+  /** 已 superseded 的管辖 ADR——决策依据已过时，建议重审 */
+  superseded: SupersededAdrRef[];
+}
+
+/**
+ * 节点（含其所属 context）的管辖 ADR：decides 边指向该节点或其 context 的 ADR 顶点。
+ * 纯函数（nodes/edges 输入），rootDir 包装在 node.ts（复用缓存索引）。
+ */
+export function governingAdrsFor(
+  nodes: NodeSchema[],
+  edges: EdgeSchema[],
+  nodeId: string,
+): GoverningAdrsResult {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const node = byId.get(nodeId);
+  if (!node) return { current: [], superseded: [] };
+  const targets = new Set<string>([nodeId]);
+  if (node.context) targets.add(node.context);
+
+  const current: GoverningAdrRef[] = [];
+  const superseded: SupersededAdrRef[] = [];
+  const seen = new Set<string>();
+  for (const e of edges) {
+    if (e.type !== EdgeType.Decides || !targets.has(e.target)) continue;
+    if (seen.has(e.source)) continue;
+    seen.add(e.source);
+    const adr = byId.get(e.source);
+    if (!adr || adr.type !== NodeType.Adr) continue;
+    if (adr.status === AdrStatus.Superseded) {
+      superseded.push({ id: adr.id, title: adr.label, superseded_by: adr.superseded_by });
+    } else {
+      current.push({ id: adr.id, title: adr.label });
+    }
+  }
+  const byIdOrder = (a: { id: string }, b: { id: string }) => a.id.localeCompare(b.id);
+  current.sort(byIdOrder);
+  superseded.sort(byIdOrder);
+  return { current, superseded };
+}
+
+/**
+ * adr_flags 预计算（computeNextActions 用）：工作流节点 → "决策依据已过时" 警告列表。
+ * 传播语义：superseded 的 ADR 经 decides 边把它管辖的节点（或整个 context 的成员）
+ * 打上 ⚠️——这是一等顶点相对纯文件的核心差异化价值。
+ */
+export function adrFlagsFor(
+  nodes: NodeSchema[],
+  edges: EdgeSchema[],
+): Map<string, string[]> {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const supersededAdrs = nodes.filter(
+    (n) => n.type === NodeType.Adr && n.status === AdrStatus.Superseded,
+  );
+  if (supersededAdrs.length === 0) return new Map();
+  const supersededIds = new Set(supersededAdrs.map((n) => n.id));
+
+  // context → 成员节点（decides 打在 context 上时传播给全体成员）
+  const contextMembers = new Map<string, string[]>();
+  for (const n of nodes) {
+    if (!n.context || isKnowledgeType(n.type)) continue;
+    const list = contextMembers.get(n.context) ?? [];
+    list.push(n.id);
+    contextMembers.set(n.context, list);
+  }
+
+  const flags = new Map<string, string[]>();
+  const flag = (nodeId: string, msg: string) => {
+    const arr = flags.get(nodeId) ?? [];
+    if (!arr.includes(msg)) arr.push(msg);
+    flags.set(nodeId, arr);
+  };
+  for (const e of edges) {
+    if (e.type !== EdgeType.Decides || !supersededIds.has(e.source)) continue;
+    const adr = byId.get(e.source);
+    const msg =
+      `ADR ${e.source}${adr?.label ? `（${adr.label}）` : ""}已 superseded` +
+      `${adr?.superseded_by ? `（由 ${adr.superseded_by} 接替）` : ""}——决策依据已过时，建议重审`;
+    const target = byId.get(e.target);
+    if (target?.type === NodeType.Context) {
+      for (const memberId of contextMembers.get(e.target) ?? []) flag(memberId, msg);
+    } else {
+      flag(e.target, msg);
+    }
+  }
+  return flags;
 }

@@ -1,4 +1,4 @@
-import { NodeStatus, type NodeSchema, type Checkpoint } from "./types.js";
+import { NodeStatus, AdrStatus, NodeType, type NodeSchema, type Checkpoint } from "./types.js";
 
 // 允许的转换表：每个状态 → 可以转换到的状态列表
 // v0.3 新增：
@@ -20,6 +20,25 @@ export function canTransition(from: NodeStatus, to: NodeStatus): boolean {
 
 export function getAllowedTransitions(status: NodeStatus): NodeStatus[] {
   return [...(TRANSITIONS[status] ?? [])];
+}
+
+// v0.5：ADR 顶点私有状态机——proposed → accepted → superseded（终态）。
+// 不经 pending/ready/running：知识顶点没有执行语义，裁决（accept/supersede）
+// 归 Super Mario / 人类（提议/裁决分离，同"MCP 无 force"信任模型）。
+const ADR_TRANSITIONS: Record<string, string[]> = {
+  [AdrStatus.Proposed]: [AdrStatus.Accepted],
+  [AdrStatus.Accepted]: [AdrStatus.Superseded],
+};
+
+/** v0.5：按顶点类型给出合法后继状态（get-node / MCP 的 allowed_transitions 展示） */
+export function allowedTransitionsFor(
+  node: Pick<NodeSchema, "type" | "status">,
+): string[] {
+  if (node.type === NodeType.Context) return []; // 无状态：无合法后继
+  if (node.type === NodeType.Adr) {
+    return [...(ADR_TRANSITIONS[node.status as string] ?? [])];
+  }
+  return getAllowedTransitions(node.status as NodeStatus);
 }
 
 /**
@@ -68,13 +87,35 @@ export function assertPassedEligible(node: NodeSchema): void {
 
 export function transition(
   node: NodeSchema,
-  to: NodeStatus,
+  to: NodeStatus | AdrStatus,
   opts: { force?: boolean } = {},
 ): NodeSchema {
-  if (!canTransition(node.status, to)) {
+  // v0.5 知识顶点分支：context 一律拒绝；adr 走三态机（superseded 必须已带接替者）
+  if (node.type === NodeType.Context) {
+    throw new Error(
+      `Node ${node.id} 是 context 顶点：无状态（status 恒 pending）、无执行语义，不支持任何状态变更`,
+    );
+  }
+  if (node.type === NodeType.Adr) {
+    const allowed = ADR_TRANSITIONS[node.status as string] ?? [];
+    if (!allowed.includes(to as string)) {
+      throw new Error(
+        `Invalid ADR transition: ${node.status} → ${to}. ` +
+          `ADR 状态机仅 proposed → accepted → superseded`,
+      );
+    }
+    if (to === AdrStatus.Superseded && !node.superseded_by) {
+      throw new Error(
+        `ADR ${node.id} 置 superseded 前必须设置 superseded_by（接替 ADR id）`,
+      );
+    }
+    return { ...node, status: to, updated_at: new Date().toISOString() };
+  }
+
+  if (!canTransition(node.status as NodeStatus, to as NodeStatus)) {
     throw new Error(
       `Invalid transition: ${node.status} → ${to}. ` +
-      `Allowed: [${getAllowedTransitions(node.status).join(", ")}]`
+      `Allowed: [${getAllowedTransitions(node.status as NodeStatus).join(", ")}]`
     );
   }
   // max_attempts 硬拦截：failed → pending 重试前检查次数上限（max_attempts=0 表示不限）
