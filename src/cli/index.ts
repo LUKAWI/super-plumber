@@ -23,6 +23,7 @@ import { snapshotCommand, snapshotsCommand } from "./snapshot.js";
 import { diffCommand } from "./diff.js";
 import { rollbackCommand } from "./rollback.js";
 import { eventsCommand } from "./events.js";
+import { adrCommand } from "./adr.js";
 
 const program = new Command();
 
@@ -53,5 +54,6 @@ program.addCommand(snapshotsCommand);
 program.addCommand(diffCommand);
 program.addCommand(rollbackCommand);
 program.addCommand(eventsCommand);
+program.addCommand(adrCommand);
 
 program.parse(process.argv);

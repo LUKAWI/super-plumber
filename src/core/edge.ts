@@ -12,6 +12,8 @@ export type CreateEdgeParams = {
   target: string;
   type: EdgeType;
   contract?: EdgeSchema["contract"];
+  /** v0.5：relates 边的领域关系标注（自由文本，非枚举） */
+  rel_kind?: string;
 };
 
 export function createEdge(
@@ -37,6 +39,7 @@ export function createEdge(
       target: params.target,
       type: params.type,
       ...(params.contract ? { contract: params.contract } : {}),
+      ...(params.rel_kind !== undefined ? { rel_kind: params.rel_kind } : {}),
     };
     writeEdge(rootDir, edge);
     if (opts.syncRef !== false) addGraphRef(rootDir, "edge", edge.id);

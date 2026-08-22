@@ -28,6 +28,8 @@ export type CreateNodeParams = {
   label: string;
   level?: number;
   priority?: number;
+  /** v0.5：归属的 context 顶点 id（工作流节点用） */
+  context?: string;
   plan_description?: string;
   definition_of_done?: string[];
   assigned_to?: string;
@@ -52,6 +54,7 @@ export function createNode(
       label: params.label,
       level: params.level ?? 1,
       ...(params.priority !== undefined ? { priority: params.priority } : {}),
+      ...(params.context !== undefined ? { context: params.context } : {}),
       status: NodeStatus.Pending,
       plan: params.plan_description
         ? { description: params.plan_description }
@@ -445,6 +448,110 @@ export function listNodes(rootDir: string): NodeSchema[] {
   );
 }
 
+// ── v0.5 ADR 生命周期操作（CLI graph adr / MCP graph_create_adr 共享）──
+
+export interface CreateAdrParams {
+  title: string; // 落 label
+  decision: string;
+  background?: string;
+  considered_options?: string;
+  why?: string;
+  consequences?: string;
+}
+
+/** 下一个 ADR 编号：扫描现有 adr_NNNN 顶点取最大号+1（四位零填充） */
+export function nextAdrId(rootDir: string): string {
+  let max = 0;
+  for (const f of listNodeFileNames(rootDir)) {
+    const m = f.replace(/\.yaml$/, "").match(/^adr_(\d+)$/);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `adr_${String(max + 1).padStart(4, "0")}`;
+}
+
+/**
+ * 创建 ADR 顶点：自动编号、状态落 proposed（记录在案但不生效——
+ * accept/supersede 归裁决方，提议/裁决分离）。任何 agent 可提议。
+ */
+export function createAdr(
+  rootDir: string,
+  params: CreateAdrParams,
+  opts: { actor?: string } = {},
+): NodeSchema {
+  const id = nextAdrId(rootDir);
+  const now = new Date().toISOString();
+  const node: NodeSchema = {
+    id,
+    type: NodeType.Adr,
+    label: params.title,
+    level: 1,
+    status: AdrStatus.Proposed,
+    attempts: 0,
+    max_attempts: 0,
+    created_at: now,
+    updated_at: now,
+    decision: params.decision,
+    ...(params.background !== undefined ? { background: params.background } : {}),
+    ...(params.considered_options !== undefined
+      ? { considered_options: params.considered_options }
+      : {}),
+    ...(params.why !== undefined ? { why: params.why } : {}),
+    ...(params.consequences !== undefined ? { consequences: params.consequences } : {}),
+  };
+  withLockSync(rootDir, id, () => {
+    writeNode(rootDir, node);
+    addGraphRef(rootDir, "node", id);
+    appendEvent(rootDir, {
+      actor: opts.actor ?? "unknown",
+      kind: "adr_created",
+      node: id,
+      to: AdrStatus.Proposed,
+      detail: params.title,
+    });
+  });
+  return node;
+}
+
+/**
+ * 原子废弃：单锁内一步完成"写 superseded_by + 置 superseded"——
+ * 两操作要么都成要么都不成（分两步会产生被 schema 拒绝的中间态）。
+ */
+export function supersedeAdr(
+  rootDir: string,
+  id: string,
+  by: string,
+  opts: { actor?: string } = {},
+): NodeSchema {
+  return withLockSync(rootDir, id, () => {
+    const node = getNode(rootDir, id);
+    if (node.type !== NodeType.Adr) {
+      throw new Error(`Node ${id} 不是 adr 顶点，无法废弃`);
+    }
+    // 接替者校验（锁内直读保证新鲜；与 updateNodeStatus 的守卫一致）
+    if (by === id) throw new Error(`ADR ${id} 的 superseded_by 不能指向自身`);
+    let succ: NodeSchema;
+    try {
+      succ = getNode(rootDir, by);
+    } catch {
+      throw new Error(`接替者不存在: ${by}`);
+    }
+    if (succ.type !== NodeType.Adr) {
+      throw new Error(`接替者不是 adr 顶点: ${by}`);
+    }
+    const updated = transition({ ...node, superseded_by: by }, AdrStatus.Superseded);
+    writeNode(rootDir, updated);
+    appendEvent(rootDir, {
+      actor: opts.actor ?? "unknown",
+      kind: "adr_superseded",
+      node: id,
+      from: node.status,
+      to: AdrStatus.Superseded,
+      detail: `superseded_by=${by}`,
+    });
+    return updated;
+  });
+}
+
 // ── 节点内容更新（CLI update-node 与 MCP graph_update_node 共享同一语义）──
 
 export interface NodeUpdateParams {
@@ -461,6 +568,10 @@ export interface NodeUpdateParams {
   label?: string;
   max_attempts?: number;
   set_priority?: number;
+  /** v0.5 领域字段：归属 context（空串清除归属） */
+  set_context?: string;
+  boundary?: string;
+  glossary_add?: { term: string; definition: string }[];
   /** FIX-A2：显式重置 attempts（由 CLI --reset-attempts / MCP reset_attempts 传入，
    * buildNodeUpdates 不消费此字段——由调用方转为 updateNodeContent 的 opts.resetAttempts） */
   reset_attempts?: boolean;
@@ -472,7 +583,15 @@ export function buildNodeUpdates(
 ): Partial<
   Pick<
     NodeSchema,
-    "plan" | "expected_outcome" | "checkpoints" | "assigned_to" | "label" | "max_attempts"
+    | "plan"
+    | "expected_outcome"
+    | "checkpoints"
+    | "assigned_to"
+    | "label"
+    | "max_attempts"
+    | "context"
+    | "boundary"
+    | "glossary"
   >
 > {
   const updates: Record<string, unknown> = {};
@@ -530,6 +649,16 @@ export function buildNodeUpdates(
   if (params.set_priority !== undefined) {
     updates.priority = params.set_priority;
   }
+  // v0.5 领域字段：归属（空串=清除）、边界描述、术语追加
+  if (params.set_context !== undefined) {
+    updates.context = params.set_context === "" ? undefined : params.set_context;
+  }
+  if (params.boundary !== undefined) {
+    updates.boundary = params.boundary;
+  }
+  if (params.glossary_add && params.glossary_add.length > 0) {
+    updates.glossary = [...(node.glossary ?? []), ...params.glossary_add];
+  }
   return updates as Partial<
     Pick<
       NodeSchema,
@@ -540,6 +669,9 @@ export function buildNodeUpdates(
       | "label"
       | "max_attempts"
       | "priority"
+      | "context"
+      | "boundary"
+      | "glossary"
     >
   >;
 }
