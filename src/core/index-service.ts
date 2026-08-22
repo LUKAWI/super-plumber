@@ -69,9 +69,10 @@ function buildFromSources(rootDir: string): GraphIndex {
       }
     }
     if (GATE_EDGE_TYPES.includes(edge.type)) {
-      if (gateReverseAdj.has(edge.target)) {
-        gateReverseAdj.get(edge.target)!.push(edge.source);
-      }
+      const list = gateReverseAdj.get(edge.target);
+      // D2 修复（v0.5.1）：去重——fan_out 与 depends_on 平行同向标注同一前驱时，
+      // 门禁 unmet 列表不再重复点名（调度语义本就按集合处理，此处消除显示噪音）
+      if (list && !list.includes(edge.source)) list.push(edge.source);
     }
   }
   return { nodes, edges, adjacency, reverseAdj, gateReverseAdj };
@@ -145,13 +146,13 @@ function loadDiskCache(rootDir: string): MemCacheEntry | null {
     if (data.gateReverseAdj !== undefined) {
       gateReverseAdj = new Map(Object.entries(data.gateReverseAdj));
     } else {
-      // 旧格式缓存：从 edges 就地推导门控邻接
+      // 旧格式缓存：从 edges 就地推导门控邻接（同 D2：源头去重）
       gateReverseAdj = new Map<string, string[]>();
       for (const n of data.nodes) gateReverseAdj.set(n.id, []);
       for (const e of data.edges) {
         if (GATE_EDGE_TYPES.includes(e.type)) {
           const list = gateReverseAdj.get(e.target);
-          if (list) list.push(e.source);
+          if (list && !list.includes(e.source)) list.push(e.source);
         }
       }
     }

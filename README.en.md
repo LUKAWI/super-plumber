@@ -485,6 +485,7 @@ graph --version
 | Problem | Cause & fix |
 |---------|-------------|
 | `❌ 未找到 .../.graph/graph.yaml，请先运行 graph init` | No graph in the current directory. Run `graph init`, or `cd` into the graph directory |
+| **MCP tools still behave like the old version after upgrading** (e.g. schema errors on context/adr vertices) | The connected MCP server process still runs the old code in memory. **Restart the MCP server** (reconnect the client, or restart it after `npm i -g @lukawi/super-plumber`) to load the new build — upgrades never hot-swap a running process |
 | `❌ 端口 8934 已被占用` | Another serve is running. Use `graph serve -p 8935` |
 | `❌ Node x already exists` / `Edge x already exists` | Duplicate id. The tool refuses to overwrite — pick a new id |
 | `❌ Invalid transition: ...` | You skipped a legal path in the state machine. Follow `Allowed: [...]` |

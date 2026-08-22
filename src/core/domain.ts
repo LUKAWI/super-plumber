@@ -83,22 +83,38 @@ export function validateDomainRules(
   }
 
   // 3. 跨 context 工作流边未填 contract → warning（激活休眠 contract 字段：两个上下文间的
-  //    依赖必须声明"产出什么、谁消费、怎么验收"；知识边 decides/relates 不适用此规则）
+  //    依赖必须声明"产出什么、谁消费、怎么验收"；知识边 decides/relates 不适用此规则）。
+  //    D3 修复（v0.5.1）：按集成点（source→target 对）分组判定——平行同向的标注边
+  //    （如 fan_out 与 depends_on 并存）只要任一条声明了契约即视为集成点已声明，
+  //    警告按集成点汇总一次（列全部未声明边 id），不再逐边重复告警。
   const KNOWLEDGE_EDGE_TYPES = [EdgeType.Decides, EdgeType.Relates];
+  const contractGroups = new Map<string, { ids: string[]; hasContract: boolean; from: string; to: string }>();
   for (const e of edges) {
     if (KNOWLEDGE_EDGE_TYPES.includes(e.type)) continue;
     const s = byId.get(e.source);
     const t = byId.get(e.target);
     if (!s?.context || !t?.context || s.context === t.context) continue;
+    const key = `${e.source}->${e.target}`;
     const hasContract =
       e.contract !== undefined &&
       (e.contract.produces !== undefined ||
         (e.contract.consumed_by?.length ?? 0) > 0 ||
         e.contract.validation !== undefined);
-    if (!hasContract) {
+    const group = contractGroups.get(key) ?? {
+      ids: [],
+      hasContract: false,
+      from: s.context,
+      to: t.context,
+    };
+    group.ids.push(e.id);
+    group.hasContract = group.hasContract || hasContract;
+    contractGroups.set(key, group);
+  }
+  for (const [key, g] of contractGroups) {
+    if (!g.hasContract) {
       issues.push({
         level: "warning",
-        message: `边 ${e.id} (${e.type}) 跨 context（${s.context} → ${t.context}）但未填 contract（契约边须声明 produces/consumed_by/validation）`,
+        message: `集成点 ${key} 跨 context（${g.from} → ${g.to}）但所有边（${g.ids.join(", ")}）均未填 contract（契约边须声明 produces/consumed_by/validation）`,
       });
     }
   }

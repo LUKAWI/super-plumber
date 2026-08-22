@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.5.1] — 2026-08-22（已同步 GitHub，未发 npm；按用户指令暂缓全量测试）
+
+### 遗留问题修复（docs/v0.5.0-issue-log.md D1-D5 处置）
+
+- **D1**：validate 出口检查拆分——原 `!exit.description || criteria 为空` 的或逻辑在
+  "描述空但验收标准实有"时误报"验收标准为空"；现在描述与标准各自独立警告。
+- **D2**：门禁前驱去重——fan_out 与 depends_on 平行同向标注同一前驱时，`前置未满足`
+  列表与 blocked.unmet 不再重复点名（gateReverseAdj 构建源头去重，含旧格式缓存推导路径）。
+- **D3**：契约边警告按集成点（source→target 对）分组判定——平行标注边任一条声明契约即视为
+  集成点已声明，警告按集成点汇总一次并列出全部未声明边，不再逐边重复。
+- **D4**：export 同号旧文件清理加固——个别环境 rmSync 对 Unicode 文件名静默崩溃，删除失败
+  时降级为把旧文件覆写成指向新文件名的跳转注记（导出永不因此中断，幂等保持）。
+- **D5**：双语 README FAQ 新增"升级包后 MCP 工具表现还是旧版本→重启 MCP server"条目。
+
+### 新增能力
+
+- **快照自动导出领域文档（无 LLM 决策的纯工具行为）**：`graph snapshot`（CLI 与 MCP）创建
+  快照时自动导出 CONTEXT-MAP.md + docs/contexts/*.md + docs/adr/*.md——快照即设计定稿点，
+  md 视图随快照点落盘，git 提交即冻结"图+文档"一致状态；导出失败不回滚快照（非致命，
+  原因记入 snapshot_created 事件）。
+- **文档导出上移 core 层**（src/core/docs-export.ts）：CLI `export --docs` 与快照自动导出
+  共用同一实现。
+- **领域文档书写模板**：plumber-design reference.md 新增 §7——context 顶点（boundary 划界
+  句式、glossary 定义句式）与 ADR 顶点（六字段写法、三判据、极简原则）的书写范式；
+  格式决策：真相源是 YAML 顶点字段，markdown 只是导出视图，不在图里存 markdown。
+
 ## [0.5.0] — 2026-08-22（已发布 GitHub，未发 npm）
 
 > 本版本把 domain-modeling 的设计融合进工具：**bounded context 与 ADR 成为图中一等公民**，

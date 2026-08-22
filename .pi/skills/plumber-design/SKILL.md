@@ -139,6 +139,7 @@ graph add-edge -i d_1 -s adr_0001 -t <管辖的节点或ctx> --type decides   # 
 
 ## 细节与规范
 
-- 设计规范、id 命名、7 边类型选型、质量清单明细 → `reference.md`
+- 设计规范、id 命名、9 边类型选型、质量清单明细 → `reference.md`
+- **领域文档书写模板（v0.5.1）**：context 顶点（boundary 划界句式 + glossary 定义句式）与 ADR 顶点（六字段写法）→ `reference.md` §7；格式决策：真相源是 YAML 字段，markdown 只是导出视图（快照时自动导出）
 - 体检脚本：`scripts/sp-check-design.mjs`（用法：`node sp-check-design.mjs [--json]`，从含 `.graph/` 的目录运行）
 - 读图/改图工具：CLI `graph <cmd>`（建图、status、validate、serve）+ MCP `graph_*`（读图遍历）

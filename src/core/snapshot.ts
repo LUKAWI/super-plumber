@@ -12,6 +12,7 @@ import { listNodeFileNames, listEdgeFileNames } from "./schema.js";
 import { appendEvent } from "./eventlog.js";
 import { withLockSync } from "./lock.js";
 import { rebuildGraphRefs } from "./parser.js";
+import { runDocsExport } from "./docs-export.js";
 
 export interface SnapshotFileEntry {
   file: string; // 相对 .graph/ 的路径（正斜杠）
@@ -130,10 +131,20 @@ function createSnapshotUnlocked(
     JSON.stringify(manifest, null, 2),
     "utf-8",
   );
+  // v0.5.1：快照即设计定稿点——创建快照时自动导出领域文档视图（纯工具行为，无 LLM 决策）：
+  // CONTEXT-MAP.md + docs/contexts/*.md + docs/adr/*.md 随快照点落盘，git 一并提交即冻结。
+  // 非致命：导出失败不回滚快照（图仍是真相源），失败原因记入事件。
+  let docsDetail = "";
+  try {
+    const docs = runDocsExport(rootDir);
+    docsDetail = ` docs_exported=${docs.written.length}`;
+  } catch (err: any) {
+    docsDetail = ` docs_export_failed=${err?.message ?? "unknown"}`;
+  }
   appendEvent(rootDir, {
     actor: opts.actor ?? "unknown",
     kind: "snapshot_created",
-    detail: `snapshot=${id}${message ? ` message="${message}"` : ""}`,
+    detail: `snapshot=${id}${message ? ` message="${message}"` : ""}${docsDetail}`,
   });
   return manifest;
 }

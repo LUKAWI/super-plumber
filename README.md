@@ -505,6 +505,7 @@ graph --version
 |------|-----------|
 | `❌ 未找到 .../.graph/graph.yaml，请先运行 graph init` | 当前目录还没有图。先 `graph init`，或 `cd` 到图所在目录 |
 | MCP 报"图目录未初始化：定位到 X，但不存在 .graph/graph.yaml" | MCP server 没定位到你的项目：确认项目里跑过 `graph init`；客户端支持 workspace roots 时会自动跟随项目，否则在该项目目录重启客户端（server 以项目为 cwd 拉起），或设 `SUPER_PLUMBER_ROOT` |
+| **升级包之后 MCP 工具表现还是旧版本**（如对 context/adr 顶点报 schema 错误） | 已连接的 MCP server 进程内存里还是旧代码。**重启 MCP server**（重连客户端或 `npm i -g @lukawi/super-plumber` 后重启客户端）即可加载新构建——升级不会热替换已运行的进程 |
 | `❌ 端口 8934 已被占用` | 已有 serve 在跑。`graph serve -p 8935` 换端口 |
 | `❌ Node x already exists` / `Edge x already exists` | id 重复。工具拒绝覆盖，换一个新 id |
 | `❌ Invalid transition: ...` | 跳过了状态机允许的路径。按 `Allowed: [...]` 提示走合法转换 |

@@ -170,3 +170,54 @@ graph serve -p 8940 --no-open  # 指定端口；不开浏览器（无头环境�
 | 所有边都是 depends_on | 明明可并行却串行 | 并行意图用 fan_out/shares_context |
 | entry 不连任何节点 | 图无法启动 | entry → 首个 L1 必连 depends_on |
 | 修改图后不跑 validate | 结构错误带进执行期 | 每次改动后必跑 |
+
+---
+
+## 7. 领域文档书写模板（v0.5.1）
+
+> **格式决策**：本工具的真相源是 YAML 顶点字段，**不是 markdown**——模板以"字段书写范式"给出；
+> markdown 只是导出视图（`graph export --docs` 手动、`graph snapshot` 自动），别在图里存 markdown。
+
+### 7.1 CONTEXT 顶点模板（节点即文档）
+
+```yaml
+# .graph/nodes/ctx_<域名>.yaml 的目标形态（用命令逐步填充，不手写文件）
+id: ctx_<短名小写>            # 如 ctx_ordering / ctx_storage；与 label 呼应
+type: context
+label: <中文名>               # 如 "订单上下文"——领域地图与 CONTEXT-MAP.md 里显示的名字
+boundary: <一句话划界>        # 句式："负责 X；不负责 Y（Y 归 <别的 context> / 经契约边由 Z 消费）"
+                              # 必须同时说清"是"与"不是"，只写一半边界就不成立
+glossary:                     # 术语表：每条 1-2 句，术语是内容字段不是独立节点
+  - term: <术语>
+    definition: <定义句式："是……，区别于……（划界）">
+                              # 反例："订单：跟订单有关的东西"（没划界，等于没定义）
+```
+
+**书写纪律**：
+- boundary 与每条 definition 都要**能划界**——写完自问："读到这句话的人能判断一个东西归不归这里吗？"
+- 同一 context 内术语不重复（validate 警告）；**跨 context 同名合法**（DDD 本义——同一词在两个上下文各说各话是边界存在的证据，不是错误）
+- 术语数 2-5 条起步即可，宁缺毋滥：只收录在节点 plan/执行中真实会用到的词
+- context 无状态、无 plan/DoD——它是文档不是任务
+
+### 7.2 ADR 顶点模板（对齐手写 ADR 的段落传统）
+
+```yaml
+# graph adr create 自动生成骨架，各字段的写法：
+label: <短标题，名词短语>      # 会成为导出文件 "# 000N — 标题" 与 adr list 的显示
+decision: <1-3 句>            # "我们决定了什么"——直陈句式，能独立成立，不依赖其它字段
+background: <决策时的上下文>   # 导出为 **Context：**——未来读者不知道的背景才值得写
+considered_options: <备选项>   # 导出为 **Considered Options：**
+                              # 句式："A→为何落选; B→为何落选; C←选中"；没有真实备选就别建 ADR
+why: <为何选它>               # 导出为 **Why：**——与 considered_options 呼应，讲取舍理由
+consequences: <后果与代价>     # 导出为 **Consequences：**——诚实写代价（"丧失了 X"比"更加灵活"有价值）
+```
+
+**书写纪律（同 domain-modeling ADR 传统）**：
+- **三判据缺一不建**：难逆转 + 脱离上下文令人费解 + 真实权衡——不满足的决策写进节点 plan 即可
+- **极简**：1-3 句说清的事不写 5 句；ADR 的价值在"记下做过这个决定以及为什么"，不在填满字段
+- 建完必须挂 decides 边（孤儿 ADR 会被 validate 警告）；**只 propose 不裁决**——accept/supersede 归 super-mario/人类
+- 导出视图示例（自动生成，勿手改）：`docs/adr/0003-xxx.md` = `# 0003 — 标题` + decision 段 + `**Status：**` + 四个可选段落 + 生成注脚
+
+### 7.3 快照即定稿点
+
+`graph snapshot -m "<定稿说明>"` 会**自动导出**全部领域文档视图（CONTEXT-MAP.md + docs/contexts/*.md + docs/adr/*.md，v0.5.1 起无需手动 export）——设计完成 → 快照 → md 视图随快照点落盘，git 提交即冻结"图 + 文档"一致的状态。图为真相源，md 永远可由重导出再生。

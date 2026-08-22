@@ -66,7 +66,12 @@ export const validateCommand = new Command("validate").alias("v")
     if (!graph.entry.description) {
       warn("图入口(entry)描述为空");
     }
-    if (!graph.exit.description || graph.exit.acceptance_criteria.length === 0) {
+    // D1 修复（v0.5.1）：拆分出口检查——原 `!exit.description || criteria 为空` 的或逻辑
+    // 会在"description 空但验收标准实有"时误报"验收标准为空"；两个关注点各自警告
+    if (!graph.exit.description) {
+      warn("图出口(exit)描述为空");
+    }
+    if (graph.exit.acceptance_criteria.length === 0) {
       warn("图出口(exit)验收标准为空");
     }
 

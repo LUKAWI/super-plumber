@@ -1,12 +1,12 @@
-// src/cli/export.ts — v0.5 文档导出（graph export --docs 调用）。
+// src/core/docs-export.ts — v0.5 文档导出（core 层：CLI export --docs 与快照自动导出共用）。
 // 图 YAML 是唯一真相源，md 是可重生成的视图。
 // ADR 顶点 → docs/adr/NNNN-slug.md（格式对齐仓库既有手写 ADR）
 // context 顶点 → CONTEXT-MAP.md（总览）+ docs/contexts/<id>.md（节点即文档）
 // 注意：不触碰根 CONTEXT.md（单一上下文约定下手写维护的术语表，避免覆盖人工内容）。
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { listNodes } from "../core/node.js";
-import { AdrStatus, NodeType, type NodeSchema } from "../core/types.js";
+import { listNodes } from "./node.js";
+import { AdrStatus, NodeType, type NodeSchema } from "./types.js";
 
 export interface DocsExportResult {
   adrCount: number;
@@ -84,6 +84,27 @@ function renderContextMap(contexts: NodeSchema[]): string {
   return lines.join("\n");
 }
 
+/**
+ * 清理同号旧命名文件（label 改了 slug 会变）。
+ * D4 加固：个别环境下 rmSync 对 Unicode 文件名会静默崩溃——删除失败时降级为
+ * 用 writeFileSync 把旧文件覆写成一行指向新文件的跳转注记（保证幂等且不中断导出）。
+ */
+function retireStaleSlugFiles(adrDir: string, num: string, canonical: string): void {
+  for (const f of fs.readdirSync(adrDir)) {
+    if (f.startsWith(`${num}-`) && f.endsWith(".md") && f !== canonical) {
+      try {
+        fs.rmSync(path.join(adrDir, f), { force: true });
+      } catch {
+        fs.writeFileSync(
+          path.join(adrDir, f),
+          `> 本决策文档已由 \`graph export\` 重命名：见 ${canonical}\n`,
+          "utf-8",
+        );
+      }
+    }
+  }
+}
+
 export function runDocsExport(
   rootDir: string,
   opts: { adrDir?: string; ctxDir?: string } = {},
@@ -93,18 +114,14 @@ export function runDocsExport(
   const contexts = nodes.filter((n) => n.type === NodeType.Context);
   const written: string[] = [];
 
-  // ADR → docs/adr/NNNN-slug.md（同号旧文件按新 slug 归一，视图可重建）
+  // ADR → docs/adr/NNNN-slug.md
   const adrDir = path.join(rootDir, opts.adrDir ?? "docs/adr");
   fs.mkdirSync(adrDir, { recursive: true });
   for (const a of adrs) {
     const num = adrNumber(a.id);
-    // 清掉同号旧命名（label 改了 slug 会变），再写规范名
-    for (const f of fs.readdirSync(adrDir)) {
-      if (f.startsWith(`${num}-`) && f.endsWith(".md")) {
-        fs.rmSync(path.join(adrDir, f));
-      }
-    }
-    const file = path.join(adrDir, `${num}-${slugify(a.label)}.md`);
+    const canonical = `${num}-${slugify(a.label)}.md`;
+    retireStaleSlugFiles(adrDir, num, canonical);
+    const file = path.join(adrDir, canonical);
     fs.writeFileSync(file, renderAdr(a), "utf-8");
     written.push(path.relative(rootDir, file));
   }

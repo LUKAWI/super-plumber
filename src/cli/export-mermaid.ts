@@ -2,7 +2,7 @@
 import { Command } from "commander";
 import { listNodes } from "../core/node.js";
 import { listEdges } from "../core/edge.js";
-import { runDocsExport } from "./export.js";
+import { runDocsExport } from "../core/docs-export.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
