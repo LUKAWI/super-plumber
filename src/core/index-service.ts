@@ -218,6 +218,22 @@ export function buildGraphIndex(
   return index;
 }
 
+/**
+ * 写路径主动失效（fix_index_cache）：Windows NTFS mtime 系统性滞后墙钟 ~2ms，
+ * "mtime > builtAt" 的新鲜度判定会把"写盘在缓存构建之后、mtime 却更早"的文件
+ * 误判为新鲜——同进程内缓存永久陈旧（MCP/Web 长驻进程写后读不一致的根因）。
+ * parser 的所有变更原语（writeNode/writeEdge/writeGraph/deleteNode/deleteEdge/updateGraph）
+ * 落盘后必须调用本函数：确定性失效，不与文件系统时钟赌运气。
+ */
+export function invalidateIndex(rootDir: string): void {
+  memCache.delete(path.resolve(rootDir));
+  try {
+    fs.rmSync(path.join(rootDir, INDEX_DIR, "graph.json"), { force: true });
+  } catch {
+    /* 磁盘缓存删除失败不影响正确性（下次 isFresh 会回源重建） */
+  }
+}
+
 // ── 调度决策（agent 规划循环的核心减负工具）──
 
 export interface NextActionsResult {
