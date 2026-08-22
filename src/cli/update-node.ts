@@ -23,6 +23,14 @@ export const updateNodeCommand = new Command("update-node").alias("un")
   .option("--label <text>", "重命名节点标签")
   .option("--max-attempts <n>", "最大重试次数（0 = 不限）")
   .option("--set-priority <n>", "调度优先级（≥0，越小越先；设置后参与 ready 排序）")
+  .option("--set-context <ctx_id>", "v0.5：归属/改归属 context 顶点（空串 \"\" 清除归属）")
+  .option("--boundary <text>", "v0.5（context 顶点）：上下文边界描述")
+  .option(
+    "--glossary-add <json>",
+    'v0.5（context 顶点）：追加术语 (可多次使用, JSON: {"term":"...","definition":"..."})',
+    (val: string, prev: string[]) => [...prev, val],
+    [] as string[],
+  )
   .option(
     "--reset-attempts",
     "显式把 attempts 重置为 0（写入 attempts_reset 审计事件；修改 plan 不再自动重置）",
@@ -73,6 +81,30 @@ export const updateNodeCommand = new Command("update-node").alias("un")
         }
       }
 
+      // v0.5：解析术语追加（CLI 传 JSON 字符串，逐项校验）
+      let glossaryAdd: { term: string; definition: string }[] | undefined;
+      if (options.glossaryAdd.length > 0) {
+        glossaryAdd = [];
+        for (const raw of options.glossaryAdd) {
+          let g: any;
+          try {
+            g = JSON.parse(raw);
+          } catch {
+            console.error(
+              '❌ glossary 格式错误，需为 JSON: {"term":"...","definition":"..."}',
+            );
+            process.exit(1);
+          }
+          if (typeof g.term !== "string" || typeof g.definition !== "string") {
+            console.error(
+              '❌ glossary 需包含 term 和 definition 字符串: {"term":"...","definition":"..."}',
+            );
+            process.exit(1);
+          }
+          glossaryAdd.push(g);
+        }
+      }
+
       const updates = buildNodeUpdates(node, {
         ...(options.planDesc !== undefined
           ? { plan_description: options.planDesc }
@@ -90,6 +122,9 @@ export const updateNodeCommand = new Command("update-node").alias("un")
         ...(options.setPriority !== undefined
           ? { set_priority: parseInt(options.setPriority, 10) }
           : {}),
+        ...(options.setContext !== undefined ? { set_context: options.setContext } : {}),
+        ...(options.boundary !== undefined ? { boundary: options.boundary } : {}),
+        ...(glossaryAdd !== undefined ? { glossary_add: glossaryAdd } : {}),
       });
 
       if (Object.keys(updates).length === 0) {

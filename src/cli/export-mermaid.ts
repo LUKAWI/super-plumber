@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import { listNodes } from "../core/node.js";
 import { listEdges } from "../core/edge.js";
+import { runDocsExport } from "./export.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -20,11 +21,29 @@ function statusClass(status: string): string {
 }
 
 export const exportMermaidCommand = new Command("export").alias("x")
-  .description("导出拓扑图为 Mermaid 流程图")
+  .description("导出拓扑图（默认 Mermaid 流程图；--docs 导出领域知识顶点为 markdown 视图）")
   .option("--mermaid", "导出为 Mermaid 格式")
-  .option("-o, --output <file>", "输出文件路径", "topology.mmd")
+  .option("--docs", "v0.5：导出知识顶点为 markdown（ADR→docs/adr/，context→CONTEXT-MAP.md + docs/contexts/）")
+  .option("--adr-dir <dir>", "--docs 模式：ADR 输出目录", "docs/adr")
+  .option("--ctx-dir <dir>", "--docs 模式：context 文档输出目录", "docs/contexts")
+  .option("-o, --output <file>", "Mermaid 输出文件路径", "topology.mmd")
   .action((options) => {
     const rootDir = process.cwd();
+
+    // v0.5 文档视图模式：图为真相源，md 是可重生成的视图
+    if (options.docs) {
+      const result = runDocsExport(rootDir, {
+        adrDir: options.adrDir,
+        ctxDir: options.ctxDir,
+      });
+      console.log(`✅ 导出完成: ${result.adrCount} 篇 ADR, ${result.contextCount} 个 context`);
+      for (const f of result.written) console.log(`   · ${f}`);
+      if (result.contextCount === 0) {
+        console.log(`   （图中无 context 顶点，未生成 CONTEXT-MAP.md；根 CONTEXT.md 手写维护，不受影响）`);
+      }
+      return;
+    }
+
     const nodes = listNodes(rootDir);
     const edges = listEdges(rootDir);
 

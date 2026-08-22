@@ -161,3 +161,49 @@ describe("schema file loaders", () => {
     if (!r.ok) expect(r.issues.some((i) => i.field === "status")).toBe(true);
   });
 });
+
+// ── v0.5 领域字段（规格 A：知识顶点 schema）──
+describe("v0.5 领域字段校验", () => {
+  it("context 顶点：仅允许 pending 状态（无状态）", () => {
+    expect(validateNode(validNode({ type: "context", status: "pending" }))).toEqual([]);
+    const issues = validateNode(validNode({ type: "context", status: "ready" }));
+    expect(issues.some((i) => i.field === "status")).toBe(true);
+  });
+
+  it("adr 顶点：三态合法，工作流七态非法", () => {
+    for (const s of ["proposed", "accepted", "superseded"]) {
+      expect(validateNode(validNode({ type: "adr", status: s, decision: "决策内容" }))).toEqual([]);
+    }
+    const issues = validateNode(validNode({ type: "adr", status: "running", decision: "x" }));
+    expect(issues.some((i) => i.field === "status")).toBe(true);
+  });
+
+  it("adr 顶点：decision 必填（label 即标题）", () => {
+    const issues = validateNode(validNode({ type: "adr", status: "proposed" }));
+    expect(issues.some((i) => i.field === "decision")).toBe(true);
+  });
+
+  it("glossary 结构校验：term/definition 缺失报错，合法通过", () => {
+    const bad = validateNode(validNode({ type: "context", glossary: [{ term: "订单" }] }));
+    expect(bad.some((i) => i.field === "glossary")).toBe(true);
+    const good = validateNode(
+      validNode({ type: "context", glossary: [{ term: "订单", definition: "购买单据" }] }),
+    );
+    expect(good).toEqual([]);
+  });
+
+  it("工作流节点可带 context/boundary 等领域字段（字符串校验）", () => {
+    const issues = validateNode(validNode({ context: "ctx1", boundary: 123 }));
+    expect(issues.some((i) => i.field === "boundary")).toBe(true);
+    expect(validateNode(validNode({ context: "ctx1", superseded_by: "adr_0002" }))).toEqual([]);
+  });
+
+  it("relates 边 rel_kind 字符串校验；decides/relates 在边类型枚举内", () => {
+    expect(validateEdge({ id: "e1", source: "a", target: "b", type: "decides" })).toEqual([]);
+    expect(
+      validateEdge({ id: "e2", source: "a", target: "b", type: "relates", rel_kind: "upstream" }),
+    ).toEqual([]);
+    const issues = validateEdge({ id: "e3", source: "a", target: "b", type: "relates", rel_kind: 42 });
+    expect(issues.some((i) => i.field === "rel_kind")).toBe(true);
+  });
+});

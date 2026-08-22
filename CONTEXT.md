@@ -39,6 +39,48 @@
 | checkpoint | 检查点，用于验证前置工作的质量 |
 | decision | 决策点，需要人类或 agent 做选择 |
 | gate | 门控节点，条件性放行后续流程 |
+| context（v0.5） | 知识顶点：bounded context，"节点即文档"（boundary + glossary 术语表），无状态 |
+| adr（v0.5） | 知识顶点：架构决策记录，走三态状态机 |
+
+### 知识顶点（Knowledge Vertex，v0.5）
+
+领域知识在图中的一等公民（context / adr 两种类型）。与工作流顶点同图共存，
+但**豁免调度**（永不进 ready/blocked 桶、不占拓扑序、不计入"全部 task 节点 passed"
+的完成判定）且不使用工作流状态机。归属（map）由顶点类型派生，零新存储。
+
+### 上下文 / bounded context（Context，v0.5）
+
+一个内聚的领域边界，各说各话（同一术语在不同 context 里可以含义不同——跨 context
+同名合法，同 context 内重复会被警告）。节点即文档：boundary 描述边界（"负责 X，不负责 Y"），
+glossary 存术语表（{term, definition}，术语是内容字段**不是独立顶点**）。工作流节点经
+`context` 外键归属到它。无生命周期——废弃即删除（悬空归属由 validate 报 error）。
+
+### ADR 状态机（ADR Lifecycle，v0.5）
+
+架构决策记录的私有状态机：`proposed → accepted → superseded`（终态）。任何 agent
+可提议（创建即落 proposed，记录在案但不生效）；**accept / supersede 归裁决方**
+（Super Mario / 人类）——提议/裁决分离，与"MCP 无 force"信任模型同构。superseded
+必须带接替者（superseded_by 指向另一 adr 顶点，schema 强制）。事件：adr_created /
+adr_accepted / adr_superseded。
+
+### 管辖 ADR（Governing ADR，v0.5）
+
+经 decides 边指向某节点（或其所属 context）、且状态非 superseded 的 ADR。claim 响应
+与 get_node 附 `governing_adrs`（标题级指针，agent 按需取全文）；调度条目对"依据已
+superseded"的任务打 `adr_flags` ⚠️（决策依据已过时）。红线：只注入指针、永不全文推送。
+
+### 契约边（Contract Edge，v0.5）
+
+两端节点归属不同 context 的工作流边。跨上下文的依赖必须声明 contract
+（produces / consumed_by / validation），未填由 validate 警告——两个上下文之间的
+集成点必须显式。
+
+### map 透镜（Map Lens，v0.5）
+
+按顶点类型派生的视图过滤：工作流类型 → 工作流图，知识类型 → 领域图。Web UI 左侧
+勾选器支持任意子集叠加：单独看任一张是一等能力；叠加视图中 context 呈现为簇壳
+（cluster hull）+ ADR 徽章 + 契约边高亮。边可见 ⇔ 两端顶点所属 map 都激活。
+UI 保持纯只读。
 
 ### 节点层级（Node Level）
 
@@ -117,10 +159,12 @@ MCP `reset_attempts`），且无论何种通道都写入 attempts_reset 审计�
 | fan_in | {A, B} → C | C 依赖 A 和 B 都完成 | ❌ |
 | fallback | A ←── B | B 失败时可回退到 A | ❌ |
 | iterates | A ⇄ B | A 和 B 之间可反复迭代优化 | ❌ |
+| decides（v0.5） | ADR → X | 决策管辖：X 的实现依据此 ADR；superseded 时沿此传播 adr_flags | ❌ |
+| relates（v0.5） | ctx A ──rel── ctx B | 领域关系（上下文间上下游等）；rel_kind 自由标注 | ❌ |
 
 ### 跨边合约（Contract）
 
-边的可选附加结构。定义边两端之间传递的内容契约：produces（产出）、consumed_by（消费方式）和 validation（验证要求）。
+边的可选附加结构。定义边两端之间传递的内容契约：produces（产出）、consumed_by（消费方式）和 validation（验证要求）。v0.5 起对跨 context 的工作流边（契约边）为事实必填——未填由 validate 警告。
 
 ---
 

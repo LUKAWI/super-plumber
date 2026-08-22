@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { readGraph } from "../core/parser.js";
 import { topologicalSort, detectCycles, detectHiddenCycles } from "../core/graph.js";
+import { validateDomainRules } from "../core/domain.js";
 import { aggregateCheckpointStatus } from "../core/state-machine.js";
 import {
   loadNodeFile,
@@ -155,6 +156,12 @@ export const validateCommand = new Command("validate").alias("v")
       warn(
         `检测到 ${ctxEdges.length} 条 shares_context 边：不参与门禁与拓扑排序，仅表达上下文共享意图`,
       );
+    }
+
+    // v0.5 领域语义六规则（core/domain.ts：悬空归属/术语重复/跨context契约/relates端点/孤儿ADR/decides源）
+    for (const d of validateDomainRules(nodes, edges)) {
+      if (d.level === "error") err(d.message);
+      else warn(d.message);
     }
 
     // 4. 拓扑排序 + 循环检测

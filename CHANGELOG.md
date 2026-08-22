@@ -1,5 +1,63 @@
 # Changelog
 
+## [0.5.0] — 2026-08-22（已发布 GitHub，未发 npm）
+
+> 本版本把 domain-modeling 的设计融合进工具：**bounded context 与 ADR 成为图中一等公民**，
+> 直接进入 agent 的设计与执行工作流。设计经一轮 grilling 对齐（D1-D8 决策点），下表可溯源。
+
+### 设计溯源矩阵（grilling 决策 → 实现）
+
+| 决策 ID | grilling 共识 | 实现 |
+|---|---|---|
+| V5-锚点 | 主线级、图原生领域语义（方案 A） | 知识顶点（context/adr）与工作流顶点同图共存，零新存储机制 |
+| V5-D1 | ADR/context 一等顶点；术语是 context 内容不是顶点（节点即文档） | NodeType+context/adr、boundary/glossary/ADR 内容字段、context 外键归属；`graph export --docs` 导出 md 视图（图为真相源） |
+| V5-D2 | 双图分离 + 显性映射（map 过滤架构，单独看是一等能力） | map 由类型派生（nodeMapOf/deriveMaps/edgeMapsOf）；Web UI 勾选器 + 领域视图 + 叠加视图（簇壳/ADR 徽章/契约边高亮）；UI 纯只读 |
+| V5-D3 | ADR 触发矩阵：claim 指针 + 调度旗标 + skill 判据 + 裁决管状态 | claim/get_node 响应附 governing_adrs；next-actions 条目附 adr_flags；三判据进 plumber-design；accept/supersede 归 Super Mario/人类（提议/裁决分离） |
+| V5-Q3 | context 无状态（废弃=删除，悬空归属逼重新归属） | transition 层拒绝一切 context 状态变更；悬空引用 validate=error |
+| V5-Q4 | relates 单类型 + 自由 kind 标注（防装饰边回潮） | EdgeType.Relates（rel_kind 自由文本，非 DDD 枚举）；两端必须 context 顶点（error） |
+| V5-Q5 | 交付：单次 v0.5.0、不做 import | 本版本一次性交付 core/CLI/MCP/WebUI/skills 五层；ADR 手工录入（dogfood 节点验证） |
+| V5-Q6 | super-mario/sp-designer 提示词升级 v0.5 | ⑧ 领域裁决职责 + 工具参考附录；designer 四阶段流程 + 人类审核闸门 |
+| V5-fix | （执行期 Mario 裁决发现）索引缓存 Windows mtime 写后读陈旧 | fix_index_cache：写路径主动 invalidateIndex，根治预存 flaky |
+
+### 新增能力
+
+- **知识顶点**：`type: context`（节点即文档：boundary + glossary 术语表）/ `type: adr`
+  （decision 必填，label 即标题）。豁免调度与工作流状态机；旧图零迁移（新字段全可选）。
+- **ADR 生命周期**：`graph adr create/accept/supersede/list`（create 自动编号 adr_NNNN 落
+  proposed；supersede 原子完成状态+superseded_by，接替者三重校验）；MCP 新增
+  `graph_create_adr`（第 20 个工具），superseded 两步法（update_node 设 superseded_by →
+  update_node_status）；事件 adr_created/adr_accepted/adr_superseded 落审计日志。
+- **决策变更传播**：claim 响应与 `graph_get_node` 附 `governing_adrs`（标题级指针）；
+  `graph next` 条目附 `adr_flags` ⚠️（依据已 superseded → 建议重审；decides 打在
+  context 上时传播给全体成员）。上下文经济红线：只注入指针，永不全文推送。
+- **知识边**：`decides`（ADR → 任意顶点，决策管辖）/ `relates`（context↔context，
+  rel_kind 自由标注）。均不参与拓扑排序与门禁。
+- **契约边激活**：跨 context 的工作流边必填 contract（休眠字段获得第一个运行时语义）；
+  六条领域校验规则进 `graph validate`（悬空归属=error、同 context 术语重复=warning、
+  缺契约=warning、relates 端点=error、孤儿 ADR=warning、decides 来源=error）。
+- **map 透镜（Web UI）**：左侧勾选工作流图/领域图任意子集；领域视图渲染 context+relates
+  与术语详情；叠加视图 D3 簇壳包裹成员 + ADR 徽章 + 契约边高亮；边可见 ⇔ 两端 map
+  都激活。UI 保持纯只读（裁决走 Super Mario/人类通道）。
+- **`graph export --docs`**：ADR → docs/adr/NNNN-slug.md（格式对齐既有手写 ADR）；
+  context → CONTEXT-MAP.md + docs/contexts/<id>.md（domain-modeling skill 约定格式，
+  非 graph 工具照旧可读）。根 CONTEXT.md（手写术语表）不受影响。
+- **CLI 领域参数**：create-node `--context`；update-node `--set-context`（空串清除）/
+  `--boundary` / `--glossary-add`；add-edge `--rel-kind` / `--contract`。
+- **索引缓存写路径主动失效**：Windows NTFS mtime 滞后墙钟曾导致长驻进程（MCP/Web）
+  同进程"写后读"陈旧（phase3 旧用例 flaky 根因）；parser 全部变更原语落盘后
+  invalidateIndex，确定性失效。
+- **skills 更新**：plumber-design 新增 Step 2.5 领域建模 + Step 2.6 ADR 三判据 +
+  契约边规则 + 三透镜审阅的审核闸门强化（绝不自链执行）；plumber-execute 新增
+  governing_adrs 必读与 adr_flags 停下重审纪律；修复两处 v0.4 残留（SKILL.md 与
+  reference.md 的"修改 plan 自动归零"错误描述）。
+
+### 行为变更（升级注意）
+
+- `graph export` 默认行为不变（mermaid）；文档导出改为 `graph export --docs` 子模式。
+- ADR/context 顶点的 status 不再适用工作流七态（adr 三态、context 恒 pending），
+  状态机与 schema 双层拦截。
+- 知识顶点永不进入 next/get_next_actions 的调度桶与 summary 计数（完成判定排除）。
+
 ## [0.4.1] — 2026-08-18
 
 ### MCP 全局配置一次、随项目自动跟随（用户核心诉求修复）

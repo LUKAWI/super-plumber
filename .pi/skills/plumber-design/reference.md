@@ -78,7 +78,7 @@ expected_outcome:
 
 ---
 
-## 2. 七边类型选型表
+## 2. 九边类型选型表
 
 | 类型 | 用在哪 | 参与排序 | 设计期判据 |
 |------|--------|:---:|------|
@@ -89,6 +89,8 @@ expected_outcome:
 | `fan_in` | 汇聚合并：多个子任务汇入一个节点 | ❌ | 并行完成后必须合并的汇聚点 |
 | `fallback` | 失败兜底：A 失败走 B | ❌ | 降级/备选路径 |
 | `iterates` | 迭代优化：A 循环打磨 B | ❌ | 反复优化的回路 |
+| `decides`（v0.5） | 决策管辖：ADR → 它决定的节点/context | ❌ | 挂接架构决策；superseded 时沿此传播 adr_flags；source 必须是 adr 顶点 |
+| `relates`（v0.5） | 领域关系：context ↔ context | ❌ | 上下文间上下游/共享内核等；rel_kind 自由标注，仅限两端都是 context 顶点 |
 
 **选型判据（设计期自问）：**
 
@@ -98,8 +100,10 @@ expected_outcome:
 - 多个并行任务要汇合后再继续？→ 入边用 `fan_in`
 - 主链断了是否有备选？→ `fallback`
 - 产物需要反复打磨到达标？→ `iterates`
+- 这条 ADR 管辖哪个对象？→ `decides`（ADR → 节点/context）
+- 两个上下文什么关系？→ `relates`（+ rel_kind 标注）
 
-> 常见反模式：把 `fan_out`/`fan_in` 当成 `depends_on` 用（语义全丢），或反过来用 `depends_on` 表达并行意图（执行期白白串行）。
+> 常见反模式：把 `fan_out`/`fan_in` 当成 `depends_on` 用（语义全丢），或反过来用 `depends_on` 表达并行意图（执行期白白串行）；给 `relates` 之外的知识语义发明新边类型（一种类型+自由标注够了，防装饰边回潮）。
 
 ---
 
@@ -120,7 +124,7 @@ expected_outcome:
 | E7 | exit 可达性 | 每个节点沿 topo 边能到达 exit |
 | E8 | 无 topo 环 | topo 边（depends_on/validates）无环 |
 | E9 | 边引用完整 | 每条边的 source/target 都是存在的节点 |
-| E10 | 边类型合法 | type ∈ 7 种（depends_on/validates/shares_context/fan_out/fan_in/fallback/iterates） |
+| E10 | 边类型合法 | type ∈ 9 种（depends_on/validates/shares_context/fan_out/fan_in/fallback/iterates/decides/relates） |
 
 ### Warning 级（建议修）
 

@@ -24,6 +24,7 @@ import {
   NodeStatus,
   TOPOLOGICAL_EDGE_TYPES,
   GATE_EDGE_TYPES,
+  isKnowledgeType,
   GRAPH_FILE,
   INDEX_DIR,
   NODES_DIR,
@@ -31,6 +32,7 @@ import {
 } from "./types.js";
 import { listNodeFileNames, listEdgeFileNames } from "./schema.js";
 import { readNode, readEdge } from "./parser.js";
+import { adrFlagsFor } from "./domain.js";
 
 export interface GraphIndex {
   nodes: NodeSchema[];
@@ -216,13 +218,29 @@ export function buildGraphIndex(
   return index;
 }
 
+/**
+ * 写路径主动失效（fix_index_cache）：Windows NTFS mtime 系统性滞后墙钟 ~2ms，
+ * "mtime > builtAt" 的新鲜度判定会把"写盘在缓存构建之后、mtime 却更早"的文件
+ * 误判为新鲜——同进程内缓存永久陈旧（MCP/Web 长驻进程写后读不一致的根因）。
+ * parser 的所有变更原语（writeNode/writeEdge/writeGraph/deleteNode/deleteEdge/updateGraph）
+ * 落盘后必须调用本函数：确定性失效，不与文件系统时钟赌运气。
+ */
+export function invalidateIndex(rootDir: string): void {
+  memCache.delete(path.resolve(rootDir));
+  try {
+    fs.rmSync(path.join(rootDir, INDEX_DIR, "graph.json"), { force: true });
+  } catch {
+    /* 磁盘缓存删除失败不影响正确性（下次 isFresh 会回源重建） */
+  }
+}
+
 // ── 调度决策（agent 规划循环的核心减负工具）──
 
 export interface NextActionsResult {
   /** 可认领节点（状态 ready），按 priority 升序 → level → id 排序 */
-  ready: { id: string; label: string; priority?: number }[];
+  ready: { id: string; label: string; priority?: number; adr_flags?: string[] }[];
   /** 门禁已满足、可转 ready 的 pending/failed 节点（冷启动与重试入口），同上排序 */
-  ready_eligible: { id: string; label: string; priority?: number }[];
+  ready_eligible: { id: string; label: string; priority?: number; adr_flags?: string[] }[];
   /** pending/failed 且门控前驱未齐的节点 */
   blocked: {
     id: string;
@@ -236,9 +254,11 @@ export interface NextActionsResult {
     assigned_to?: string;
     started_at?: string;
     elapsed_ms: number | null;
+    adr_flags?: string[];
   }[];
   /** 超过 staleMs 无更新的"疑似卡住"节点（默认 30 分钟） */
   stale_running: { id: string; label: string; elapsed_ms: number }[];
+  /** 工作流顶点状态分布（知识顶点不参与——"全部 task 节点 passed 即完成"排除它们） */
   summary: Record<NodeStatus, number> & { total: number };
 }
 
@@ -252,11 +272,15 @@ export function computeNextActions(
 ): NextActionsResult {
   const staleMs = opts.staleMs ?? 30 * 60 * 1000;
   const index = buildGraphIndex(rootDir, { useCache: true });
-  const { nodes, gateReverseAdj } = index;
+  const { nodes, edges, gateReverseAdj } = index;
   const statusOf = new Map(nodes.map((n) => [n.id, n.status]));
+  // v0.5：知识顶点（context/adr）调度豁免——永不进任何调度桶，也不计入完成判定。
+  // adr_flags：superseded 的 ADR 沿 decides 边把"决策依据已过时"传播到工作流条目。
+  const workflowNodes = nodes.filter((n) => !isKnowledgeType(n.type));
+  const adrFlags = adrFlagsFor(nodes, edges);
 
   const summary = {
-    total: nodes.length,
+    total: workflowNodes.length,
     pending: 0,
     ready: 0,
     running: 0,
@@ -265,8 +289,8 @@ export function computeNextActions(
     blocked: 0,
     cancelled: 0,
   } as NextActionsResult["summary"];
-  for (const n of nodes) {
-    summary[n.status] = (summary[n.status] ?? 0) + 1;
+  for (const n of workflowNodes) {
+    summary[n.status as NodeStatus] = (summary[n.status as NodeStatus] ?? 0) + 1;
   }
 
   const ready: NextActionsResult["ready"] = [];
@@ -275,9 +299,9 @@ export function computeNextActions(
   const running: NextActionsResult["running"] = [];
   const staleRunning: NextActionsResult["stale_running"] = [];
 
-  for (const n of nodes) {
+  for (const n of workflowNodes) {
     if (n.status === NodeStatus.Ready) {
-      ready.push(schedEntry(n));
+      ready.push({ ...schedEntry(n), ...(adrFlags.get(n.id) ? { adr_flags: adrFlags.get(n.id) } : {}) });
       continue;
     }
     if (n.status === NodeStatus.Running) {
@@ -296,6 +320,7 @@ export function computeNextActions(
         assigned_to: n.assigned_to,
         started_at: started,
         elapsed_ms,
+        ...(adrFlags.get(n.id) ? { adr_flags: adrFlags.get(n.id) } : {}),
       });
       if (
         elapsed_ms !== null &&
@@ -318,7 +343,10 @@ export function computeNextActions(
       if (unmet.length > 0) {
         blocked.push({ id: n.id, label: n.label, unmet });
       } else {
-        readyEligible.push(schedEntry(n));
+        readyEligible.push({
+          ...schedEntry(n),
+          ...(adrFlags.get(n.id) ? { adr_flags: adrFlags.get(n.id) } : {}),
+        });
       }
     }
   }

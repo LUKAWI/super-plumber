@@ -12,6 +12,7 @@ export const createNodeCommand = new Command("create-node").alias("cn")
   .option("-t, --type <type>", "节点类型", "task")
   .option("--level <level>", "拓扑层级", "1")
   .option("--priority <n>", "调度优先级（≥0，越小越先被推荐；缺省最低）")
+  .option("--context <ctx_id>", "v0.5：归属的 context 顶点 id（工作流节点用）")
   .option("--assigned-to <agent>", "分配给哪个 agent")
   .option("--plan-desc <text>", "构建计划描述")
   .option(
@@ -45,6 +46,7 @@ export const createNodeCommand = new Command("create-node").alias("cn")
         ...(options.priority !== undefined
           ? { priority: parseInt(options.priority, 10) }
           : {}),
+        ...(options.context !== undefined ? { context: options.context } : {}),
         assigned_to: options.assignedTo,
         plan_description: options.planDesc,
         definition_of_done: options.dod.length > 0 ? options.dod : undefined,

@@ -1,6 +1,6 @@
 import { Command } from "commander";
-import { updateNodeStatus } from "../core/node.js";
-import { NodeStatus } from "../core/types.js";
+import { updateNodeStatus, getGoverningAdrs } from "../core/node.js";
+import { NodeStatus, isKnowledgeType } from "../core/types.js";
 
 export const updateStatusCommand = new Command("update-status").alias("us")
   .description("更新节点状态（状态机校验 + ready 前置门禁）")
@@ -32,6 +32,16 @@ export const updateStatusCommand = new Command("update-status").alias("us")
         actor: "cli",
       });
       console.log(`✅ ${options.id}: ${node.status}`);
+      // v0.5：claim 时注入管辖 ADR 指针（标题级；agent 按需 get-node 取全文）
+      if (status === NodeStatus.Running && !isKnowledgeType(node.type)) {
+        const gov = getGoverningAdrs(rootDir, options.id);
+        if (gov.current.length > 0) {
+          console.log(`📖 管辖 ADR（必读）: ${gov.current.map((g) => `${g.id} ${g.title}`).join(" | ")}`);
+        }
+        if (gov.superseded.length > 0) {
+          console.log(`⚠️  决策依据已过时: ${gov.superseded.map((g) => `${g.id}${g.superseded_by ? `（由 ${g.superseded_by} 接替）` : ""}`).join(" | ")}`);
+        }
+      }
     } catch (err: any) {
       if (err?.code === "ENOENT") {
         console.error(`❌ 节点不存在: ${options.id}`);

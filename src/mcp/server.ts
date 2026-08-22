@@ -15,12 +15,14 @@ import { fileURLToPath } from "node:url";
 import {
   getNode,
   createNode as createNodeOp,
+  createAdr,
   updateNodeStatus,
   updateCheckpoint,
   updateExecutionReport,
   updateNodeContent,
   buildNodeUpdates,
   checkReadyGate,
+  getGoverningAdrs,
   reclaimNode,
   listNodes,
 } from "../core/node.js";
@@ -30,14 +32,14 @@ import {
   buildGraphIndex,
   computeNextActions,
 } from "../core/graph.js";
-import { getAllowedTransitions, aggregateCheckpointStatus } from "../core/state-machine.js";
+import { allowedTransitionsFor, aggregateCheckpointStatus } from "../core/state-machine.js";
 import {
   createSnapshot,
   diffSnapshot,
   rollbackToSnapshot,
   listSnapshots,
 } from "../core/snapshot.js";
-import { NodeType, NodeStatus, EdgeType } from "../core/types.js";
+import { NodeType, NodeStatus, AdrStatus, EdgeType, isKnowledgeType } from "../core/types.js";
 import { VERSION } from "../version.js";
 
 // ── 图目录定位（全局配置一次、随项目自动跟随）──
@@ -124,7 +126,11 @@ async function locateRoot(): Promise<string> {
 }
 
 // zod 4.x 中 z.nativeEnum deprecated，用 z.enum 显式枚举
-const nodeStatusSchema = z.enum(Object.values(NodeStatus) as [string, ...string[]]);
+// v0.5：status 合法值 = 工作流七态 ∪ ADR 三态（按顶点类型在 core 层分表校验）
+const nodeStatusSchema = z.enum([
+  ...Object.values(NodeStatus),
+  ...Object.values(AdrStatus),
+] as [string, ...string[]]);
 const nodeTypeSchema = z.enum(Object.values(NodeType) as [string, ...string[]]);
 const edgeTypeSchema = z.enum(Object.values(EdgeType) as [string, ...string[]]);
 const cpStatusSchema = z.enum([
@@ -148,7 +154,7 @@ server.registerTool(
   {
     description:
       "读取单个节点的完整内容（解压压缩包）。Use when you need a node's plan, checkpoints, definition_of_done or execution state. " +
-      "Returns the node plus allowed_transitions (legal next statuses), checkpoint_aggregate, and ready_gate (whether its predecessors have passed) — one call answers \"what can I do next with this node\". " +
+      "Returns the node plus allowed_transitions (legal next statuses — v0.5 按 type 分表：workflow 七态 / adr 三态 / context 无), checkpoint_aggregate, ready_gate (whether its predecessors have passed), and governing_adrs (v0.5 管辖 ADR 指针：decides 指向该节点或其 context 的 ADR) — one call answers \"what can I do next with this node\". " +
       "include_neighbors=up/down 附加拓扑相邻节点紧凑列表（基于索引缓存，零额外文件扫描），需要局部拓扑时用它替代 graph_traverse.",
     inputSchema: {
       id: z.string().describe("节点 ID"),
@@ -164,11 +170,22 @@ server.registerTool(
     const node = getNode(rootDir, id);
     const result: Record<string, unknown> = {
       node,
-      allowed_transitions: getAllowedTransitions(node.status),
+      allowed_transitions: allowedTransitionsFor(node),
       checkpoint_aggregate: node.checkpoints?.length
         ? aggregateCheckpointStatus(node.checkpoints)
         : null,
-      ready_gate: checkReadyGate(rootDir, node.id),
+      ready_gate: isKnowledgeType(node.type)
+        ? { ok: true, unmet: [] }
+        : checkReadyGate(rootDir, node.id),
+      // v0.5：管辖 ADR 指针（知识顶点不适用）
+      ...(isKnowledgeType(node.type)
+        ? {}
+        : (() => {
+            const g = getGoverningAdrs(rootDir, id);
+            return g.current.length > 0 || g.superseded.length > 0
+              ? { governing_adrs: g }
+              : {};
+          })()),
     };
     if (include_neighbors !== "none") {
       const index = buildGraphIndex(rootDir, { useCache: true });
@@ -237,6 +254,7 @@ server.registerTool(
   {
     description:
       "调度决策工具 — 一次调用回答\"我现在该干什么\"。Use this as your primary planning loop: returns ready nodes (claimable now), ready_eligible nodes (pending/failed whose gates are satisfied — flip them to ready, including cold start), blocked nodes with their unmet predecessors, running nodes with elapsed time, and stale running nodes that may be stuck (reclaim them with graph_reclaim_node). " +
+      "v0.5：ready/ready_eligible/running 条目可含 adr_flags（所依据 ADR 已 superseded → ⚠️ 决策依据过时，建议重审后再 claim）；知识顶点（context/adr）不进任何调度桶、不计入 summary。 " +
       "Each bucket is capped at limit (default 100); truncated flags tell you when more exist. Prefer this over combining graph_get_graph + graph_traverse + graph_search.",
     inputSchema: {
       stale_ms: z
@@ -406,6 +424,7 @@ server.registerTool(
   {
     description:
       "创建新节点（默认 pending）。Pass plan_description, definition_of_done and checkpoints in one call to create a complete \"压缩包\" — no follow-up edits needed. " +
+      "v0.5 知识顶点：type=context（领域上下文，节点即文档——boundary/glossary 经 graph_update_node 填充）；type=adr 建议改用 graph_create_adr（自动编号+proposed）。" +
       "Duplicate id returns an error (never overwrites).",
     inputSchema: {
       id: z.string().describe("节点 ID"),
@@ -413,6 +432,7 @@ server.registerTool(
       type: nodeTypeSchema.optional().default(NodeType.Task),
       level: z.number().int().optional().default(1),
       priority: z.number().int().min(0).optional().describe("调度优先级（越小越先；缺省最低）"),
+      context: z.string().optional().describe("v0.5：归属的 context 顶点 id（工作流节点用）"),
       plan_description: z.string().optional().describe("构建计划描述"),
       definition_of_done: z.array(z.string()).optional().describe("完成标准条目"),
       checkpoints: z.array(checkpointSchema).optional().describe("子步骤检查点"),
@@ -420,7 +440,7 @@ server.registerTool(
       max_attempts: z.number().int().min(0).optional().default(3).describe("最大重试次数（0=不限）"),
     },
   },
-  async ({ id, label, type, level, priority, plan_description, definition_of_done, checkpoints, assigned_to, max_attempts }) => {
+  async ({ id, label, type, level, priority, context, plan_description, definition_of_done, checkpoints, assigned_to, max_attempts }) => {
     const rootDir = await resolveGraphRoot();
     const node = createNodeOp(rootDir, {
       id,
@@ -428,6 +448,7 @@ server.registerTool(
       type: type as NodeType,
       level,
       priority,
+      ...(context !== undefined ? { context } : {}),
       plan_description,
       definition_of_done,
       checkpoints: checkpoints as never,
@@ -438,12 +459,47 @@ server.registerTool(
   },
 );
 
+server.registerTool(
+  "graph_create_adr",
+  {
+    description:
+      "v0.5 创建 ADR（架构决策记录）顶点：自动编号 adr_NNNN，状态落 proposed（记录在案但不生效——accept/supersede 归裁决方 Super Mario/人类，提议/裁决分离）。" +
+      "创建后用 graph_add_edge 添加 decides 边把它挂到管辖的节点/context（孤儿 ADR 会被 graph validate 警告）。" +
+      "三判据全满足才值得记录：难逆转 + 脱离上下文令人费解 + 真实权衡的产物。",
+    inputSchema: {
+      title: z.string().describe("决策标题（落 label）"),
+      decision: z.string().describe("决策内容（我们决定了什么）"),
+      background: z.string().optional().describe("背景（决策时的上下文）"),
+      considered_options: z.string().optional().describe("考虑过的备选项与取舍"),
+      why: z.string().optional().describe("为什么选这个"),
+      consequences: z.string().optional().describe("后果与代价"),
+    },
+  },
+  async ({ title, decision, background, considered_options, why, consequences }) => {
+    const rootDir = await resolveGraphRoot();
+    const adr = createAdr(
+      rootDir,
+      {
+        title,
+        decision,
+        ...(background !== undefined ? { background } : {}),
+        ...(considered_options !== undefined ? { considered_options } : {}),
+        ...(why !== undefined ? { why } : {}),
+        ...(consequences !== undefined ? { consequences } : {}),
+      },
+      { actor: "mcp" },
+    );
+    return jsonText(adr);
+  },
+);
+
 const batchNodeSchema = z.object({
   id: z.string(),
   label: z.string(),
   type: nodeTypeSchema.optional().default(NodeType.Task),
   level: z.number().int().optional().default(1),
   priority: z.number().int().min(0).optional(),
+  context: z.string().optional(),
   plan_description: z.string().optional(),
   definition_of_done: z.array(z.string()).optional(),
   checkpoints: z.array(checkpointSchema).optional(),
@@ -456,6 +512,8 @@ const batchEdgeSchema = z.object({
   source: z.string(),
   target: z.string(),
   type: edgeTypeSchema,
+  rel_kind: z.string().optional(),
+  contract: z.record(z.string(), z.unknown()).optional(),
 });
 
 server.registerTool(
@@ -517,6 +575,7 @@ server.registerTool(
           type: n.type as NodeType,
           level: n.level,
           priority: n.priority,
+          ...(n.context !== undefined ? { context: n.context } : {}),
           plan_description: n.plan_description,
           definition_of_done: n.definition_of_done,
           checkpoints: n.checkpoints as never,
@@ -534,6 +593,8 @@ server.registerTool(
           source: e.source,
           target: e.target,
           type: e.type as EdgeType,
+          ...(e.rel_kind !== undefined ? { rel_kind: e.rel_kind } : {}),
+          ...(e.contract !== undefined ? { contract: e.contract as never } : {}),
         },
         { syncRef: false, actor: "mcp" },
       );
@@ -547,22 +608,31 @@ server.registerTool(
   "graph_add_edge",
   {
     description:
-      "添加一条类型化边（depends_on/validates 参与拓扑排序；fan_out/fan_in/shares_context/fallback/iterates 表达运行时控制流）。Both endpoints must exist. " +
+      "添加一条类型化边（depends_on/validates 参与拓扑排序；fan_out/fan_in/shares_context/fallback/iterates 表达运行时控制流）。" +
+      "v0.5 知识边：decides（ADR → 任意顶点，决策管辖，superseded 时沿此传播 adr_flags）；relates（仅 context↔context，rel_kind 自由标注）。" +
+      "跨 context 的工作流边是契约边，须填 contract（未填会被 graph validate 警告）。Both endpoints must exist. " +
       "Duplicate edge id returns an error.",
     inputSchema: {
       id: z.string(),
       source: z.string(),
       target: z.string(),
       type: edgeTypeSchema,
+      rel_kind: z.string().optional().describe("v0.5：relates 边的领域关系标注（自由文本）"),
+      contract: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe('契约（跨 context 工作流边必填）：{"produces":"...","consumed_by":[...],"validation":{...}}'),
     },
   },
-  async ({ id, source, target, type }) => {
+  async ({ id, source, target, type, rel_kind, contract }) => {
     const rootDir = await resolveGraphRoot();
     const edge = createEdgeOp(rootDir, {
       id,
       source,
       target,
       type: type as EdgeType,
+      ...(rel_kind !== undefined ? { rel_kind } : {}),
+      ...(contract !== undefined ? { contract: contract as never } : {}),
     }, { actor: "mcp" });
     return jsonText(edge);
   },
@@ -575,7 +645,8 @@ server.registerTool(
   {
     description:
       "更新节点内容（plan / definition_of_done / checkpoints / assigned_to / label / max_attempts）。Use during the design phase to enrich nodes; during execution prefer graph_update_checkpoint and graph_update_execution_report. " +
-      "attempts never resets implicitly — changing plan.description does NOT clear the retry counter; pass reset_attempts=true explicitly (an attempts_reset audit event is always recorded).",
+      "attempts never resets implicitly — changing plan.description does NOT clear the retry counter; pass reset_attempts=true explicitly (an attempts_reset audit event is always recorded). " +
+      "v0.5 领域字段：set_context 归属/清除 context 顶点（空串清除）、boundary 上下文边界、glossary_add 追加术语（context 顶点用）。",
     inputSchema: {
       id: z.string(),
       plan_description: z.string().optional(),
@@ -586,6 +657,16 @@ server.registerTool(
       label: z.string().optional(),
       max_attempts: z.number().int().min(0).optional(),
       set_priority: z.number().int().min(0).optional().describe("调度优先级（越小越先）"),
+      set_context: z.string().optional().describe('v0.5：归属 context 顶点 id（空串 "" 清除归属）'),
+      boundary: z.string().optional().describe("v0.5（context 顶点）：上下文边界描述"),
+      glossary_add: z
+        .array(z.object({ term: z.string(), definition: z.string() }))
+        .optional()
+        .describe("v0.5（context 顶点）：追加术语 [{term, definition}]"),
+      superseded_by: z
+        .string()
+        .optional()
+        .describe("v0.5（adr 顶点）：接替 ADR id——MCP supersede 两步法第一步（先设此字段，再 graph_update_node_status 置 superseded）"),
       reset_attempts: z
         .boolean()
         .optional()
@@ -593,7 +674,7 @@ server.registerTool(
         .describe("显式把 attempts 重置为 0（写审计事件；修改 plan 不再自动重置）"),
     },
   },
-  async ({ id, plan_description, add_dod, clear_dod, add_checkpoints, set_assigned_to, label, max_attempts, set_priority, reset_attempts }) => {
+  async ({ id, plan_description, add_dod, clear_dod, add_checkpoints, set_assigned_to, label, max_attempts, set_priority, set_context, boundary, glossary_add, superseded_by, reset_attempts }) => {
     const rootDir = await resolveGraphRoot();
     const node = getNode(rootDir, id);
     const updates = buildNodeUpdates(node, {
@@ -605,6 +686,10 @@ server.registerTool(
       ...(label !== undefined ? { label } : {}),
       ...(max_attempts !== undefined ? { max_attempts } : {}),
       ...(set_priority !== undefined ? { set_priority } : {}),
+      ...(set_context !== undefined ? { set_context } : {}),
+      ...(boundary !== undefined ? { boundary } : {}),
+      ...(glossary_add !== undefined ? { glossary_add } : {}),
+      ...(superseded_by !== undefined ? { superseded_by } : {}),
     });
     if (Object.keys(updates).length === 0 && !reset_attempts) {
       throw new Error("没有指定任何更新项（至少传一个可选参数）");
@@ -622,8 +707,9 @@ server.registerTool(
   "graph_update_node_status",
   {
     description:
-      "更新节点状态（状态机强制校验 + ready 前置门禁 + max_attempts 拦截）。Claim semantics: pass claim_by when transitioning ready → running — records assigned_to and started_at atomically (concurrent double-claim fails for the loser). " +
-      "Re-claiming by the same claim_by is idempotent. force is REJECTED on the MCP channel (agent-facing); human operators must use the CLI: graph update-status --force.",
+      "更新节点状态（状态机强制校验 + ready 前置门禁 + max_attempts 拦截）。Claim semantics: pass claim_by when transitioning ready → running — records assigned_to and started_at atomically (concurrent double-claim fails for the loser); claim 响应附 governing_adrs（管辖 ADR 标题级指针，claim 后必读）。 " +
+      "Re-claiming by the same claim_by is idempotent. force is REJECTED on the MCP channel (agent-facing); human operators must use the CLI: graph update-status --force. " +
+      "v0.5 知识顶点：ADR 走私有状态机 proposed → accepted → superseded（superseded 必须先用 graph_update_node 设置 superseded_by 指向接替 ADR，再置 superseded——建议 CLI graph adr supersede 一步完成）；accept/supersede 属裁决动作（Super Mario/人类）。context 顶点无状态，任何状态变更都被拒绝。",
     inputSchema: {
       id: z.string(),
       status: nodeStatusSchema,
@@ -651,6 +737,13 @@ server.registerTool(
     const node = updateNodeStatus(rootDir, id, status as NodeStatus, claim_by, {
       actor: "mcp",
     });
+    // v0.5：claim（→running）响应附管辖 ADR 指针——agent 此刻最需要知道"依据哪些决策干活"
+    if (node.status === NodeStatus.Running && !isKnowledgeType(node.type)) {
+      const gov = getGoverningAdrs(rootDir, id);
+      if (gov.current.length > 0 || gov.superseded.length > 0) {
+        return jsonText({ node, governing_adrs: gov });
+      }
+    }
     return jsonText(node);
   },
 );

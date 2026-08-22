@@ -20,6 +20,10 @@ import {
 } from "./schema.js";
 import { withLockSync } from "./lock.js";
 import { appendEvent } from "./eventlog.js";
+// 循环依赖说明：index-service ← parser（读原语）与 parser ← index-service
+//（invalidateIndex 写后失效）互为环，但两侧都只在函数体内调用对方导出，
+// ESM 函数声明提升下安全。fix_index_cache：写路径必须主动失效索引缓存。
+import { invalidateIndex } from "./index-service.js";
 
 export { SchemaValidationError, formatIssues };
 
@@ -50,6 +54,7 @@ export function writeGraph(rootDir: string, graph: GraphSchema): void {
   ensureGraphDir(rootDir);
   const content = yaml.dump(graph, { indent: 2, lineWidth: 120 });
   fs.writeFileSync(path.join(rootDir, GRAPH_FILE), content, "utf-8");
+  invalidateIndex(rootDir);
 }
 
 // ── Node ──
@@ -72,6 +77,7 @@ export function writeNode(rootDir: string, node: NodeSchema): void {
   ensureGraphDir(rootDir);
   const content = yaml.dump(node, { indent: 2, lineWidth: 120 });
   fs.writeFileSync(nodeFilePath(rootDir, node.id), content, "utf-8");
+  invalidateIndex(rootDir);
 }
 
 // ── graph.yaml 引用列表同步（node/edge 创建与软删除时维护）──
@@ -177,6 +183,7 @@ export function deleteNode(
     // soft delete: rename to .deleted.yaml 保留历史
     softDelete(filePath);
     removeGraphRef(rootDir, "node", id);
+    invalidateIndex(rootDir); // 目录内容变了（rename 不改源文件 mtime 语义），主动失效
     appendEvent(rootDir, {
       actor: opts.actor ?? "unknown",
       kind: "node_deleted",
@@ -198,6 +205,7 @@ export function deleteEdge(
     if (!fs.existsSync(filePath)) throw new Error(`Edge ${id} not found`);
     softDelete(filePath);
     removeGraphRef(rootDir, "edge", id);
+    invalidateIndex(rootDir);
     appendEvent(rootDir, {
       actor: opts.actor ?? "unknown",
       kind: "edge_deleted",
@@ -226,6 +234,7 @@ export function writeEdge(rootDir: string, edge: EdgeSchema): void {
   ensureGraphDir(rootDir);
   const content = yaml.dump(edge, { indent: 2, lineWidth: 120 });
   fs.writeFileSync(edgeFilePath(rootDir, edge.id), content, "utf-8");
+  invalidateIndex(rootDir);
 }
 
 // ── 图级字段编辑（entry/exit/label/root_context，需求 4.2 创建图 + P2-1）──

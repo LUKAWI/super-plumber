@@ -1,4 +1,7 @@
 import type { GraphIndex, NodeSchema, EdgeSchema } from "./types";
+import { DEFAULT_ACTIVE_MAPS, type ActiveMaps, type MapKind } from "./maps";
+
+export type { ActiveMaps, MapKind };
 
 export interface DiffState {
 	from: string;
@@ -26,6 +29,8 @@ let _query = $state("");
 let _diff: DiffState | null = $state(null);
 let _snapshots: SnapshotInfo[] | null = $state(null);
 let _snapshotsLoading = $state(false);
+// map 透镜（v0.5）：工作流图默认勾选，领域图默认关闭；任意子集叠加
+let _activeMaps: ActiveMaps = $state({ ...DEFAULT_ACTIVE_MAPS });
 
 export const graphState = {
 	get graph() { return _graph; },
@@ -38,6 +43,8 @@ export const graphState = {
 	get diff() { return _diff; },
 	get snapshots() { return _snapshots; },
 	get snapshotsLoading() { return _snapshotsLoading; },
+	/** 当前激活的 map 子集（workflow / domain） */
+	get activeMaps() { return _activeMaps; },
 
 	setGraph(g: GraphIndex | null) {
 		_graph = g;
@@ -95,6 +102,15 @@ export const graphState = {
 
 	setQuery(q: string) {
 		_query = q;
+	},
+
+	/** map 透镜开关（任意子集叠加；两个都关 = 空视图，由画布提示） */
+	toggleMap(kind: MapKind) {
+		_activeMaps = { ..._activeMaps, [kind]: !_activeMaps[kind] };
+	},
+
+	setActiveMaps(maps: ActiveMaps) {
+		_activeMaps = { ...maps };
 	},
 
 	setDiff(d: DiffState | null) {

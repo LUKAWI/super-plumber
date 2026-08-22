@@ -10,6 +10,11 @@ export const addEdgeCommand = new Command("add-edge").alias("ae")
   .requiredOption("-s, --source <source>", "源节点 ID")
   .requiredOption("-t, --target <target>", "目标节点 ID")
   .option("--type <type>", "边类型", "depends_on")
+  .option("--rel-kind <kind>", "v0.5：relates 边的领域关系标注（自由文本）")
+  .option(
+    "--contract <json>",
+    '契约（JSON：{"produces":"...","consumed_by":[...],"validation":{...}}；跨 context 工作流边必填）',
+  )
   .action((options) => {
     const rootDir = process.cwd();
     const type = options.type as EdgeType;
@@ -18,6 +23,15 @@ export const addEdgeCommand = new Command("add-edge").alias("ae")
         `❌ 非法边类型: ${options.type}。允许的值: ${Object.values(EdgeType).join(", ")}`,
       );
       process.exit(1);
+    }
+    let contract: Record<string, unknown> | undefined;
+    if (options.contract !== undefined) {
+      try {
+        contract = JSON.parse(options.contract);
+      } catch {
+        console.error(`❌ --contract 不是合法 JSON: ${options.contract}`);
+        process.exit(1);
+      }
     }
     const nodeIds = new Set(listNodes(rootDir).map((n) => n.id));
     if (!nodeIds.has(options.source)) {
@@ -34,6 +48,8 @@ export const addEdgeCommand = new Command("add-edge").alias("ae")
         source: options.source,
         target: options.target,
         type,
+        ...(contract !== undefined ? { contract: contract as any } : {}),
+        ...(options.relKind !== undefined ? { rel_kind: options.relKind } : {}),
       }, { actor: "cli" });
       console.log(`✅ 已添加边: ${edge.id} (${edge.source} → ${edge.target})`);
     } catch (err: any) {
