@@ -10,6 +10,7 @@ import {
   EdgeType,
   NodeStatus,
   NodeType,
+  AdrStatus,
   NODES_DIR,
   EDGES_DIR,
   GRAPH_FILE,
@@ -45,6 +46,7 @@ export function formatIssues(issues: SchemaIssue[]): string {
 
 const NODE_TYPES = Object.values(NodeType) as string[];
 const NODE_STATUSES = Object.values(NodeStatus) as string[];
+const ADR_STATUSES = Object.values(AdrStatus) as string[];
 const EDGE_TYPES = Object.values(EdgeType) as string[];
 const CP_STATUSES = ["pending", "running", "passed", "failed", "skipped"];
 const VERIFIERS = ["auto", "cross_review", "human"];
@@ -221,6 +223,19 @@ function validateExecutionReport(v: unknown, issues: SchemaIssue[], prefix = "ex
   }
 }
 
+function validateGlossary(v: unknown, issues: SchemaIssue[], prefix = "glossary"): void {
+  if (v === undefined) return;
+  if (!Array.isArray(v)) {
+    issues.push(issue(prefix, "必须是数组"));
+    return;
+  }
+  for (const entry of v as unknown[]) {
+    if (!isRecord(entry) || typeof entry.term !== "string" || typeof entry.definition !== "string") {
+      issues.push(issue(prefix, "每项需包含 term 与 definition 字符串"));
+    }
+  }
+}
+
 export function validateNode(data: unknown): SchemaIssue[] {
   const issues: SchemaIssue[] = [];
   if (!isRecord(data)) {
@@ -230,7 +245,19 @@ export function validateNode(data: unknown): SchemaIssue[] {
   reqString(data, "id", issues);
   reqString(data, "label", issues);
   optEnum(data, "type", NODE_TYPES, issues);
-  optEnum(data, "status", NODE_STATUSES, issues);
+  // v0.5：status 合法值随类型变化——adr 走三态机，context 无状态（仅 pending），其余为工作流七态
+  const nodeType = typeof data.type === "string" ? data.type : undefined;
+  const statusAllowed =
+    nodeType === NodeType.Adr
+      ? ADR_STATUSES
+      : nodeType === NodeType.Context
+        ? [NodeStatus.Pending]
+        : NODE_STATUSES;
+  if (data.status !== undefined && !statusAllowed.includes(data.status as string)) {
+    issues.push(
+      issue("status", `非法值 "${String(data.status)}"，${nodeType ?? "该类型"}允许: ${statusAllowed.join("|")}`),
+    );
+  }
   optNumber(data, "level", issues, { min: 0 });
   optNumber(data, "priority", issues, { min: 0 });
   optNumber(data, "attempts", issues, { min: 0 });
@@ -238,6 +265,19 @@ export function validateNode(data: unknown): SchemaIssue[] {
   optString(data, "assigned_to", issues);
   optString(data, "created_at", issues);
   optString(data, "updated_at", issues);
+  // v0.5 领域字段
+  optString(data, "context", issues);
+  optString(data, "boundary", issues);
+  validateGlossary(data.glossary, issues);
+  optString(data, "decision", issues);
+  optString(data, "background", issues);
+  optString(data, "considered_options", issues);
+  optString(data, "why", issues);
+  optString(data, "consequences", issues);
+  optString(data, "superseded_by", issues);
+  if (nodeType === NodeType.Adr && (typeof data.decision !== "string" || data.decision === "")) {
+    issues.push(issue("decision", "adr 顶点必填（决策内容；label 即标题）"));
+  }
   validatePlan(data.plan, issues);
   validateExpectedOutcome(data.expected_outcome, issues);
   validateCheckpoints(data.checkpoints, issues);
@@ -257,6 +297,7 @@ export function validateEdge(data: unknown): SchemaIssue[] {
   reqString(data, "source", issues);
   reqString(data, "target", issues);
   optEnum(data, "type", EDGE_TYPES, issues);
+  optString(data, "rel_kind", issues);
   if (data.contract !== undefined) {
     if (!isRecord(data.contract)) {
       issues.push(issue("contract", "必须是对象"));

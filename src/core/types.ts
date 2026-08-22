@@ -17,6 +17,26 @@ export enum NodeType {
   Checkpoint = "checkpoint",
   Decision = "decision",
   Gate = "gate",
+  // v0.5 知识顶点：领域语义的一等公民，豁免工作流调度与状态机
+  Context = "context",
+  Adr = "adr",
+}
+
+// 知识顶点集合（context/adr）：不进调度桶、不占拓扑序、不参与完成判定
+export const KNOWLEDGE_NODE_TYPES: readonly NodeType[] = [
+  NodeType.Context,
+  NodeType.Adr,
+];
+
+export function isKnowledgeType(type: NodeType): boolean {
+  return KNOWLEDGE_NODE_TYPES.includes(type);
+}
+
+// ADR 顶点私有状态机（仅 adr 类型可用；context 顶点完全无状态）
+export enum AdrStatus {
+  Proposed = "proposed",
+  Accepted = "accepted",
+  Superseded = "superseded",
 }
 
 // ── 边类型 ──
@@ -28,9 +48,12 @@ export enum EdgeType {
   FanIn = "fan_in",
   Fallback = "fallback",
   Iterates = "iterates",
+  // v0.5 知识边：不参与拓扑排序、不构成门禁
+  Decides = "decides", // ADR → 任意顶点（决策管辖；superseded 时沿此传播 adr_flags）
+  Relates = "relates",  // context ↔ context（领域关系，rel_kind 自由标注）
 }
 
-// 参与拓扑排序的边类型（不包含 fallback / iterates 等运行时边）
+// 参与拓扑排序的边类型（不包含 fallback / iterates 等运行时边，也不含 decides / relates 知识边）
 export const TOPOLOGICAL_EDGE_TYPES: EdgeType[] = [
   EdgeType.DependsOn,
   EdgeType.Validates,
@@ -89,6 +112,12 @@ export interface ExecutionReport {
   };
 }
 
+// v0.5 术语表条目（context 顶点内容，"节点即文档"）
+export interface GlossaryEntry {
+  term: string;
+  definition: string;
+}
+
 export interface NodeSchema {
   id: string;
   type: NodeType;
@@ -96,6 +125,20 @@ export interface NodeSchema {
   level: number;
   /** FIX-F1：调度优先级（≥0，越小越先被推荐；缺省 = 最低优先级） */
   priority?: number;
+  /** v0.5：归属的 context 顶点 id（外键，validate 校验存在性；知识顶点自身不用此字段） */
+  context?: string;
+  /** v0.5（context 顶点）：上下文边界描述 */
+  boundary?: string;
+  /** v0.5（context 顶点）：术语表 */
+  glossary?: GlossaryEntry[];
+  /** v0.5（adr 顶点）：决策内容（label 即标题，decision 必填） */
+  decision?: string;
+  background?: string;
+  considered_options?: string;
+  why?: string;
+  consequences?: string;
+  /** v0.5（adr 顶点）：接替者 ADR id（status=superseded 时必填，schema 强制） */
+  superseded_by?: string;
   plan?: Plan;
   expected_outcome?: ExpectedOutcome;
   checkpoints?: Checkpoint[];
@@ -121,6 +164,8 @@ export interface EdgeSchema {
   target: string;
   type: EdgeType;
   contract?: Contract;
+  /** v0.5（relates 边）：领域关系自由标注（upstream/downstream/shared-kernel…），非枚举 */
+  rel_kind?: string;
 }
 
 // ── 图 schema ──
