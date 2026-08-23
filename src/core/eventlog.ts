@@ -11,6 +11,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { withLockSync } from "./lock.js";
 import { GRAPH_DIR } from "./types.js";
+import { toGraphDir } from "./graph-dir.js";
 
 export interface GraphEvent {
   ts: string; // ISO 8601
@@ -47,7 +48,7 @@ const EVENTS_LOCK = "__events__";
 const EVENTS_FILE = "events.jsonl";
 
 export function eventsFilePath(rootDir: string): string {
-  return path.join(rootDir, GRAPH_DIR, EVENTS_FILE);
+  return path.join(toGraphDir(rootDir), EVENTS_FILE);
 }
 
 export type EventInput = Omit<GraphEvent, "ts"> & { ts?: string };
@@ -57,7 +58,7 @@ export function appendEvent(rootDir: string, evt: EventInput): void {
   const record: GraphEvent = { ts: evt.ts ?? new Date().toISOString(), ...evt };
   const line = JSON.stringify(record) + "\n";
   withLockSync(rootDir, EVENTS_LOCK, () => {
-    fs.mkdirSync(path.join(rootDir, GRAPH_DIR), { recursive: true });
+    fs.mkdirSync(toGraphDir(rootDir), { recursive: true });
     fs.appendFileSync(eventsFilePath(rootDir), line, "utf-8");
   });
 }

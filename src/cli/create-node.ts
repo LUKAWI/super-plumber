@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import { createNode } from "../core/node.js";
 import { NodeType } from "../core/types.js";
+import { listGraphNames } from "../core/graph-dir.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -31,7 +32,7 @@ export const createNodeCommand = new Command("create-node").alias("cn")
       process.exit(1);
     }
     // 未初始化时拒绝创建（避免写入孤儿节点文件形成半初始化状态）
-    if (!fs.existsSync(path.join(rootDir, ".graph", "graph.yaml"))) {
+    if (listGraphNames(rootDir).length === 0) {
       console.error(
         `❌ 未找到 ${rootDir}/.graph/graph.yaml，请先运行 graph init`,
       );

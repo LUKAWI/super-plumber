@@ -1,9 +1,11 @@
 // src/core/lock.ts
-// 进程间互斥锁：.graph/.locks/<encodedId>.lock
+// 进程间互斥锁：<图目录>/.locks/<encodedId>.lock（v0.5.2：每图独立锁空间）
 // 目的：把"读-改-写"变成临界区——并发 claim / 状态流转 / 内容更新不再互相覆盖。
 // 设计：O_EXCL 原子创建 + pid/时间戳 + 陈锁回收（持有进程死亡或超时）+ 有限重试。
+// 例外：__ws_migrate__ 是工作区级锁（迁移影响所有图），固定落在 .graph/.locks/。
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { toGraphDir, workspaceOf, WORKSPACE_MIGRATE_LOCK } from "./graph-dir.js";
 
 const LOCK_STALE_MS = 30_000;
 const LOCK_RETRY_MS = 50;
@@ -16,13 +18,17 @@ export class LockTimeoutError extends Error {
   }
 }
 
-function lockDir(rootDir: string): string {
-  return path.join(rootDir, ".graph", ".locks");
+function lockDir(rootDir: string, id: string): string {
+  if (id === WORKSPACE_MIGRATE_LOCK) {
+    // 工作区级锁：不随 active 图走（否则并发解析不同图会锁到不同文件，失去互斥）
+    return path.join(workspaceOf(rootDir), ".graph", ".locks");
+  }
+  return path.join(toGraphDir(rootDir), ".locks");
 }
 
 function lockFile(rootDir: string, id: string): string {
   // 节点 id 理论上可含路径分隔符，编码防止逃逸出 .locks/
-  return path.join(lockDir(rootDir), `${encodeURIComponent(id)}.lock`);
+  return path.join(lockDir(rootDir, id), `${encodeURIComponent(id)}.lock`);
 }
 
 /** 陈锁判定：持有进程已死（ESRCH）或时间戳过旧 */
@@ -78,7 +84,7 @@ export async function withLock<T>(
   fn: () => Promise<T> | T,
   opts: { timeoutMs?: number } = {},
 ): Promise<T> {
-  fs.mkdirSync(lockDir(rootDir), { recursive: true });
+  fs.mkdirSync(lockDir(rootDir, id), { recursive: true });
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const deadline = Date.now() + timeoutMs;
   for (;;) {
@@ -104,7 +110,7 @@ export function withLockSync<T>(
   fn: () => T,
   opts: { timeoutMs?: number } = {},
 ): T {
-  fs.mkdirSync(lockDir(rootDir), { recursive: true });
+  fs.mkdirSync(lockDir(rootDir, id), { recursive: true });
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const deadline = Date.now() + timeoutMs;
   for (;;) {

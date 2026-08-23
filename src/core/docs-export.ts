@@ -6,6 +6,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { listNodes } from "./node.js";
+import { toGraphDir, workspaceOf } from "./graph-dir.js";
 import { AdrStatus, NodeType, type NodeSchema } from "./types.js";
 
 export interface DocsExportResult {
@@ -109,13 +110,14 @@ export function runDocsExport(
   rootDir: string,
   opts: { adrDir?: string; ctxDir?: string } = {},
 ): DocsExportResult {
-  const nodes = listNodes(rootDir);
+  const nodes = listNodes(toGraphDir(rootDir));
   const adrs = nodes.filter((n) => n.type === NodeType.Adr);
   const contexts = nodes.filter((n) => n.type === NodeType.Context);
   const written: string[] = [];
 
   // ADR → docs/adr/NNNN-slug.md
-  const adrDir = path.join(rootDir, opts.adrDir ?? "docs/adr");
+  const wsRoot = workspaceOf(rootDir); // 产物落工作区根（即使 rootDir 是图目录）
+  const adrDir = path.join(wsRoot, opts.adrDir ?? "docs/adr");
   fs.mkdirSync(adrDir, { recursive: true });
   for (const a of adrs) {
     const num = adrNumber(a.id);
@@ -123,19 +125,19 @@ export function runDocsExport(
     retireStaleSlugFiles(adrDir, num, canonical);
     const file = path.join(adrDir, canonical);
     fs.writeFileSync(file, renderAdr(a), "utf-8");
-    written.push(path.relative(rootDir, file));
+    written.push(path.relative(wsRoot, file));
   }
 
   // context → CONTEXT-MAP.md + docs/contexts/<id>.md
   if (contexts.length > 0) {
-    const ctxDir = path.join(rootDir, opts.ctxDir ?? "docs/contexts");
+    const ctxDir = path.join(wsRoot, opts.ctxDir ?? "docs/contexts");
     fs.mkdirSync(ctxDir, { recursive: true });
     for (const c of contexts) {
       const file = path.join(ctxDir, `${c.id}.md`);
       fs.writeFileSync(file, renderContextFile(c), "utf-8");
-      written.push(path.relative(rootDir, file));
+      written.push(path.relative(wsRoot, file));
     }
-    fs.writeFileSync(path.join(rootDir, "CONTEXT-MAP.md"), renderContextMap(contexts), "utf-8");
+    fs.writeFileSync(path.join(wsRoot, "CONTEXT-MAP.md"), renderContextMap(contexts), "utf-8");
     written.push("CONTEXT-MAP.md");
   }
 

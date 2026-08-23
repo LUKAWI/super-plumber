@@ -7,12 +7,13 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as yaml from "js-yaml";
-import { GRAPH_DIR, type NodeSchema } from "./types.js";
+import { type NodeSchema } from "./types.js";
 import { listNodeFileNames, listEdgeFileNames } from "./schema.js";
 import { appendEvent } from "./eventlog.js";
 import { withLockSync } from "./lock.js";
 import { rebuildGraphRefs } from "./parser.js";
 import { runDocsExport } from "./docs-export.js";
+import { toGraphDir } from "./graph-dir.js";
 
 export interface SnapshotFileEntry {
   file: string; // 相对 .graph/ 的路径（正斜杠）
@@ -45,7 +46,7 @@ const SNAPSHOTS_DIR = "snapshots";
 const MANIFEST = "manifest.yaml";
 
 function snapshotsDir(rootDir: string): string {
-  return path.join(rootDir, GRAPH_DIR, SNAPSHOTS_DIR);
+  return path.join(toGraphDir(rootDir), SNAPSHOTS_DIR);
 }
 
 function snapPath(rootDir: string, id: string): string {
@@ -114,7 +115,7 @@ function createSnapshotUnlocked(
   fs.mkdirSync(target, { recursive: true });
   const files: SnapshotFileEntry[] = [];
   for (const rel of collectSourceFiles(rootDir)) {
-    const src = path.join(rootDir, GRAPH_DIR, rel);
+    const src = path.join(toGraphDir(rootDir), rel);
     const dest = path.join(target, rel);
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     fs.copyFileSync(src, dest);
@@ -157,7 +158,7 @@ function nodeStatusOf(
 ): string | null {
   let file: string;
   if (fromId === null) {
-    file = path.join(rootDir, GRAPH_DIR, rel);
+    file = path.join(toGraphDir(rootDir), rel);
   } else {
     file = path.join(snapPath(rootDir, fromId), rel);
   }
@@ -230,7 +231,7 @@ function sideFiles(rootDir: string, id: string | null): string[] {
 function shaOf(rootDir: string, id: string | null, rel: string): string {
   const file =
     id === null
-      ? path.join(rootDir, GRAPH_DIR, rel)
+      ? path.join(toGraphDir(rootDir), rel)
       : path.join(snapPath(rootDir, id), rel);
   try {
     return hashFile(file);
@@ -295,8 +296,8 @@ function rollbackToSnapshotUnlocked(
     { actor: opts.actor },
   );
 
-  const nodesDir = path.join(rootDir, GRAPH_DIR, "nodes");
-  const edgesDir = path.join(rootDir, GRAPH_DIR, "edges");
+  const nodesDir = path.join(toGraphDir(rootDir), "nodes");
+  const edgesDir = path.join(toGraphDir(rootDir), "edges");
   const removedByDesignRollback: string[] = [];
 
   if (!opts.designOnly) {
@@ -315,7 +316,7 @@ function rollbackToSnapshotUnlocked(
     // 3. 从快照恢复
     for (const entry of snap.files) {
       const src = path.join(snapPath(rootDir, id), entry.file);
-      const dest = path.join(rootDir, GRAPH_DIR, entry.file);
+      const dest = path.join(toGraphDir(rootDir), entry.file);
       fs.mkdirSync(path.dirname(dest), { recursive: true });
       fs.copyFileSync(src, dest);
     }
@@ -347,7 +348,7 @@ function rollbackToSnapshotUnlocked(
     // 2b. graph.yaml 与边文件全量恢复；节点文件字段级合并（保留执行态）
     for (const entry of snap.files) {
       const src = path.join(snapPath(rootDir, id), entry.file);
-      const dest = path.join(rootDir, GRAPH_DIR, entry.file);
+      const dest = path.join(toGraphDir(rootDir), entry.file);
       fs.mkdirSync(path.dirname(dest), { recursive: true });
       if (!entry.file.startsWith("nodes/")) {
         fs.copyFileSync(src, dest);

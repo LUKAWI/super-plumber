@@ -1,5 +1,6 @@
 import * as chokidar from "chokidar";
 import * as path from "node:path";
+import { toGraphDir } from "../core/graph-dir.js";
 
 export type FileChangeEvent = {
   type: "add" | "change" | "unlink";
@@ -11,7 +12,7 @@ export function createWatcher(
   rootDir: string,
   onChange: (event: FileChangeEvent) => void,
 ) {
-  const watchDir = path.join(rootDir, ".graph");
+  const watchDir = toGraphDir(rootDir); // v0.5.2：监听图目录（多图重构在 webui_multi 节点）
   const watcher = chokidar.watch(watchDir, {
     // 排除内部/派生目录与软删除历史：
     // - index/：派生缓存（graph rebuild 产物，写入会引发自触发风暴）

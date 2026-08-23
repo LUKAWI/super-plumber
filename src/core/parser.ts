@@ -19,6 +19,7 @@ import {
   formatIssues,
 } from "./schema.js";
 import { withLockSync } from "./lock.js";
+import { toGraphDir } from "./graph-dir.js";
 import { appendEvent } from "./eventlog.js";
 // 循环依赖说明：index-service ← parser（读原语）与 parser ← index-service
 //（invalidateIndex 写后失效）互为环，但两侧都只在函数体内调用对方导出，
@@ -28,8 +29,9 @@ import { invalidateIndex } from "./index-service.js";
 export { SchemaValidationError, formatIssues };
 
 export function ensureGraphDir(rootDir: string): void {
-  fs.mkdirSync(path.join(rootDir, NODES_DIR), { recursive: true });
-  fs.mkdirSync(path.join(rootDir, EDGES_DIR), { recursive: true });
+  const g = toGraphDir(rootDir);
+  fs.mkdirSync(path.join(g, NODES_DIR), { recursive: true });
+  fs.mkdirSync(path.join(g, EDGES_DIR), { recursive: true });
 }
 
 function enoent(file: string): Error & { code: string } {
@@ -42,7 +44,7 @@ function enoent(file: string): Error & { code: string } {
 export function readGraph(rootDir: string): GraphSchema {
   const res = loadGraphFile(rootDir);
   if (res.ok) return res.data;
-  if (res.enoent) throw enoent(path.join(rootDir, GRAPH_FILE));
+  if (res.enoent) throw enoent(path.join(toGraphDir(rootDir), GRAPH_FILE));
   throw new SchemaValidationError(
     GRAPH_FILE,
     res.issues,
@@ -53,13 +55,13 @@ export function readGraph(rootDir: string): GraphSchema {
 export function writeGraph(rootDir: string, graph: GraphSchema): void {
   ensureGraphDir(rootDir);
   const content = yaml.dump(graph, { indent: 2, lineWidth: 120 });
-  fs.writeFileSync(path.join(rootDir, GRAPH_FILE), content, "utf-8");
+  fs.writeFileSync(path.join(toGraphDir(rootDir), GRAPH_FILE), content, "utf-8");
   invalidateIndex(rootDir);
 }
 
 // ── Node ──
 export function nodeFilePath(rootDir: string, id: string): string {
-  return path.join(rootDir, NODES_DIR, `${id}.yaml`);
+  return path.join(toGraphDir(rootDir), NODES_DIR, `${id}.yaml`);
 }
 
 export function readNode(rootDir: string, id: string): NodeSchema {
@@ -216,7 +218,7 @@ export function deleteEdge(
 
 // ── Edge ──
 export function edgeFilePath(rootDir: string, id: string): string {
-  return path.join(rootDir, EDGES_DIR, `${id}.yaml`);
+  return path.join(toGraphDir(rootDir), EDGES_DIR, `${id}.yaml`);
 }
 
 export function readEdge(rootDir: string, id: string): EdgeSchema {

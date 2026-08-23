@@ -194,9 +194,10 @@ export interface GraphSchema {
   root_context?: Record<string, unknown>;
 }
 
-// ── 目录常量 ──
-export const GRAPH_DIR = ".graph";
-export const NODES_DIR = ".graph/nodes";
-export const EDGES_DIR = ".graph/edges";
-export const INDEX_DIR = ".graph/index";
-export const GRAPH_FILE = ".graph/graph.yaml";
+// ── 目录常量（v0.5.2：图内相对——相对"图目录"而非工作区根；
+// 图目录 = .graph/<名>/（多图）或 .graph/（旧布局原地=default）。归一化见 graph-dir.ts）──
+export const GRAPH_DIR = ".graph"; // 工作区级：多图与工作区状态（active/workspace-events/.trash）的容器
+export const NODES_DIR = "nodes";
+export const EDGES_DIR = "edges";
+export const INDEX_DIR = "index";
+export const GRAPH_FILE = "graph.yaml";

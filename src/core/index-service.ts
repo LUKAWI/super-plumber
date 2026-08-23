@@ -33,6 +33,7 @@ import {
 import { listNodeFileNames, listEdgeFileNames } from "./schema.js";
 import { readNode, readEdge } from "./parser.js";
 import { adrFlagsFor } from "./domain.js";
+import { toGraphDir } from "./graph-dir.js";
 
 export interface GraphIndex {
   nodes: NodeSchema[];
@@ -91,15 +92,16 @@ export function resetIndexCache(): void {
 }
 
 function allSourcePaths(rootDir: string): string[] {
-  const files: string[] = [path.join(rootDir, GRAPH_FILE)];
+  const g = toGraphDir(rootDir);
+  const files: string[] = [path.join(g, GRAPH_FILE)];
   files.push(
-    ...listNodeFileNames(rootDir).map((f) => path.join(rootDir, NODES_DIR, f)),
+    ...listNodeFileNames(rootDir).map((f) => path.join(g, NODES_DIR, f)),
   );
   files.push(
-    ...listEdgeFileNames(rootDir).map((f) => path.join(rootDir, EDGES_DIR, f)),
+    ...listEdgeFileNames(rootDir).map((f) => path.join(g, EDGES_DIR, f)),
   );
   // 目录 mtime 感知增删（内容修改不更新目录 mtime，因此必须逐文件比对）
-  files.push(path.join(rootDir, NODES_DIR), path.join(rootDir, EDGES_DIR));
+  files.push(path.join(g, NODES_DIR), path.join(g, EDGES_DIR));
   return files;
 }
 
@@ -118,7 +120,7 @@ function isFresh(rootDir: string, builtAt: number): boolean {
 }
 
 function loadDiskCache(rootDir: string): MemCacheEntry | null {
-  const cacheFile = path.join(rootDir, INDEX_DIR, "graph.json");
+  const cacheFile = path.join(toGraphDir(rootDir), INDEX_DIR, "graph.json");
   if (!fs.existsSync(cacheFile)) return null;
   let cacheStat: fs.Stats;
   try {
@@ -173,7 +175,7 @@ function loadDiskCache(rootDir: string): MemCacheEntry | null {
 
 function writeDiskCache(rootDir: string, index: GraphIndex): void {
   try {
-    const dir = path.join(rootDir, INDEX_DIR);
+    const dir = path.join(toGraphDir(rootDir), INDEX_DIR);
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(
       path.join(dir, "graph.json"),
@@ -203,7 +205,7 @@ export function buildGraphIndex(
   rootDir: string,
   opts: { useCache?: boolean } = {},
 ): GraphIndex {
-  const key = path.resolve(rootDir);
+  const key = path.resolve(toGraphDir(rootDir)); // 归一缓存键：工作区根/图目录两种传法命中同一缓存
   if (opts.useCache) {
     const mem = memCache.get(key);
     if (mem && isFresh(rootDir, mem.builtAt)) return mem.index;
@@ -229,7 +231,7 @@ export function buildGraphIndex(
 export function invalidateIndex(rootDir: string): void {
   memCache.delete(path.resolve(rootDir));
   try {
-    fs.rmSync(path.join(rootDir, INDEX_DIR, "graph.json"), { force: true });
+    fs.rmSync(path.join(toGraphDir(rootDir), INDEX_DIR, "graph.json"), { force: true });
   } catch {
     /* 磁盘缓存删除失败不影响正确性（下次 isFresh 会回源重建） */
   }

@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { readGraph } from "../core/parser.js";
 import { buildGraphIndex } from "../core/graph.js";
+import { listGraphNames, toGraphDir } from "../core/graph-dir.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -10,14 +11,14 @@ export const rebuildCommand = new Command("rebuild").alias("rb")
     const rootDir = process.cwd();
 
     // 未初始化时直接报错，不自动创建 index/（避免半初始化假成功）
-    if (!fs.existsSync(path.join(rootDir, ".graph", "graph.yaml"))) {
+    if (listGraphNames(rootDir).length === 0) {
       console.error(
-        `❌ 未找到 ${rootDir}/.graph/graph.yaml，请先运行 graph init`,
+        `❌ 未找到 ${rootDir}/.graph/ 下的任何图，请先运行 graph init`,
       );
       process.exit(1);
     }
 
-    const indexPath = path.join(rootDir, ".graph", "index");
+    const indexPath = path.join(toGraphDir(rootDir), "index");
 
     // 确保 index/ 目录存在
     fs.mkdirSync(indexPath, { recursive: true });

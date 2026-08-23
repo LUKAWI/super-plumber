@@ -8,6 +8,7 @@ import { buildGraphIndex, type GraphIndex } from "../core/graph.js";
 import { getNode } from "../core/node.js";
 import { readGraph } from "../core/parser.js";
 import { createWatcher, type FileChangeEvent } from "./watcher.js";
+import { toGraphDir } from "../core/graph-dir.js";
 import { listSnapshots, diffSnapshot } from "../core/snapshot.js";
 
 // 静态资源根目录：dist/web/server.js → ../../web-ui/dist
@@ -246,7 +247,7 @@ export function startServer(
     const actualPort = typeof addr === "object" && addr !== null ? addr.port : port;
     const url = `http://localhost:${actualPort}`;
     console.log(`🌐 拓扑图可视化服务: ${url}`);
-    console.log(`📁 监控目录: ${path.join(rootDir, ".graph")}`);
+    console.log(`📁 监控目录: ${toGraphDir(rootDir)}`);
     if (options.open !== false) openBrowser(url);
   });
 

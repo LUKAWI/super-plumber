@@ -40,6 +40,7 @@ import {
   listSnapshots,
 } from "../core/snapshot.js";
 import { NodeType, NodeStatus, AdrStatus, EdgeType, isKnowledgeType } from "../core/types.js";
+import { listGraphNames, resolveGraphDir } from "../core/graph-dir.js";
 import { VERSION } from "../version.js";
 
 // ── 图目录定位（全局配置一次、随项目自动跟随）──
@@ -62,15 +63,27 @@ function resolveFixedRoot(): string | null {
 
 const fixedRoot = resolveFixedRoot();
 
-/** 从 start 向上查找最近的 .graph/graph.yaml 所在目录；找不到返回 null */
+/** 从 start 向上查找最近的工作区（含 .graph/ 的目录——旧布局或多图均可）；找不到返回 null */
 function findGraphRoot(start: string): string | null {
   let dir = path.resolve(start);
   for (;;) {
-    if (fs.existsSync(path.join(dir, ".graph", "graph.yaml"))) return dir;
+    if (fs.existsSync(path.join(dir, ".graph"))) return dir;
     const parent = path.dirname(dir);
     if (parent === dir) return null;
     dir = parent;
   }
+}
+
+// v0.5.2：进程内 active 图（仅本 MCP server 进程——每个 agent 独立，互不影响工作区默认）。
+// graph_switch 工具写它；graph_list_graphs/无参查询读它。
+let processActiveGraph: string | null = null;
+
+export function setProcessActiveGraph(name: string | null): void {
+  processActiveGraph = name;
+}
+
+export function getProcessActiveGraph(): string | null {
+  return processActiveGraph;
 }
 
 const ROOTS_TTL_MS = 5_000;
@@ -81,17 +94,23 @@ const server = new McpServer({
   version: VERSION,
 });
 
+// v0.5.2：返回**图目录**（不再是工作区根）。优先级链与 CLI 一致：
+// SUPER_PLUMBER_GRAPH 环境变量 > 进程内 active（graph_switch 设置）> .graph/active > default。
+// MCP 不接受每次调用的 --graph 参数——进程用 graph_switch 切一次，后续调用全走它。
 async function resolveGraphRoot(): Promise<string> {
   const root = await locateRoot();
-  const graphFile = path.join(root, ".graph", "graph.yaml");
-  if (!fs.existsSync(graphFile)) {
+  const names = listGraphNames(root);
+  if (names.length === 0 && !fs.existsSync(path.join(root, ".graph", "graph.yaml"))) {
     throw new Error(
-      `图目录未初始化：定位到 ${root}，但不存在 .graph/graph.yaml。` +
+      `图目录未初始化：定位到 ${root}，但 .graph/ 下没有任何图。` +
         `请在该项目目录运行 graph init（CLI），或用 --root <dir> / ` +
         `SUPER_PLUMBER_ROOT 环境变量显式指定图所在目录。`,
     );
   }
-  return root;
+  return resolveGraphDir(root, {
+    env: process.env.SUPER_PLUMBER_GRAPH,
+    processActive: processActiveGraph ?? undefined,
+  }).dir;
 }
 
 async function locateRoot(): Promise<string> {

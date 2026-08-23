@@ -18,6 +18,7 @@ import {
   type EdgeSchema,
   type GraphSchema,
 } from "./types.js";
+import { toGraphDir } from "./graph-dir.js";
 
 export interface SchemaIssue {
   field: string;
@@ -396,7 +397,7 @@ function loadYamlFile<T>(
 }
 
 export function listNodeFileNames(rootDir: string): string[] {
-  const dir = path.join(rootDir, NODES_DIR);
+  const dir = path.join(toGraphDir(rootDir), NODES_DIR);
   if (!fs.existsSync(dir)) return [];
   if (!fs.statSync(dir).isDirectory()) {
     throw new Error(`nodes 目录损坏（存在同名文件）: ${dir}`);
@@ -407,7 +408,7 @@ export function listNodeFileNames(rootDir: string): string[] {
 }
 
 export function listEdgeFileNames(rootDir: string): string[] {
-  const dir = path.join(rootDir, EDGES_DIR);
+  const dir = path.join(toGraphDir(rootDir), EDGES_DIR);
   if (!fs.existsSync(dir)) return [];
   if (!fs.statSync(dir).isDirectory()) {
     throw new Error(`edges 目录损坏（存在同名文件）: ${dir}`);
@@ -418,13 +419,13 @@ export function listEdgeFileNames(rootDir: string): string[] {
 }
 
 export function loadNodeFile(rootDir: string, fileName: string): LoadResult<NodeSchema> {
-  return loadYamlFile<NodeSchema>(path.join(rootDir, NODES_DIR, fileName), validateNode);
+  return loadYamlFile<NodeSchema>(path.join(toGraphDir(rootDir), NODES_DIR, fileName), validateNode);
 }
 
 export function loadEdgeFile(rootDir: string, fileName: string): LoadResult<EdgeSchema> {
-  return loadYamlFile<EdgeSchema>(path.join(rootDir, EDGES_DIR, fileName), validateEdge);
+  return loadYamlFile<EdgeSchema>(path.join(toGraphDir(rootDir), EDGES_DIR, fileName), validateEdge);
 }
 
 export function loadGraphFile(rootDir: string): LoadResult<GraphSchema> {
-  return loadYamlFile<GraphSchema>(path.join(rootDir, GRAPH_FILE), validateGraph);
+  return loadYamlFile<GraphSchema>(path.join(toGraphDir(rootDir), GRAPH_FILE), validateGraph);
 }
