@@ -2,6 +2,7 @@
 // FIX-C1：读取 append-only 事件日志（.graph/events.jsonl）。
 // 长程任务流排障入口：谁在何时认领/流转/越权/重置/回滚了什么。
 import { Command } from "commander";
+import { cliGraphDir } from "./graph-ctx.js";
 import { readEvents } from "../core/eventlog.js";
 
 export const eventsCommand = new Command("events")
@@ -12,7 +13,7 @@ export const eventsCommand = new Command("events")
   .option("--json", "JSON 输出")
   .action((options) => {
     const last = parseInt(options.last, 10);
-    const all = readEvents(process.cwd(), {
+    const all = readEvents(cliGraphDir(process.cwd()), {
       ...(options.node ? { node: options.node } : {}),
       ...(options.kind ? { kind: options.kind } : {}),
     });

@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { cliGraphDir } from "./graph-ctx.js";
 import { getNode, checkReadyGate, getGoverningAdrs } from "../core/node.js";
 import { buildGraphIndex } from "../core/graph.js";
 import { allowedTransitionsFor, aggregateCheckpointStatus } from "../core/state-machine.js";
@@ -14,7 +15,7 @@ export const getNodeCommand = new Command("get-node").alias("gn")
     "none",
   )
   .action((options) => {
-    const rootDir = process.cwd();
+    const rootDir = cliGraphDir(process.cwd());
     try {
       const node = getNode(rootDir, options.id);
       const allowed = allowedTransitionsFor(node);

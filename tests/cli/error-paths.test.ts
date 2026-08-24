@@ -34,7 +34,7 @@ function run(args: string[]) {
 }
 
 function init() {
-  const r = run(["init"]);
+  const r = run(["init", "t"]);
   expect(r.status).toBe(0);
 }
 
@@ -70,7 +70,7 @@ describe("CLI error paths (regression)", () => {
     expect(r.status).toBe(1);
     expect(r.stderr).toContain("非法");
     const content = fs.readFileSync(
-      path.join(tmpDir, ".graph/nodes/a.yaml"),
+      path.join(tmpDir, ".graph/t/nodes/a.yaml"),
       "utf-8",
     );
     expect(content).not.toContain("done");
@@ -88,7 +88,7 @@ describe("CLI error paths (regression)", () => {
     ]);
     expect(r.status).toBe(0);
     const content = fs.readFileSync(
-      path.join(tmpDir, ".graph/nodes/a.yaml"),
+      path.join(tmpDir, ".graph/t/nodes/a.yaml"),
       "utf-8",
     );
     expect(content).toContain("passed");
@@ -104,8 +104,8 @@ describe("CLI error paths (regression)", () => {
     init();
     run(["create-node", "--id", "a", "--label", "A"]);
     // 把 nodes 目录换成同名文件 → listNodes readdirSync 抛错
-    fs.rmSync(path.join(tmpDir, ".graph/nodes"), { recursive: true, force: true });
-    fs.writeFileSync(path.join(tmpDir, ".graph/nodes"), "not a directory");
+    fs.rmSync(path.join(tmpDir, ".graph/t/nodes"), { recursive: true, force: true });
+    fs.writeFileSync(path.join(tmpDir, ".graph/t/nodes"), "not a directory");
     const r = run(["validate"]);
     expect(r.status).toBe(1);
     expect(r.stderr).toContain("无法读取 nodes/ 目录");
@@ -114,8 +114,8 @@ describe("CLI error paths (regression)", () => {
   it("BUG-06c validate edges 目录损坏 → exit 1 而非假成功", () => {
     init();
     run(["create-node", "--id", "a", "--label", "A"]);
-    fs.rmSync(path.join(tmpDir, ".graph/edges"), { recursive: true, force: true });
-    fs.writeFileSync(path.join(tmpDir, ".graph/edges"), "not a directory");
+    fs.rmSync(path.join(tmpDir, ".graph/t/edges"), { recursive: true, force: true });
+    fs.writeFileSync(path.join(tmpDir, ".graph/t/edges"), "not a directory");
     const r = run(["validate"]);
     expect(r.status).toBe(1);
     expect(r.stderr).toContain("无法读取 edges/ 目录");
@@ -124,7 +124,7 @@ describe("CLI error paths (regression)", () => {
   it("BUG-07 rebuild 未 init → exit 1 且不自动创建 index", () => {
     const r = run(["rebuild"]);
     expect(r.status).toBe(1);
-    expect(fs.existsSync(path.join(tmpDir, ".graph/index/graph.json"))).toBe(
+    expect(fs.existsSync(path.join(tmpDir, ".graph/t/index/graph.json"))).toBe(
       false,
     );
   });
@@ -163,9 +163,9 @@ describe("CLI error paths (regression)", () => {
     init();
     run(["create-node", "--id", "a", "--label", "A"]);
     // 手工写一条指向不存在节点的边（模拟历史数据/手工编辑）
-    fs.mkdirSync(path.join(tmpDir, ".graph/edges"), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, ".graph/t/edges"), { recursive: true });
     fs.writeFileSync(
-      path.join(tmpDir, ".graph/edges/e1.yaml"),
+      path.join(tmpDir, ".graph/t/edges/e1.yaml"),
       "id: e1\nsource: a\ntarget: ghost\ntype: depends_on\n",
     );
     const r = run(["status"]);
@@ -176,16 +176,18 @@ describe("CLI error paths (regression)", () => {
   it("BUG-10 create-node 未 init → exit 1（不创建孤儿节点）", () => {
     const r = run(["create-node", "--id", "x", "--label", "X"]);
     expect(r.status).toBe(1);
-    expect(fs.existsSync(path.join(tmpDir, ".graph/nodes/x.yaml"))).toBe(false);
+    expect(fs.existsSync(path.join(tmpDir, ".graph/t/nodes/x.yaml"))).toBe(false);
   });
 
   it("BUG-11 重复 init → exit 1 且不覆盖原 label", () => {
-    const r1 = run(["init", "--label", "First"]);
+    const r1 = run(["init",
+        "t", "--label", "First"]);
     expect(r1.status).toBe(0);
-    const r2 = run(["init", "--label", "Second"]);
+    const r2 = run(["init",
+        "t", "--label", "Second"]);
     expect(r2.status).toBe(1);
     const content = fs.readFileSync(
-      path.join(tmpDir, ".graph/graph.yaml"),
+      path.join(tmpDir, ".graph/t/graph.yaml"),
       "utf-8",
     );
     expect(content).toContain("First");
@@ -193,11 +195,13 @@ describe("CLI error paths (regression)", () => {
   });
 
   it("BUG-11b 重复 init --force 允许覆盖", () => {
-    run(["init", "--label", "First"]);
-    const r = run(["init", "--label", "Second", "--force"]);
+    run(["init",
+        "t", "--label", "First"]);
+    const r = run(["init",
+        "t", "--label", "Second", "--force"]);
     expect(r.status).toBe(0);
     const content = fs.readFileSync(
-      path.join(tmpDir, ".graph/graph.yaml"),
+      path.join(tmpDir, ".graph/t/graph.yaml"),
       "utf-8",
     );
     expect(content).toContain("Second");
@@ -264,7 +268,7 @@ describe("CLI error paths (regression)", () => {
     ]);
     expect(r.status).toBe(0);
     const content = fs.readFileSync(
-      path.join(tmpDir, ".graph/nodes/a.yaml"),
+      path.join(tmpDir, ".graph/t/nodes/a.yaml"),
       "utf-8",
     );
     expect(content).toContain("agent-1");
@@ -315,7 +319,7 @@ describe("CLI error paths (regression)", () => {
     expect(r.status).toBe(1);
     expect(r.stderr).toContain("e1");
     // 节点未被删除
-    expect(fs.existsSync(path.join(tmpDir, ".graph/nodes/a.yaml"))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, ".graph/t/nodes/a.yaml"))).toBe(true);
   });
 
   it("DEL-02 delete-node --cascade 连同引用边软删除", () => {
@@ -325,10 +329,10 @@ describe("CLI error paths (regression)", () => {
     run(["add-edge", "--id", "e1", "--source", "a", "--target", "b"]);
     const r = run(["delete-node", "--id", "a", "--cascade"]);
     expect(r.status).toBe(0);
-    expect(fs.existsSync(path.join(tmpDir, ".graph/nodes/a.yaml"))).toBe(false);
-    expect(fs.existsSync(path.join(tmpDir, ".graph/nodes/a.deleted.yaml"))).toBe(true);
-    expect(fs.existsSync(path.join(tmpDir, ".graph/edges/e1.yaml"))).toBe(false);
-    expect(fs.existsSync(path.join(tmpDir, ".graph/edges/e1.deleted.yaml"))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, ".graph/t/nodes/a.yaml"))).toBe(false);
+    expect(fs.existsSync(path.join(tmpDir, ".graph/t/nodes/a.deleted.yaml"))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, ".graph/t/edges/e1.yaml"))).toBe(false);
+    expect(fs.existsSync(path.join(tmpDir, ".graph/t/edges/e1.deleted.yaml"))).toBe(true);
     // validate 不报悬挂引用
     const v = run(["validate"]);
     expect(v.stdout).toContain("0 错误");
@@ -341,7 +345,7 @@ describe("CLI error paths (regression)", () => {
     run(["add-edge", "--id", "e1", "--source", "a", "--target", "b"]);
     const ok = run(["delete-edge", "--id", "e1"]);
     expect(ok.status).toBe(0);
-    expect(fs.existsSync(path.join(tmpDir, ".graph/edges/e1.deleted.yaml"))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, ".graph/t/edges/e1.deleted.yaml"))).toBe(true);
     const missing = run(["delete-edge", "--id", "ghost"]);
     expect(missing.status).toBe(1);
     expect(missing.stderr).toContain("not found");
@@ -351,7 +355,7 @@ describe("CLI error paths (regression)", () => {
     init();
     run(["create-node", "--id", "a", "--label", "A"]);
     fs.writeFileSync(
-      path.join(tmpDir, ".graph/nodes/a.yaml"),
+      path.join(tmpDir, ".graph/t/nodes/a.yaml"),
       "id: a\nlabel: A\nstatus: runnig\nattempts: 0\nmax_attempts: 3\n",
     );
     const r = run(["validate"]);

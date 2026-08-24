@@ -1,8 +1,8 @@
 // src/cli/create-node.ts
 import { Command } from "commander";
+import { cliGraphDir } from "./graph-ctx.js";
 import { createNode } from "../core/node.js";
 import { NodeType } from "../core/types.js";
-import { listGraphNames } from "../core/graph-dir.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -23,7 +23,7 @@ export const createNodeCommand = new Command("create-node").alias("cn")
     [] as string[],
   )
   .action((options) => {
-    const rootDir = process.cwd();
+    const rootDir = cliGraphDir(process.cwd());
     const type = options.type as NodeType;
     if (!Object.values(NodeType).includes(type)) {
       console.error(
@@ -32,9 +32,10 @@ export const createNodeCommand = new Command("create-node").alias("cn")
       process.exit(1);
     }
     // 未初始化时拒绝创建（避免写入孤儿节点文件形成半初始化状态）
-    if (listGraphNames(rootDir).length === 0) {
+    // v0.5.2：rootDir 已是图目录——直接检查 graph.yaml 存在性
+    if (!fs.existsSync(path.join(rootDir, "graph.yaml"))) {
       console.error(
-        `❌ 未找到 ${rootDir}/.graph/graph.yaml，请先运行 graph init`,
+        `❌ 未找到图（${rootDir} 无 graph.yaml），请先运行 graph init <内容名>`,
       );
       process.exit(1);
     }

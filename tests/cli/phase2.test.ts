@@ -31,7 +31,8 @@ function runOk(args: string[]): string {
 }
 
 function init() {
-  runOk(["init", "-l", "P2 测试图"]);
+  runOk(["init",
+        "t", "-l", "P2 测试图"]);
 }
 
 describe("graph update-graph", () => {
@@ -40,7 +41,7 @@ describe("graph update-graph", () => {
     runOk(["update-graph", "--entry-desc", "入口需求"]);
     runOk(["update-graph", "--exit-desc", "交付标准"]);
     runOk(["update-graph", "--add-criteria", "c1", "--add-criteria", "c2"]);
-    const content = fs.readFileSync(path.join(tmpDir, ".graph/graph.yaml"), "utf-8");
+    const content = fs.readFileSync(path.join(tmpDir, ".graph/t/graph.yaml"), "utf-8");
     expect(content).toContain("入口需求");
     expect(content).toContain("交付标准");
     expect(content).toContain("c1");
@@ -54,7 +55,7 @@ describe("graph update-graph", () => {
     init();
     runOk(["update-graph", "--add-criteria", "c1"]);
     runOk(["update-graph", "--clear-criteria"]);
-    const content = fs.readFileSync(path.join(tmpDir, ".graph/graph.yaml"), "utf-8");
+    const content = fs.readFileSync(path.join(tmpDir, ".graph/t/graph.yaml"), "utf-8");
     expect(content).not.toContain("c1");
   });
 
@@ -68,7 +69,7 @@ describe("graph update-graph", () => {
   it("未 init → exit 1 友好报错", () => {
     const r = run(["update-graph", "--label", "x"]);
     expect(r.status).toBe(1);
-    expect(r.stderr).toContain("init");
+    expect(r.stderr).toContain("init", "t");
   });
 });
 
@@ -100,7 +101,7 @@ describe("graph verdict", () => {
     init();
     runOk(["create-node", "-i", "a", "-l", "A"]);
     runOk(["verdict", "-i", "a", "--verdict", "failed", "--note", "产物缺失"]);
-    const content = fs.readFileSync(path.join(tmpDir, ".graph/nodes/a.yaml"), "utf-8");
+    const content = fs.readFileSync(path.join(tmpDir, ".graph/t/nodes/a.yaml"), "utf-8");
     expect(content).toContain("verdict: failed");
     expect(content).toContain("产物缺失");
     const bad = run(["verdict", "-i", "a", "--verdict", "maybe"]);
@@ -185,8 +186,8 @@ describe("graph snapshot / snapshots / diff / rollback", () => {
     const rb = run(["rollback", snapId, "--confirm"]);
     expect(rb.status).toBe(0);
     expect(rb.stdout).toContain("已回滚");
-    expect(fs.existsSync(path.join(tmpDir, ".graph/nodes/b.yaml"))).toBe(false);
-    const aContent = fs.readFileSync(path.join(tmpDir, ".graph/nodes/a.yaml"), "utf-8");
+    expect(fs.existsSync(path.join(tmpDir, ".graph/t/nodes/b.yaml"))).toBe(false);
+    const aContent = fs.readFileSync(path.join(tmpDir, ".graph/t/nodes/a.yaml"), "utf-8");
     expect(aContent).toContain("status: pending");
 
     // 快照列表含 pre-rollback 备份

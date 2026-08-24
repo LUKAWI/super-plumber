@@ -24,6 +24,8 @@ import { diffCommand } from "./diff.js";
 import { rollbackCommand } from "./rollback.js";
 import { eventsCommand } from "./events.js";
 import { adrCommand } from "./adr.js";
+import { switchCommand, listGraphsCommand, renameGraphCommand, deleteGraphCommand } from "./graph-ops.js";
+import { setGraphOverride } from "./graph-ctx.js";
 
 const program = new Command();
 
@@ -55,5 +57,21 @@ program.addCommand(diffCommand);
 program.addCommand(rollbackCommand);
 program.addCommand(eventsCommand);
 program.addCommand(adrCommand);
+program.addCommand(switchCommand);
+program.addCommand(listGraphsCommand);
+program.addCommand(renameGraphCommand);
+program.addCommand(deleteGraphCommand);
+
+// v0.5.2：--graph 参数对全部数据命令可用（init/switch/list/rename-graph/delete-graph
+// 自带图名参数除外）。preAction 钩子统一收集，graph-ctx 的五级链解析消费。
+const GRAPH_SELF_NAMED = new Set(["init", "i", "switch", "sw", "list", "ls", "rename-graph", "rg", "delete-graph", "dg", "serve"]);
+for (const cmd of program.commands) {
+  if (!GRAPH_SELF_NAMED.has(cmd.name()) && !cmd.options.some((o) => o.long === "--graph")) {
+    cmd.option("--graph <名>", "目标图（缺省按 SUPER_PLUMBER_GRAPH > .graph/active > default 解析）");
+  }
+}
+program.hook("preAction", (_thisCmd, actionCmd) => {
+  setGraphOverride(actionCmd.opts()?.graph);
+});
 
 program.parse(process.argv);

@@ -1,5 +1,6 @@
 // src/cli/status.ts
 import { Command } from "commander";
+import { cliGraphCtx } from "./graph-ctx.js";
 import { readGraph } from "../core/parser.js";
 import { listNodes } from "../core/node.js";
 import { listEdges } from "../core/edge.js";
@@ -9,7 +10,8 @@ export const statusCommand = new Command("status").alias("s")
   .description("显示当前拓扑图状态")
   .option("--json", "输出稳定 JSON（供脚本/agent 消费）")
   .action((options) => {
-    const rootDir = process.cwd();
+    const gctx = cliGraphCtx(process.cwd());
+    const rootDir = gctx.dir;
     let graph: ReturnType<typeof readGraph>;
     try {
       graph = readGraph(rootDir);
@@ -18,7 +20,7 @@ export const statusCommand = new Command("status").alias("s")
         console.log(JSON.stringify({ error: err.message }, null, 2));
       } else {
         console.error(
-          `❌ 未找到 ${rootDir}/.graph/graph.yaml，请先运行 graph init`,
+          `❌ 未找到图（${rootDir} 无 graph.yaml），请先运行 graph init <内容名>`,
         );
       }
       process.exit(1);
@@ -66,7 +68,7 @@ export const statusCommand = new Command("status").alias("s")
       process.exit(topo.ok ? 0 : 1);
     }
 
-    console.log(`图: ${graph.label} (${graph.id})`);
+    console.log(`图: ${gctx.name} — ${graph.label} (${graph.id})`);
     console.log(`节点数: ${nodes.length}`);
     console.log(`边数: ${edges.length}`);
     console.log(`\n节点状态分布:`);

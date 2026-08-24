@@ -42,12 +42,12 @@ function run(args: string): string {
 }
 
 function readNode(id: string): any {
-  return fs.readFileSync(path.join(tmpDir, `.graph/nodes/${id}.yaml`), "utf-8");
+  return fs.readFileSync(path.join(tmpDir, `.graph/t/nodes/${id}.yaml`), "utf-8");
 }
 
 describe("v0.5 graph adr 命令组", () => {
   it("adr create 自动编号 adr_0001 并落 proposed + adr_created 事件", () => {
-    run("init");
+    run("init t");
     const out = run(
       'adr create --title "纯文件存储" --decision "YAML 存 .graph/，不用数据库" --why "Git 是唯一真相源"',
     );
@@ -56,16 +56,16 @@ describe("v0.5 graph adr 命令组", () => {
     expect(yaml).toContain("status: proposed");
     expect(yaml).toContain("decision:");
     expect(yaml).toContain("why: Git 是唯一真相源");
-    const events = fs.readFileSync(path.join(tmpDir, ".graph/events.jsonl"), "utf-8");
+    const events = fs.readFileSync(path.join(tmpDir, ".graph/t/events.jsonl"), "utf-8");
     expect(events).toContain("adr_created");
 
     // 第二篇编号递增
     run('adr create --title "第二个决策" --decision "x"');
-    expect(fs.existsSync(path.join(tmpDir, ".graph/nodes/adr_0002.yaml"))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, ".graph/t/nodes/adr_0002.yaml"))).toBe(true);
   });
 
   it("adr accept：proposed → accepted；list 按状态过滤", () => {
-    run("init");
+    run("init t");
     run('adr create --title "决策一" --decision "d1"');
     run('adr create --title "决策二" --decision "d2"');
     const out = run("adr accept --id adr_0001");
@@ -76,7 +76,7 @@ describe("v0.5 graph adr 命令组", () => {
   });
 
   it("adr supersede --by 原子完成（状态+接替者）；--by 不存在时拒绝", () => {
-    run("init");
+    run("init t");
     run('adr create --title "旧决策" --decision "old"');
     run('adr create --title "新决策" --decision "new"');
     run("adr accept --id adr_0001");
@@ -94,7 +94,7 @@ describe("v0.5 graph adr 命令组", () => {
   });
 
   it("context 顶点拒绝状态变更（update-status 报错）", () => {
-    run("init");
+    run("init t");
     run('create-node --id ctx_1 --type context --label "上下文"');
     const err = runFailArr(["update-status", "--id", "ctx_1", "--status", "ready"]);
     expect(err).toContain("context");
@@ -103,14 +103,14 @@ describe("v0.5 graph adr 命令组", () => {
 
 describe("v0.5 领域参数", () => {
   it("create-node --context 创建即归属", () => {
-    run("init");
+    run("init t");
     run('create-node --id ctx_1 --type context --label "上下文"');
     run('create-node --id t1 --label 任务 --context ctx_1');
     expect(readNode("t1")).toContain("context: ctx_1");
   });
 
   it("update-node --set-context/--boundary/--glossary-add", () => {
-    run("init");
+    run("init t");
     run('create-node --id ctx_1 --type context --label "上下文"');
     run('update-node --id ctx_1 --boundary "负责订单；不负责计费"');
     runArr([
@@ -133,7 +133,7 @@ describe("v0.5 领域参数", () => {
   });
 
   it("add-edge --type decides/relates + --rel-kind + --contract", () => {
-    run("init");
+    run("init t");
     run('create-node --id ctx_a --type context --label A');
     run('create-node --id ctx_b --type context --label B');
     run('create-node --id t1 --label T1 --context ctx_a');
@@ -155,10 +155,10 @@ describe("v0.5 领域参数", () => {
       '{"produces":"订单事件"}',
     ]);
     expect(readNode("ctx_b").length > 0).toBe(true);
-    const r1 = fs.readFileSync(path.join(tmpDir, ".graph/edges/r1.yaml"), "utf-8");
+    const r1 = fs.readFileSync(path.join(tmpDir, ".graph/t/edges/r1.yaml"), "utf-8");
     expect(r1).toContain("relates");
     expect(r1).toContain("rel_kind: upstream-downstream");
-    const e1 = fs.readFileSync(path.join(tmpDir, ".graph/edges/e1.yaml"), "utf-8");
+    const e1 = fs.readFileSync(path.join(tmpDir, ".graph/t/edges/e1.yaml"), "utf-8");
     expect(e1).toContain("produces: 订单事件");
     // 契约边齐备 → validate 无跨 context 契约/领域类警告（entry/exit 为空的既有警告不算）
     const v = run("validate --json");
@@ -171,7 +171,7 @@ describe("v0.5 领域参数", () => {
 
 describe("v0.5 graph export", () => {
   it("ADR → docs/adr/NNNN-slug.md；context → CONTEXT-MAP.md + docs/contexts/", () => {
-    run("init");
+    run("init t");
     run('adr create --title "纯文件系统存储" --decision "YAML 落盘" --why "Git 是真相源"');
     run("adr accept --id adr_0001");
     run('create-node --id ctx_1 --type context --label "订单上下文"');

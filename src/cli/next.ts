@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { cliGraphCtx } from "./graph-ctx.js";
 import { computeNextActions } from "../core/graph.js";
 
 export const nextCommand = new Command("next").alias("n")
@@ -10,16 +11,18 @@ export const nextCommand = new Command("next").alias("n")
   )
   .option("--json", "输出稳定 JSON（供脚本/agent 消费）")
   .action((options) => {
-    const rootDir = process.cwd();
+    const gctx = cliGraphCtx(process.cwd());
+    const rootDir = gctx.dir;
     try {
       const result = computeNextActions(rootDir, {
         staleMs: parseInt(options.staleMs, 10),
       });
 
       if (options.json) {
-        console.log(JSON.stringify(result, null, 2));
+        console.log(JSON.stringify({ graph: gctx.name, ...result }, null, 2));
         return;
       }
+      console.log(`图: ${gctx.name}`);
 
       const s = result.summary;
       console.log(

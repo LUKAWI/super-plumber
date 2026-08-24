@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { cliGraphDir } from "./graph-ctx.js";
 import { updateExecutionReport } from "../core/node.js";
 
 export const verdictCommand = new Command("verdict").alias("vd")
@@ -7,7 +8,7 @@ export const verdictCommand = new Command("verdict").alias("vd")
   .requiredOption("--verdict <v>", "pending|passed|failed")
   .option("--note <text>", "裁决说明")
   .action((options) => {
-    const rootDir = process.cwd();
+    const rootDir = cliGraphDir(process.cwd());
     const verdicts = ["pending", "passed", "failed"];
     if (!verdicts.includes(options.verdict)) {
       console.error(`❌ 非法 verdict: ${options.verdict}。允许: ${verdicts.join(", ")}`);

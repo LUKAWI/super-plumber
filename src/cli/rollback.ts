@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { cliGraphDir } from "./graph-ctx.js";
 import { rollbackToSnapshot } from "../core/snapshot.js";
 
 export const rollbackCommand = new Command("rollback").alias("rol")
@@ -10,7 +11,7 @@ export const rollbackCommand = new Command("rollback").alias("rol")
     "只回滚设计态（plan/DoD/checkpoints/label/边/graph.yaml），保留执行进度（status/attempts/execution_report）；快照后新增的节点会被删除",
   )
   .action((snapshotId: string, options) => {
-    const rootDir = process.cwd();
+    const rootDir = cliGraphDir(process.cwd());
     try {
       const { restored, backup } = rollbackToSnapshot(rootDir, snapshotId, {
         confirm: !!options.confirm,

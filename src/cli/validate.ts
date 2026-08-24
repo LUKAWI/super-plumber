@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { cliGraphDir } from "./graph-ctx.js";
 import { readGraph } from "../core/parser.js";
 import { topologicalSort, detectCycles, detectHiddenCycles } from "../core/graph.js";
 import { validateDomainRules } from "../core/domain.js";
@@ -16,7 +17,7 @@ export const validateCommand = new Command("validate").alias("v")
   .description("校验整个拓扑图的结构完整性（schema + 引用 + 拓扑 + 环）")
   .option("--json", "输出稳定 JSON（供脚本/agent 消费）")
   .action((options) => {
-    const rootDir = process.cwd();
+    const rootDir = cliGraphDir(process.cwd());
     const jsonMode = !!options.json;
     const jsonErrors: string[] = [];
     const jsonWarnings: string[] = [];

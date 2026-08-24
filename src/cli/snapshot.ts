@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { cliGraphDir } from "./graph-ctx.js";
 import { execSync } from "node:child_process";
 import { createSnapshot, listSnapshots } from "../core/snapshot.js";
 
@@ -7,7 +8,7 @@ export const snapshotCommand = new Command("snapshot").alias("sp")
   .option("-m, --message <text>", "快照说明")
   .option("--git", "同时执行 git add .graph && git commit（验收标准 7：Git 快照）")
   .action((options) => {
-    const rootDir = process.cwd();
+    const rootDir = cliGraphDir(process.cwd());
     try {
       const snap = createSnapshot(rootDir, options.message, { actor: "cli" });
       console.log(`✅ 已创建快照: ${snap.id}`);
@@ -33,7 +34,7 @@ export const snapshotsCommand = new Command("snapshots").alias("sps")
   .description("列出全部版本快照")
   .option("--json", "输出稳定 JSON")
   .action((options) => {
-    const rootDir = process.cwd();
+    const rootDir = cliGraphDir(process.cwd());
     try {
       const snaps = listSnapshots(rootDir);
       if (options.json) {

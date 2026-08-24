@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { cliGraphDir } from "./graph-ctx.js";
 import { getNode, updateNodeContent, buildNodeUpdates } from "../core/node.js";
 import { CHECKPOINT_STATUSES } from "../core/checkpoint.js";
 
@@ -37,7 +38,7 @@ export const updateNodeCommand = new Command("update-node").alias("un")
   )
   .option("--show", "显示当前节点内容")
   .action((options) => {
-    const rootDir = process.cwd();
+    const rootDir = cliGraphDir(process.cwd());
 
     try {
       if (options.show) {

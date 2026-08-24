@@ -1,5 +1,6 @@
 // src/cli/add-edge.ts
 import { Command } from "commander";
+import { cliGraphDir } from "./graph-ctx.js";
 import { createEdge } from "../core/edge.js";
 import { listNodes } from "../core/node.js";
 import { EdgeType } from "../core/types.js";
@@ -16,7 +17,7 @@ export const addEdgeCommand = new Command("add-edge").alias("ae")
     '契约（JSON：{"produces":"...","consumed_by":[...],"validation":{...}}；跨 context 工作流边必填）',
   )
   .action((options) => {
-    const rootDir = process.cwd();
+    const rootDir = cliGraphDir(process.cwd());
     const type = options.type as EdgeType;
     if (!Object.values(EdgeType).includes(type)) {
       console.error(

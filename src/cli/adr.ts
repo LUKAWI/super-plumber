@@ -2,6 +2,7 @@
 // 提议（create，任何 agent/人）与裁决（accept/supersede，Super Mario/人类）分离：
 // 创建即落 proposed；accept/supersede 是裁决动作，事件日志全程留痕。
 import { Command } from "commander";
+import { cliGraphDir } from "./graph-ctx.js";
 import { createAdr, supersedeAdr, updateNodeStatus, listNodes } from "../core/node.js";
 import { AdrStatus, NodeType } from "../core/types.js";
 
@@ -17,7 +18,7 @@ export const adrCommand = new Command("adr")
       .option("-w, --why <text>", "为什么选这个（Why）")
       .option("-c, --consequences <text>", "后果与代价（Consequences）")
       .action((options) => {
-        const rootDir = process.cwd();
+        const rootDir = cliGraphDir(process.cwd());
         try {
           const adr = createAdr(
             rootDir,
@@ -50,7 +51,7 @@ export const adrCommand = new Command("adr")
       .description("采纳 ADR（proposed → accepted；裁决方 Super Mario/人类用）")
       .requiredOption("-i, --id <adr_id>", "ADR ID（如 adr_0003）")
       .action((options) => {
-        const rootDir = process.cwd();
+        const rootDir = cliGraphDir(process.cwd());
         try {
           const adr = updateNodeStatus(rootDir, options.id, AdrStatus.Accepted, undefined, {
             actor: "cli",
@@ -68,7 +69,7 @@ export const adrCommand = new Command("adr")
       .requiredOption("-i, --id <adr_id>", "要废弃的 ADR ID")
       .requiredOption("--by <adr_id>", "接替者 ADR ID（必填；superseded 必须有接替者）")
       .action((options) => {
-        const rootDir = process.cwd();
+        const rootDir = cliGraphDir(process.cwd());
         try {
           const adr = supersedeAdr(rootDir, options.id, options.by, { actor: "cli" });
           console.log(
@@ -86,7 +87,7 @@ export const adrCommand = new Command("adr")
       .description("列出 ADR 顶点（默认全部，可按状态过滤）")
       .option("-s, --status <status>", "proposed | accepted | superseded")
       .action((options) => {
-        const rootDir = process.cwd();
+        const rootDir = cliGraphDir(process.cwd());
         const adrs = listNodes(rootDir).filter((n) => n.type === NodeType.Adr);
         const filtered =
           options.status !== undefined

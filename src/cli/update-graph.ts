@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { cliGraphDir } from "./graph-ctx.js";
 import { updateGraph } from "../core/parser.js";
 
 export const updateGraphCommand = new Command("update-graph").alias("ug")
@@ -15,7 +16,7 @@ export const updateGraphCommand = new Command("update-graph").alias("ug")
   .option("--clear-criteria", "清空验收标准列表")
   .option("--set-context <json>", '设置 root_context（JSON 对象，如 {"tech":"ts"}）')
   .action((options) => {
-    const rootDir = process.cwd();
+    const rootDir = cliGraphDir(process.cwd());
     try {
       const params: Parameters<typeof updateGraph>[1] = {};
       if (options.label !== undefined) params.label = options.label;

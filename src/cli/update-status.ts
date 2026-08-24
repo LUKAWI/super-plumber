@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { cliGraphCtx } from "./graph-ctx.js";
 import { updateNodeStatus, getGoverningAdrs } from "../core/node.js";
 import { NodeStatus, isKnowledgeType } from "../core/types.js";
 
@@ -18,7 +19,8 @@ export const updateStatusCommand = new Command("update-status").alias("us")
     "跳过 ready 前置门禁 / max_attempts 拦截（仅人类运维使用，agent 禁用）",
   )
   .action((options) => {
-    const rootDir = process.cwd();
+    const gctx = cliGraphCtx(process.cwd());
+    const rootDir = gctx.dir;
     const status = options.status as NodeStatus;
     if (!Object.values(NodeStatus).includes(status)) {
       console.error(
@@ -31,7 +33,7 @@ export const updateStatusCommand = new Command("update-status").alias("us")
         force: !!options.force,
         actor: "cli",
       });
-      console.log(`✅ ${options.id}: ${node.status}`);
+      console.log(`✅ [图 ${gctx.name}] ${options.id}: ${node.status}`);
       // v0.5：claim 时注入管辖 ADR 指针（标题级；agent 按需 get-node 取全文）
       if (status === NodeStatus.Running && !isKnowledgeType(node.type)) {
         const gov = getGoverningAdrs(rootDir, options.id);

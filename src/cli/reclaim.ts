@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { cliGraphDir } from "./graph-ctx.js";
 import { reclaimNode } from "../core/node.js";
 
 export const reclaimCommand = new Command("reclaim").alias("rc")
@@ -6,7 +7,7 @@ export const reclaimCommand = new Command("reclaim").alias("rc")
   .requiredOption("-i, --id <id>", "节点 ID")
   .option("--by <actor>", "回收操作者（记录进 execution_report.notes）")
   .action((options) => {
-    const rootDir = process.cwd();
+    const rootDir = cliGraphDir(process.cwd());
     try {
       const node = reclaimNode(rootDir, options.id, options.by);
       console.log(`✅ ${node.id}: running → pending（已回收死认领，可重新调度）`);

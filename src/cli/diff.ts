@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { cliGraphDir } from "./graph-ctx.js";
 import { diffSnapshot, listSnapshots } from "../core/snapshot.js";
 
 export const diffCommand = new Command("diff").alias("d")
@@ -7,7 +8,7 @@ export const diffCommand = new Command("diff").alias("d")
   .option("--to <snapshot-id>", "目标快照（默认当前工作区）")
   .option("--json", "输出稳定 JSON")
   .action((options) => {
-    const rootDir = process.cwd();
+    const rootDir = cliGraphDir(process.cwd());
     try {
       let fromId: string | null = options.from ?? null;
       if (fromId === null && options.to === undefined) {

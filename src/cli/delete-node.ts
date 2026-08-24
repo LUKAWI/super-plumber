@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { cliGraphDir } from "./graph-ctx.js";
 import { deleteNode } from "../core/parser.js";
 
 export const deleteNodeCommand = new Command("delete-node").alias("dn")
@@ -9,7 +10,7 @@ export const deleteNodeCommand = new Command("delete-node").alias("dn")
     "连同引用该节点的所有边一起软删除（默认：有引用边时报错拒绝）",
   )
   .action((options) => {
-    const rootDir = process.cwd();
+    const rootDir = cliGraphDir(process.cwd());
     try {
       deleteNode(rootDir, options.id, { cascade: !!options.cascade, actor: "cli" });
       console.log(`✅ 已删除节点: ${options.id}`);

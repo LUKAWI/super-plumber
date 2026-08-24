@@ -2,53 +2,85 @@
 import { Command } from "commander";
 import { writeGraph } from "../core/parser.js";
 import { VERSION } from "../version.js";
+import { createGraph, listGraphNames, writeWorkspaceDefault, trashGraph } from "../core/graph-dir.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
 export const initCommand = new Command("init").alias("i")
-  .description("在当前目录初始化 .graph/ 结构")
-  .option("-l, --label <label>", "图名称", "untitled")
-  .option("-f, --force", "已初始化时强制覆盖（慎用，会重置引用列表）")
-  .action((options) => {
+  .description("初始化图：新仓库必须带图名（内容命名，如 refactor-auth）；旧仓库带名 init = 一次性迁移 + 建新图")
+  .argument("[name]", "图名（^小写[a-z0-9-]，内容命名；新仓库必填）")
+  .option("-l, --label <label>", "图显示名", "untitled")
+  .option("-f, --force", "（仅旧式无名单图）已初始化时强制覆盖，慎用")
+  .action((name: string | undefined, options) => {
     const rootDir = process.cwd();
+    const existing = listGraphNames(rootDir);
+    const isLegacySingle = existing.length > 0 &&
+      fs.existsSync(path.join(rootDir, ".graph", "graph.yaml"));
+
+    // schema.yaml：工作区级文档（无论单图/多图都写在 .graph/ 根）
+    const writeSchemaDoc = () =>
+      fs.writeFileSync(path.join(rootDir, ".graph", "schema.yaml"), SCHEMA_DOC, "utf-8");
+
+    if (name !== undefined) {
+      // 带名 init：v0.5.2 语义——建图（旧布局会在此触发一次性迁移，锁内原子）
+      try {
+        const wasLegacy = isLegacySingle;
+        // --force：已存在的同名图原地重置（旧语义保留；软删除旧目录可救回）
+        if (options.force && existing.includes(name)) {
+          trashGraph(rootDir, name, "cli");
+          console.log(`📦 已存在同名图 "${name}"，--force 已将旧图移入 .trash/ 后重建`);
+        }
+        createGraph(rootDir, name, options.label, { actor: "cli", version: VERSION });
+        if (wasLegacy) {
+          console.log(`📦 旧布局已一次性迁移至 .graph/default/（建第二图触发，锁内原子）`);
+        }
+        writeSchemaDoc();
+        // 新图建好即设为工作区默认（建它就是为了干活）
+        writeWorkspaceDefault(rootDir, name, "cli");
+        console.log(`✅ 已创建图 "${name}" 并设为工作区默认: ${path.join(rootDir, ".graph", name)}`);
+        console.log(`   切换：graph switch <名>；列举：graph list`);
+      } catch (err: any) {
+        console.error(`❌ ${err.message}`);
+        process.exit(1);
+      }
+      return;
+    }
+
+    // 无名 init：仅保留旧式单图兼容路径（已有多图/已迁移的工作区拒绝）
     const graphFile = path.join(rootDir, ".graph", "graph.yaml");
-    // 重复 init：默认拒绝（避免静默覆盖已有图的 label/id/引用列表），--force 才覆盖
-    if (fs.existsSync(graphFile) && !options.force) {
+    if (existing.length > 0 && !isLegacySingle) {
       console.error(
-        `❌ ${graphFile} 已存在，请勿重复初始化（如需重置请加 --force）`,
+        `❌ 本工作区已有多张图（${existing.join(", ")}）。请带图名创建：graph init <内容名> -l "<显示名>"`,
       );
       process.exit(1);
     }
+    if (fs.existsSync(graphFile) && !options.force) {
+      console.error(`❌ ${graphFile} 已存在，请勿重复初始化（如需重置请加 --force）`);
+      process.exit(1);
+    }
+    if (!fs.existsSync(graphFile)) {
+      // 新仓库无名单图 init：v0.5.2 起要求内容命名（default 式指代不清的名称禁止）
+      console.error(
+        `❌ 新仓库初始化必须带图名（内容命名）：graph init <名> -l "<显示名>"，如 graph init refactor-auth -l "认证重构"`,
+      );
+      process.exit(1);
+    }
+    // --force 重置旧式单图
     const graph = {
       id: `graph_${Date.now()}`,
       version: VERSION,
       label: options.label,
-      entry: {
-        description: "",
-        defined_by: "human" as const,
-        level: 0,
-      },
-      exit: {
-        description: "",
-        acceptance_criteria: [],
-        defined_by: "human" as const,
-        level: 0,
-      },
+      entry: { description: "", defined_by: "human" as const, level: 0 },
+      exit: { description: "", acceptance_criteria: [], defined_by: "human" as const, level: 0 },
       nodes: [],
       edges: [],
     };
     writeGraph(rootDir, graph);
-    // 完整目录骨架（需求 4.7：nodes/edges/snapshots/index）
     for (const d of ["nodes", "edges", "snapshots", "index"]) {
       fs.mkdirSync(path.join(rootDir, ".graph", d), { recursive: true });
     }
-    // schema.yaml：人类可读的 schema 说明（需求 4.7 存储结构；运行时校验在 core/schema.ts）
-    fs.writeFileSync(
-      path.join(rootDir, ".graph", "schema.yaml"),
-      SCHEMA_DOC,
-      "utf-8",
-    );
-    console.log(`✅ 已初始化 .graph/ 目录: ${rootDir}`);
+    writeSchemaDoc();
+    console.log(`✅ 已重置旧式单图: ${rootDir}`);
   });
 
 // 人类可读 schema 说明（校验的文档化对应物，随版本更新）

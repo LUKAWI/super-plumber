@@ -1,19 +1,20 @@
 import { Command } from "commander";
+import { cliGraphDir } from "./graph-ctx.js";
 import { readGraph } from "../core/parser.js";
 import { buildGraphIndex } from "../core/graph.js";
-import { listGraphNames, toGraphDir } from "../core/graph-dir.js";
+import { toGraphDir } from "../core/graph-dir.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
 export const rebuildCommand = new Command("rebuild").alias("rb")
   .description("从源文件重建 index/ 派生索引（graph.json 完整数据 + meta.json + topology.dot）")
   .action(() => {
-    const rootDir = process.cwd();
+    const rootDir = cliGraphDir(process.cwd());
 
     // 未初始化时直接报错，不自动创建 index/（避免半初始化假成功）
-    if (listGraphNames(rootDir).length === 0) {
+    if (!fs.existsSync(path.join(rootDir, "graph.yaml"))) {
       console.error(
-        `❌ 未找到 ${rootDir}/.graph/ 下的任何图，请先运行 graph init`,
+        `❌ 未找到图（${rootDir} 无 graph.yaml），请先运行 graph init <内容名>`,
       );
       process.exit(1);
     }

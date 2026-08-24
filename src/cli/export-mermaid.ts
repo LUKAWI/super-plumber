@@ -1,5 +1,6 @@
 // src/cli/export-mermaid.ts
 import { Command } from "commander";
+import { cliGraphDir } from "./graph-ctx.js";
 import { listNodes } from "../core/node.js";
 import { listEdges } from "../core/edge.js";
 import { runDocsExport } from "../core/docs-export.js";
@@ -28,7 +29,7 @@ export const exportMermaidCommand = new Command("export").alias("x")
   .option("--ctx-dir <dir>", "--docs 模式：context 文档输出目录", "docs/contexts")
   .option("-o, --output <file>", "Mermaid 输出文件路径", "topology.mmd")
   .action((options) => {
-    const rootDir = process.cwd();
+    const rootDir = cliGraphDir(process.cwd());
 
     // v0.5 文档视图模式：图为真相源，md 是可重生成的视图
     if (options.docs) {
