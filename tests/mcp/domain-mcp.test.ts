@@ -33,7 +33,7 @@ describe("MCP v0.5 领域语义", () => {
   beforeAll(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "topo-mcp-v5-"));
     const cli = path.resolve(process.cwd(), "dist/cli/index.js");
-    execSync(`node "${cli}" init`, { cwd: tmpDir });
+    execSync(`node "${cli}" init t`, { cwd: tmpDir });
     execSync(`node "${cli}" create-node --id t1 --label T1`, { cwd: tmpDir });
     client = await connectServer(tmpDir);
   });
@@ -76,7 +76,7 @@ describe("MCP v0.5 领域语义", () => {
       },
     });
     expect(r.isError).toBeFalsy();
-    const yaml = fs.readFileSync(path.join(tmpDir, ".graph/nodes/ctx_1.yaml"), "utf-8");
+    const yaml = fs.readFileSync(path.join(tmpDir, ".graph/t/nodes/ctx_1.yaml"), "utf-8");
     expect(yaml).toContain("boundary: 订单生命周期；不含计费");
     expect(yaml).toContain("term: 订单");
 

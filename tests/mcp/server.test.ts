@@ -31,7 +31,7 @@ describe("MCP server protocol compliance", () => {
     // 初始化一个图 + 节点（用绝对路径，vitest 工作目录可能不同）
     const { execSync } = await import("node:child_process");
     const cli = path.resolve(process.cwd(), "dist/cli/index.js");
-    execSync(`node "${cli}" init`, { cwd: tmpDir });
+    execSync(`node "${cli}" init t`, { cwd: tmpDir });
     execSync(`node "${cli}" create-node --id a --label A`, { cwd: tmpDir });
     client = await connectServer(tmpDir);
   });

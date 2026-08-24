@@ -36,7 +36,7 @@ describe("MCP phase 3 — agent-native toolset", () => {
   beforeAll(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "topo-mcp3-"));
     const cli = path.resolve(process.cwd(), "dist/cli/index.js");
-    execSync(`node "${cli}" init -l "MCP3"`, { cwd: tmpDir });
+    execSync(`node "${cli}" init t -l "MCP3"`, { cwd: tmpDir });
     client = await connectServer(tmpDir);
   });
 
@@ -133,7 +133,7 @@ describe("MCP phase 3 — agent-native toolset", () => {
       add_criteria: ["验收标准1"],
     });
     expect(r.isError).toBeFalsy();
-    const content = fs.readFileSync(path.join(tmpDir, ".graph/graph.yaml"), "utf-8");
+    const content = fs.readFileSync(path.join(tmpDir, ".graph/t/graph.yaml"), "utf-8");
     expect(content).toContain("构建一个示例系统");
     expect(content).toContain("验收标准1");
   });
@@ -169,7 +169,7 @@ describe("MCP phase 3 — agent-native toolset", () => {
       edges: [{ id: "ex", source: "x1", target: "x2", type: "depends_on" }],
     });
     expect(ok.isError).toBeFalsy();
-    expect(textOf(ok)).toEqual({ ok: true, nodes: 2, edges: 1 });
+    expect(textOf(ok)).toEqual({ graph: "t", ok: true, nodes: 2, edges: 1 });
 
     // 冲突：重复 id + 幽灵引用，全部报出
     const conflicts = await call(client, "graph_batch_create", {

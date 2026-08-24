@@ -27,6 +27,7 @@ import {
   listNodes,
 } from "../core/node.js";
 import { createEdge as createEdgeOp, listEdges } from "../core/edge.js";
+import { readGraph } from "../core/parser.js";
 import { deleteNode, deleteEdge, updateGraph, rebuildGraphRefs } from "../core/parser.js";
 import {
   buildGraphIndex,
@@ -40,7 +41,7 @@ import {
   listSnapshots,
 } from "../core/snapshot.js";
 import { NodeType, NodeStatus, AdrStatus, EdgeType, isKnowledgeType } from "../core/types.js";
-import { listGraphNames, resolveGraphDir } from "../core/graph-dir.js";
+import { listGraphNames, resolveGraphDir, didYouMean } from "../core/graph-dir.js";
 import { VERSION } from "../version.js";
 
 // ── 图目录定位（全局配置一次、随项目自动跟随）──
@@ -94,10 +95,10 @@ const server = new McpServer({
   version: VERSION,
 });
 
-// v0.5.2：返回**图目录**（不再是工作区根）。优先级链与 CLI 一致：
+// v0.5.2：返回**图上下文**（dir/name/source）。优先级链与 CLI 一致：
 // SUPER_PLUMBER_GRAPH 环境变量 > 进程内 active（graph_switch 设置）> .graph/active > default。
 // MCP 不接受每次调用的 --graph 参数——进程用 graph_switch 切一次，后续调用全走它。
-async function resolveGraphRoot(): Promise<string> {
+async function resolveGraphCtx(): Promise<{ dir: string; name: string; source: string; wsRoot: string }> {
   const root = await locateRoot();
   const names = listGraphNames(root);
   if (names.length === 0 && !fs.existsSync(path.join(root, ".graph", "graph.yaml"))) {
@@ -107,10 +108,11 @@ async function resolveGraphRoot(): Promise<string> {
         `SUPER_PLUMBER_ROOT 环境变量显式指定图所在目录。`,
     );
   }
-  return resolveGraphDir(root, {
+  const r = resolveGraphDir(root, {
     env: process.env.SUPER_PLUMBER_GRAPH,
     processActive: processActiveGraph ?? undefined,
-  }).dir;
+  });
+  return { dir: r.dir, name: r.name, source: r.source, wsRoot: root };
 }
 
 async function locateRoot(): Promise<string> {
@@ -166,6 +168,180 @@ function jsonText(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
 }
 
+/**
+ * v0.5.2 兜底②：跨图智能纠错——操作当前图不存在的节点/边 id 时扫描兄弟图，
+ * 命中则在错误消息追加"它存在于图 X，请先 graph_switch"。仅错误路径触发（不碰热路径），
+ * 提示自动、切换绝不自动。多图命中全部列出。
+ */
+async function hintMissing<T>(
+  gctx: { wsRoot: string; name: string },
+  ids: string[],
+  fn: () => T,
+): Promise<T> {
+  try {
+    return fn();
+  } catch (err: any) {
+    const msg = String(err?.message ?? "");
+    if (/not found|不存在/.test(msg)) {
+      const siblings = listGraphNames(gctx.wsRoot).filter((n) => n !== gctx.name);
+      if (siblings.length > 0) {
+        const hits: string[] = [];
+        for (const n of siblings) {
+          const dir =
+            n === "default" && fs.existsSync(path.join(gctx.wsRoot, ".graph", "graph.yaml"))
+              ? path.join(gctx.wsRoot, ".graph")
+              : path.join(gctx.wsRoot, ".graph", n);
+          try {
+            for (const node of listNodes(dir)) {
+              if (ids.includes(node.id)) {
+                hits.push(`图 ${n}（节点 ${node.id}: ${node.label}）`);
+                break;
+              }
+            }
+          } catch {
+            /* 兄弟图不可读跳过 */
+          }
+        }
+        if (hits.length > 0) {
+          err.message = msg + ` ——它存在于 ${hits.join("、")}。如需操作请先 graph_switch 到对应图（提示不代切）`;
+        }
+      }
+    }
+    throw err;
+  }
+}
+
+/** v0.5.2 兜底①：全部工具响应统一附 "graph": "<名>"——agent 每次调用可自验落点 */
+function jsonGraph(gctx: { name: string }, data: unknown) {
+  const body =
+    data !== null && typeof data === "object" && !Array.isArray(data)
+      ? { graph: gctx.name, ...(data as object) }
+      : { graph: gctx.name, result: data };
+  return jsonText(body);
+}
+
+
+// ════════════════════ v0.5.2 多图：切换与列举 ════════════════════
+
+interface GraphBrief {
+  name: string;
+  label: string;
+  nodeCount: number;
+  edgeCount: number;
+  running: number;
+  passed: number;
+  lastActivity: string | null;
+  isCurrent: boolean;
+}
+
+function graphBriefOf(wsRoot: string, name: string, current: string): GraphBrief {
+  const dir =
+    name === "default" && fs.existsSync(path.join(wsRoot, ".graph", "graph.yaml"))
+      ? path.join(wsRoot, ".graph")
+      : path.join(wsRoot, ".graph", name);
+  let label = name;
+  try {
+    label = readGraph(dir).label;
+  } catch {
+    /* graph.yaml 损坏退回图名 */
+  }
+  const nodes = listNodes(dir);
+  const lastActivity =
+    nodes.map((n) => n.updated_at ?? "").sort().pop() || null;
+  return {
+    name,
+    label,
+    nodeCount: nodes.length,
+    edgeCount: listEdges(dir).length,
+    running: nodes.filter((n) => n.status === ("running" as never)).length,
+    passed: nodes.filter((n) => n.status === ("passed" as never)).length,
+    lastActivity,
+    isCurrent: name === current,
+  };
+}
+
+server.registerTool(
+  "graph_switch",
+  {
+    description:
+      "v0.5.2 切换本进程的目标图（类 git branch）：只改本 MCP server 进程内存的 active，" +
+      "不影响其它进程、不写 .graph/active（工作区默认用 CLI graph switch 改）；进程重启回落工作区默认。" +
+      "带 name：切换 + 返回目标图摘要（label/节点分布/最近活动）+ 原图在途 running 提示（不阻止）；" +
+      "不带 name：返回当前图信息（含命中来源）。图名不存在报错列出全部可用图 + did-you-mean。",
+    inputSchema: {
+      name: z.string().optional().describe("目标图名（缺省=查询当前图）"),
+    },
+  },
+  async ({ name }) => {
+    const gctx = await resolveGraphCtx();
+    if (name === undefined) {
+      return jsonGraph(gctx, {
+        current: { name: gctx.name, dir: gctx.dir, source: gctx.source },
+        available: listGraphNames(gctx.wsRoot),
+        note: "带 name 参数执行切换；本进程 active 不落盘，重启回落 .graph/active",
+      });
+    }
+    const names = listGraphNames(gctx.wsRoot);
+    if (!names.includes(name)) {
+      const hint = didYouMean(name, names);
+      throw new Error(
+        `图 "${name}" 不存在。可用: ${names.join(", ")}` +
+          (hint.length ? `（你是想切 ${hint.join(" / ")} 吗？）` : ""),
+      );
+    }
+    // 原图在途 running 提示（认领是节点级状态，切换不影响执行）
+    let runningNote: string | undefined;
+    if (gctx.name !== name) {
+      try {
+        const running = listNodes(gctx.dir).filter((n) => n.status === ("running" as never)).length;
+        if (running > 0) runningNote = `原图 ${gctx.name} 有 ${running} 个 running 节点在途（切换不影响它们继续执行）`;
+      } catch {
+        /* 原图不可读则跳过提示 */
+      }
+    }
+    setProcessActiveGraph(name);
+    const brief = graphBriefOf(gctx.wsRoot, name, name);
+    return jsonText({
+      graph: name,
+      switched: { from: gctx.name, to: name, persistent: false },
+      summary: brief,
+      ...(runningNote ? { note: runningNote } : {}),
+    });
+  },
+);
+
+server.registerTool(
+  "graph_list_graphs",
+  {
+    description:
+      "v0.5.2 列举工作区全部图（或查指定图详情）：名/label/节点数/running/passed/最近活动/is_current。与 CLI graph list 同构。",
+    inputSchema: {
+      name: z.string().optional().describe("图名（缺省列全部）"),
+    },
+  },
+  async ({ name }) => {
+    const gctx = await resolveGraphCtx();
+    const names = listGraphNames(gctx.wsRoot);
+    if (names.length === 0) {
+      throw new Error(`工作区 ${gctx.wsRoot} 没有任何图，请先 graph init <内容名>`);
+    }
+    if (name !== undefined) {
+      if (!names.includes(name)) {
+        const hint = didYouMean(name, names);
+        throw new Error(
+          `图 "${name}" 不存在。可用: ${names.join(", ")}` +
+            (hint.length ? `（你是想查 ${hint.join(" / ")} 吗？）` : ""),
+        );
+      }
+      return jsonGraph(gctx, graphBriefOf(gctx.wsRoot, name, gctx.name));
+    }
+    return jsonGraph(gctx, {
+      current: gctx.name,
+      graphs: names.map((n) => graphBriefOf(gctx.wsRoot, n, gctx.name)),
+    });
+  },
+);
+
 // ════════════════════ 读取 ════════════════════
 
 server.registerTool(
@@ -185,8 +361,9 @@ server.registerTool(
     },
   },
   async ({ id, include_neighbors }) => {
-    const rootDir = await resolveGraphRoot();
-    const node = getNode(rootDir, id);
+    const gctx = await resolveGraphCtx();
+    const rootDir = gctx.dir;
+    const node = await hintMissing(gctx, [id], () => getNode(rootDir, id));
     const result: Record<string, unknown> = {
       node,
       allowed_transitions: allowedTransitionsFor(node),
@@ -220,7 +397,7 @@ server.registerTool(
         result.neighbors_down = compact(index.adjacency.get(id) ?? []);
       }
     }
-    return jsonText(result);
+    return jsonGraph(gctx, result);
   },
 );
 
@@ -242,7 +419,8 @@ server.registerTool(
     },
   },
   async ({ mode, offset, limit }) => {
-    const rootDir = await resolveGraphRoot();
+    const gctx = await resolveGraphCtx();
+    const rootDir = gctx.dir;
     const index = buildGraphIndex(rootDir, { useCache: true });
     const page = index.nodes.slice(offset, offset + limit);
     const nodes =
@@ -256,7 +434,7 @@ server.registerTool(
             level: n.level,
             assigned_to: n.assigned_to,
           }));
-    return jsonText({
+    return jsonGraph(gctx, {
       total: index.nodes.length,
       offset,
       limit,
@@ -298,7 +476,8 @@ server.registerTool(
     },
   },
   async ({ stale_ms, limit, assigned_to }) => {
-    const rootDir = await resolveGraphRoot();
+    const gctx = await resolveGraphCtx();
+    const rootDir = gctx.dir;
     const r = computeNextActions(rootDir, { staleMs: stale_ms });
     const cap = <T>(list: T[]): T[] => list.slice(0, limit);
     const running = assigned_to
@@ -309,7 +488,7 @@ server.registerTool(
           running.some((x) => x.id === n.id),
         )
       : r.stale_running;
-    return jsonText({
+    return jsonGraph(gctx, {
       ready: cap(r.ready),
       ready_eligible: cap(r.ready_eligible),
       blocked: cap(r.blocked),
@@ -351,7 +530,8 @@ server.registerTool(
     },
   },
   async ({ node_id, direction, max_depth, max_nodes }) => {
-    const rootDir = await resolveGraphRoot();
+    const gctx = await resolveGraphCtx();
+    const rootDir = gctx.dir;
     const index = buildGraphIndex(rootDir, { useCache: true });
     // 起点不存在时明确报错（曾静默返回 [node_id] 误导 agent 以为节点存在）
     if (!index.adjacency.has(node_id)) {
@@ -377,7 +557,7 @@ server.registerTool(
       }
     }
     dfs(node_id, 0);
-    return jsonText({ nodes: result, truncated: result.length >= max_nodes });
+    return jsonGraph(gctx, { nodes: result, truncated: result.length >= max_nodes });
   },
 );
 
@@ -404,7 +584,8 @@ server.registerTool(
     },
   },
   async ({ query, status, type, assigned_to, level, limit }) => {
-    const rootDir = await resolveGraphRoot();
+    const gctx = await resolveGraphCtx();
+    const rootDir = gctx.dir;
     const nodes = listNodes(rootDir);
     const filtered = nodes.filter((n) => {
       if (query && !n.id.includes(query) && !n.label.includes(query)) return false;
@@ -414,7 +595,7 @@ server.registerTool(
       if (level !== undefined && n.level !== level) return false;
       return true;
     });
-    return jsonText({
+    return jsonGraph(gctx, {
       total: filtered.length,
       limit,
       nodes: filtered.slice(0, limit).map((n) => ({
@@ -460,7 +641,8 @@ server.registerTool(
     },
   },
   async ({ id, label, type, level, priority, context, plan_description, definition_of_done, checkpoints, assigned_to, max_attempts }) => {
-    const rootDir = await resolveGraphRoot();
+    const gctx = await resolveGraphCtx();
+    const rootDir = gctx.dir;
     const node = createNodeOp(rootDir, {
       id,
       label,
@@ -474,7 +656,7 @@ server.registerTool(
       assigned_to,
       max_attempts,
     }, { actor: "mcp" });
-    return jsonText(node);
+    return jsonGraph(gctx, node);
   },
 );
 
@@ -495,7 +677,8 @@ server.registerTool(
     },
   },
   async ({ title, decision, background, considered_options, why, consequences }) => {
-    const rootDir = await resolveGraphRoot();
+    const gctx = await resolveGraphCtx();
+    const rootDir = gctx.dir;
     const adr = createAdr(
       rootDir,
       {
@@ -508,7 +691,7 @@ server.registerTool(
       },
       { actor: "mcp" },
     );
-    return jsonText(adr);
+    return jsonGraph(gctx, adr);
   },
 );
 
@@ -547,7 +730,8 @@ server.registerTool(
     },
   },
   async ({ nodes, edges }) => {
-    const rootDir = await resolveGraphRoot();
+    const gctx = await resolveGraphCtx();
+    const rootDir = gctx.dir;
     // 1. 全量预校验：报出全部冲突，不写盘
     const existingNodeIds = new Set(listNodes(rootDir).map((n) => n.id));
     const existingEdgeIds = new Set(listEdges(rootDir).map((e) => e.id));
@@ -619,7 +803,7 @@ server.registerTool(
       );
     }
     rebuildGraphRefs(rootDir);
-    return jsonText({ ok: true, nodes: nodes.length, edges: edges.length });
+    return jsonGraph(gctx, { ok: true, nodes: nodes.length, edges: edges.length });
   },
 );
 
@@ -644,16 +828,19 @@ server.registerTool(
     },
   },
   async ({ id, source, target, type, rel_kind, contract }) => {
-    const rootDir = await resolveGraphRoot();
-    const edge = createEdgeOp(rootDir, {
-      id,
-      source,
-      target,
-      type: type as EdgeType,
-      ...(rel_kind !== undefined ? { rel_kind } : {}),
-      ...(contract !== undefined ? { contract: contract as never } : {}),
-    }, { actor: "mcp" });
-    return jsonText(edge);
+    const gctx = await resolveGraphCtx();
+    const rootDir = gctx.dir;
+    const edge = await hintMissing(gctx, [source, target], () =>
+      createEdgeOp(rootDir, {
+        id,
+        source,
+        target,
+        type: type as EdgeType,
+        ...(rel_kind !== undefined ? { rel_kind } : {}),
+        ...(contract !== undefined ? { contract: contract as never } : {}),
+      } as never, { actor: "mcp" }),
+    );
+    return jsonGraph(gctx, edge);
   },
 );
 
@@ -694,8 +881,9 @@ server.registerTool(
     },
   },
   async ({ id, plan_description, add_dod, clear_dod, add_checkpoints, set_assigned_to, label, max_attempts, set_priority, set_context, boundary, glossary_add, superseded_by, reset_attempts }) => {
-    const rootDir = await resolveGraphRoot();
-    const node = getNode(rootDir, id);
+    const gctx = await resolveGraphCtx();
+    const rootDir = gctx.dir;
+    const node = await hintMissing(gctx, [id], () => getNode(rootDir, id));
     const updates = buildNodeUpdates(node, {
       ...(plan_description !== undefined ? { plan_description } : {}),
       ...(add_dod ? { add_dod } : {}),
@@ -713,7 +901,7 @@ server.registerTool(
     if (Object.keys(updates).length === 0 && !reset_attempts) {
       throw new Error("没有指定任何更新项（至少传一个可选参数）");
     }
-    return jsonText(
+    return jsonGraph(gctx, 
       updateNodeContent(rootDir, id, updates, {
         actor: "mcp",
         ...(reset_attempts ? { resetAttempts: true } : {}),
@@ -744,7 +932,8 @@ server.registerTool(
     },
   },
   async ({ id, status, claim_by, force }) => {
-    const rootDir = await resolveGraphRoot();
+    const gctx = await resolveGraphCtx();
+    const rootDir = gctx.dir;
     // FIX-A1（评审 A 级·信任模型）：MCP 是 agent 通道，force 在协议层面拒绝。
     // 保留 zod 形参以显式报错（剥离未知键会变成静默忽略，更危险）。
     if (force) {
@@ -753,17 +942,19 @@ server.registerTool(
           "若你是执行 agent：请按状态机/门禁规则走合法转换，不要绕过。",
       );
     }
-    const node = updateNodeStatus(rootDir, id, status as NodeStatus, claim_by, {
-      actor: "mcp",
-    });
+    const node = await hintMissing(gctx, [id], () =>
+      updateNodeStatus(rootDir, id, status as NodeStatus, claim_by, {
+        actor: "mcp",
+      }),
+    );
     // v0.5：claim（→running）响应附管辖 ADR 指针——agent 此刻最需要知道"依据哪些决策干活"
     if (node.status === NodeStatus.Running && !isKnowledgeType(node.type)) {
       const gov = getGoverningAdrs(rootDir, id);
       if (gov.current.length > 0 || gov.superseded.length > 0) {
-        return jsonText({ node, governing_adrs: gov });
+        return jsonGraph(gctx, { node, governing_adrs: gov });
       }
     }
-    return jsonText(node);
+    return jsonGraph(gctx, node);
   },
 );
 
@@ -779,8 +970,9 @@ server.registerTool(
     },
   },
   async ({ id, by }) => {
-    const rootDir = await resolveGraphRoot();
-    return jsonText(reclaimNode(rootDir, id, by ?? "mcp"));
+    const gctx = await resolveGraphCtx();
+    const rootDir = gctx.dir;
+    return jsonGraph(gctx, await hintMissing(gctx, [id], () => reclaimNode(rootDir, id, by ?? "mcp")));
   },
 );
 
@@ -797,8 +989,11 @@ server.registerTool(
     },
   },
   async ({ node_id, checkpoint_id, status }) => {
-    const rootDir = await resolveGraphRoot();
-    return jsonText(updateCheckpoint(rootDir, node_id, checkpoint_id, status, { actor: "mcp" }));
+    const gctx = await resolveGraphCtx();
+    const rootDir = gctx.dir;
+    return jsonGraph(gctx, await hintMissing(gctx, [node_id], () =>
+      updateCheckpoint(rootDir, node_id, checkpoint_id, status, { actor: "mcp" }),
+    ));
   },
 );
 
@@ -820,23 +1015,26 @@ server.registerTool(
     },
   },
   async ({ node_id, summary, artifacts, blockers, notes, verification }) => {
-    const rootDir = await resolveGraphRoot();
-    const node = updateExecutionReport(rootDir, node_id, {
-      summary,
-      artifacts,
-      blockers,
-      notes,
-      ...(verification
-        ? {
-            verification: {
-              verdict: verification.verdict,
-              checked_at: new Date().toISOString(),
-              ...(verification.note ? { note: verification.note } : {}),
-            },
-          }
-        : {}),
-    }, { actor: "mcp" });
-    return jsonText(node);
+    const gctx = await resolveGraphCtx();
+    const rootDir = gctx.dir;
+    const node = await hintMissing(gctx, [node_id], () =>
+      updateExecutionReport(rootDir, node_id, {
+        summary,
+        artifacts,
+        blockers,
+        notes,
+        ...(verification
+          ? {
+              verification: {
+                verdict: verification.verdict,
+                checked_at: new Date().toISOString(),
+                ...(verification.note ? { note: verification.note } : {}),
+              },
+            }
+          : {}),
+      } as never, { actor: "mcp" }),
+    );
+    return jsonGraph(gctx, node);
   },
 );
 
@@ -856,8 +1054,9 @@ server.registerTool(
     },
   },
   async ({ label, entry_description, exit_description, add_criteria, clear_criteria, root_context }) => {
-    const rootDir = await resolveGraphRoot();
-    return jsonText(
+    const gctx = await resolveGraphCtx();
+    const rootDir = gctx.dir;
+    return jsonGraph(gctx, 
       updateGraph(rootDir, {
         ...(label !== undefined ? { label } : {}),
         ...(entry_description !== undefined ? { entry_description } : {}),
@@ -888,9 +1087,10 @@ server.registerTool(
     },
   },
   async ({ id, cascade }) => {
-    const rootDir = await resolveGraphRoot();
+    const gctx = await resolveGraphCtx();
+    const rootDir = gctx.dir;
     deleteNode(rootDir, id, { cascade, actor: "mcp" });
-    return jsonText({ deleted: id, cascade });
+    return jsonGraph(gctx, { deleted: id, cascade });
   },
 );
 
@@ -902,9 +1102,10 @@ server.registerTool(
     inputSchema: { id: z.string() },
   },
   async ({ id }) => {
-    const rootDir = await resolveGraphRoot();
+    const gctx = await resolveGraphCtx();
+    const rootDir = gctx.dir;
     deleteEdge(rootDir, id, { actor: "mcp" });
-    return jsonText({ deleted: id });
+    return jsonGraph(gctx, { deleted: id });
   },
 );
 
@@ -921,8 +1122,9 @@ server.registerTool(
     },
   },
   async ({ message }) => {
-    const rootDir = await resolveGraphRoot();
-    return jsonText(createSnapshot(rootDir, message, { actor: "mcp" }));
+    const gctx = await resolveGraphCtx();
+    const rootDir = gctx.dir;
+    return jsonGraph(gctx, createSnapshot(rootDir, message, { actor: "mcp" }));
   },
 );
 
@@ -938,7 +1140,8 @@ server.registerTool(
     },
   },
   async ({ from, to }) => {
-    const rootDir = await resolveGraphRoot();
+    const gctx = await resolveGraphCtx();
+    const rootDir = gctx.dir;
     let fromId: string | null = from ?? null;
     if (fromId === null && to === undefined) {
       const snaps = listSnapshots(rootDir);
@@ -947,7 +1150,7 @@ server.registerTool(
     if (fromId === null && to === undefined) {
       throw new Error("没有可用快照，请先 graph_snapshot 创建基线");
     }
-    return jsonText(diffSnapshot(rootDir, fromId, to ?? null));
+    return jsonGraph(gctx, diffSnapshot(rootDir, fromId, to ?? null));
   },
 );
 
@@ -969,13 +1172,14 @@ server.registerTool(
     },
   },
   async ({ snapshot_id, confirm, design_only }) => {
-    const rootDir = await resolveGraphRoot();
+    const gctx = await resolveGraphCtx();
+    const rootDir = gctx.dir;
     const result = rollbackToSnapshot(rootDir, snapshot_id, {
       confirm,
       ...(design_only ? { designOnly: true } : {}),
       actor: "mcp",
     });
-    return jsonText({
+    return jsonGraph(gctx, {
       restored: result.restored.id,
       backup: result.backup.id,
       design_only,
