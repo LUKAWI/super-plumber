@@ -3,7 +3,6 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { execSync } from "node:child_process";
 import {
   toGraphDir,
   workspaceOf,
@@ -41,8 +40,15 @@ afterEach(() => {
 });
 
 function legacyInit(label = "旧图"): void {
-  // CLI init 当前仍创建旧布局（.graph/graph.yaml 在根）——兼容基线
-  execSync(`node "${CLI}" init -l "${label}"`, { cwd: tmpDir });
+  // v0.5.2 起 CLI init 新仓库必须带名——旧布局兼容基线改为手工构造
+  // （.graph/graph.yaml 在根 = default 原地，正是 migrateLegacyLayout 的输入形态）
+  fs.mkdirSync(path.join(tmpDir, ".graph", "nodes"), { recursive: true });
+  fs.mkdirSync(path.join(tmpDir, ".graph", "edges"), { recursive: true });
+  fs.writeFileSync(
+    path.join(tmpDir, ".graph", "graph.yaml"),
+    `id: g_legacy\nlabel: ${label}\nentry:\n  description: ""\n  defined_by: human\n  level: 0\nexit:\n  description: ""\n  acceptance_criteria: []\n  defined_by: human\n  level: 0\nnodes: []\nedges: []\n`,
+    "utf-8",
+  );
 }
 
 describe("toGraphDir 归一化", () => {
