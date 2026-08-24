@@ -79,6 +79,22 @@ function curName(): string {
 	return _current ?? "default";
 }
 
+/** 只读空桶兜底（冻结防误写）：字段缺省值与 newBucket() 一致 */
+const EMPTY_BUCKET: GraphBucket = newBucket();
+Object.freeze(EMPTY_BUCKET);
+
+/**
+ * 当前桶的只读视图：桶未命中时返回 EMPTY_BUCKET，**绝不创建**。
+ * getter 会被模板表达式（编译为 derived）在求值中调用——若此时隐式建桶
+ * （变更 $state）即抛 state_unsafe_mutation，整棵组件树崩溃（0.5.2 前端
+ * 黑屏根因）。建桶只允许发生在事件/异步上下文（cur()/bucketOf 的调用方：
+ * selectGraph/applyFull/setGraph 等）。响应性不受影响：getter 每次仍读取
+ * _buckets 与 _current（皆 $state），真实桶落地后 derived/effect 自动重算。
+ */
+function curReadonly(): GraphBucket {
+	return _buckets[curName()] ?? EMPTY_BUCKET;
+}
+
 export const graphState = {
 	// ── 多图面（v0.5.2）──
 	get currentName(): string | null {
@@ -180,37 +196,38 @@ export const graphState = {
 	},
 
 	// ── 单图兼容面（作用于当前桶；组件与既有测试零改动）──
+	// 全部 getter 走 curReadonly()：渲染上下文安全（见其注释）
 	get graph() {
-		return cur().graph;
+		return curReadonly().graph;
 	},
 	get selectedNode() {
-		return cur().selectedNode;
+		return curReadonly().selectedNode;
 	},
 	get selectedEdge() {
-		return cur().selectedEdge;
+		return curReadonly().selectedEdge;
 	},
 	/** 最近一次增量更新的节点（GraphCanvas 监听它做局部刷新；仅当前桶触发画布刷新） */
 	get lastPatched() {
-		return cur().lastPatched;
+		return curReadonly().lastPatched;
 	},
 	get levelFilter() {
-		return cur().levelFilter;
+		return curReadonly().levelFilter;
 	},
 	get query() {
-		return cur().query;
+		return curReadonly().query;
 	},
 	get diff() {
-		return cur().diff;
+		return curReadonly().diff;
 	},
 	get snapshots() {
-		return cur().snapshots;
+		return curReadonly().snapshots;
 	},
 	get snapshotsLoading() {
-		return cur().snapshotsLoading;
+		return curReadonly().snapshotsLoading;
 	},
 	/** 当前激活的 map 子集（workflow / domain） */
 	get activeMaps() {
-		return cur().activeMaps;
+		return curReadonly().activeMaps;
 	},
 
 	setGraph(g: GraphIndex | null) {

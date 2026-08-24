@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.3] — 2026-08-24（补丁：S0-6 web 黑屏修复）
+
+> 0.5.2 已发布包 `graph serve` 打开即整页黑屏的紧急修复补丁。
+
+- **S0-6 根因**：web-ui store（`store.svelte.ts`）全部 getter 经 `cur()→bucketOf()` 取桶，桶未命中时 `_buckets[name]=newBucket()`——该写操作发生在模板表达式（Svelte 5 编译为 derived）求值期间，抛 `state_unsafe_mutation`，整棵组件树崩溃；初始渲染 WS 数据未到、桶为空，首个被读的 getter 必崩。漏测原因：既有测试在普通上下文先 set 后 get，无 derived/真实渲染上下文覆盖。
+- **修复**：读/写路径分离——getter 统一走 `curReadonly()`（冻结空桶 `EMPTY_BUCKET` 兜底，**绝不建桶**），建桶只发生在事件/异步上下文（`selectGraph`/`applyFull` 等）；响应性不受影响（getter 仍读取 `$state`，真实桶落地后 derived 自动重算）。
+- **回归防线（三层）**：`store-probe.svelte.ts`（derived 上下文探针）+ `store-readonly.test.ts`（空桶缺省值/建桶时序 3 条）+ `render-smoke.test.ts`（jsdom 真实挂载 App：无数据初始渲染出骨架屏不崩、`applyFull` 后节点标签真实渲染进 DOM 2 条）。
+- **测试工具链**（支撑组件级测试）：vitest 2→3、vite-plugin-svelte 5.1.1→6.2.4（修复 vite 6.4 `preprocessCSS` Environment 兼容）、vite.config 增加 `resolve.conditions: ["browser"]`（Svelte 5 官方测试配方，vitest 默认 SSR transform 会使 `mount` 不可用）。web-ui 54/54 绿、svelte-check 0 错误。
+- 发布动作（npm publish 0.5.3）归 fix-review-v052 修复计划 GATE 发布检查单执行。
+
 ## [0.5.2] — 2026-08-24（已同步 GitHub，未发 npm）
 
 > 单工作区多图管理：一个 `.graph/` 管多张命名任务图，agent 像切 git branch 一样按名切换、
