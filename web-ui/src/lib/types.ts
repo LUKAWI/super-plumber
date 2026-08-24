@@ -135,6 +135,8 @@ export interface NextActionEntry {
 
 export interface GraphIndex {
 	id?: string;
+	/** 图名（v0.5.2 多图：服务端 serializeGraphIndex 附带；HTTP 兜底刷新时用于定位桶） */
+	name?: string;
 	label?: string;
 	version?: string;
 	nodes: NodeSchema[];
@@ -143,13 +145,33 @@ export interface GraphIndex {
 	reverseAdj?: Record<string, string[]>;
 }
 
-export interface WsMessage {
-	type: "graph:full" | "graph:update" | "node:updated";
-	data: GraphIndex & { file?: string; type?: string; timestamp?: number };
-	nodeId?: string;
-	node?: NodeSchema | null;
-	removed?: boolean;
+// v0.5.2 多图并行渲染：图元信息（/api/graphs 与 ws graphs:list 的条目）
+export interface GraphMeta {
+	name: string;
+	label?: string;
+	nodeCount: number;
+	statuses?: Record<string, number>;
+	/** 图内节点最近 updated_at（ISO）；空图/未初始化为 null */
+	lastActivity?: string | null;
 }
+
+export interface GraphsListData {
+	/** 工作区 active 指向的图名（无 active 文件/无效时 null） */
+	active: string | null;
+	graphs: GraphMeta[];
+}
+
+// ws 消息（判别联合）：图数据消息都带 graph: "<图名>"；工作区级消息用 graph: "*"
+export type WsMessage =
+	| { type: "graph:full" | "graph:update"; graph: string; data: GraphIndex }
+	| {
+			type: "node:updated";
+			graph: string;
+			nodeId: string;
+			node: NodeSchema | null;
+			removed?: boolean;
+	  }
+	| { type: "graphs:list"; graph: "*"; data: GraphsListData };
 
 // 边类型 → 基础色相（默认状态下微妙差异，hover 时增强）
 export const EDGE_TYPE_COLORS: Record<EdgeType, string> = {

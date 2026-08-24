@@ -8,20 +8,119 @@ import { buildGraphIndex, type GraphIndex } from "../core/graph.js";
 import { getNode } from "../core/node.js";
 import { readGraph } from "../core/parser.js";
 import { createWatcher, type FileChangeEvent } from "./watcher.js";
-import { toGraphDir } from "../core/graph-dir.js";
+import {
+  toGraphDir,
+  listGraphNames,
+  readWorkspaceDefault,
+  workspaceOf,
+} from "../core/graph-dir.js";
 import { listSnapshots, diffSnapshot } from "../core/snapshot.js";
+import { GRAPH_DIR, GRAPH_FILE } from "../core/types.js";
 
 // 静态资源根目录：dist/web/server.js → ../../web-ui/dist
 // 用 fileURLToPath 而非 import.meta.dirname，兼容 Node 20.0–20.10
 const WEB_UI_DIR = fileURLToPath(new URL("../../web-ui/dist", import.meta.url));
 
+// ── 多图工作区模型 ─────────────────────────────────────────────────────────────
+// .graph/{active, schema.yaml, workspace-events.jsonl, <图名>/…, .trash/}；
+// 旧布局（.graph/graph.yaml 原地）= 单图 default，图目录即 .graph/ 自身。
+// ws 每条图数据消息都带 graph: "<图名>"；工作区级消息（图列表）用 graph: "*"。
+
+export interface GraphMeta {
+  name: string;
+  label?: string;
+  nodeCount: number;
+  statuses: Record<string, number>;
+  lastActivity: string | null;
+}
+
+export interface GraphsPayload {
+  active: string | null;
+  graphs: GraphMeta[];
+}
+
+/** 工作区级文件（不属于任何图）与旧布局已知的图内顶层名 */
+const WS_LEVEL_FILES = new Set(["active", "workspace-events.jsonl", "schema.yaml"]);
+const LEGACY_INSIDE_TOPS = new Set(["nodes", "edges", "snapshots", "index", "events.jsonl"]);
+
+export interface RouteContext {
+  /** 当前已知图名（listGraphNames 的结果） */
+  names: string[];
+  /** 旧布局：.graph/graph.yaml 原地（唯一图 default，图目录 = .graph/） */
+  legacy: boolean;
+}
+
+export type GraphEventRoute =
+  | { rescan: true }
+  | { rescan: false; graph: string; kind: "node" | "edge" | "graph" | "other" }
+  // null = 工作区级文件/忽略（active、workspace-events.jsonl、schema.yaml、.trash 等）
+  | null;
+
+/** 图目录内相对路径 → 事件种类 */
+function classifyInside(p: string): "node" | "edge" | "graph" | "other" {
+  if (p.startsWith("nodes/") && p.endsWith(".yaml")) return "node";
+  if (p.startsWith("edges/") && p.endsWith(".yaml")) return "edge";
+  if (p === "graph.yaml") return "graph";
+  return "other";
+}
+
+/**
+ * 把 .graph/ 下的文件事件按路径前缀分类到所属图（纯函数，可单测）。
+ * - 旧布局：全部图内事件归 default；出现未知一级目录（迁移产生的 default/、新图）
+ *   或根 graph.yaml unlink → rescan（图集合可能变化）。
+ * - 多图布局：`.graph/<图名>/…` 路由到该图；未知一级目录、`<seg>/graph.yaml`
+ *   的 add/unlink（建图/删图）→ rescan；工作区级文件与点开头目录（.trash/.locks）忽略。
+ */
+export function routeGraphEvent(
+  // type 放宽为 string：chokidar 'all' 还会发 addDir/unlinkDir（经 watcher 透传）
+  event: { type: string; file: string },
+  ctx: RouteContext,
+): GraphEventRoute {
+  const f = event.file.replace(/\\/g, "/");
+  if (!f.startsWith(GRAPH_DIR + "/")) return null;
+  const rest = f.slice(GRAPH_DIR.length + 1);
+  if (rest === "") return null;
+  const top = rest.split("/")[0];
+
+  if (ctx.legacy) {
+    if (top.startsWith(".")) return null; // .trash/.locks/其它点文件
+    if (WS_LEVEL_FILES.has(rest)) {
+      // active 变化影响图列表的 active 标记；schema/事件日志忽略
+      return rest === "active" ? { rescan: true } : null;
+    }
+    if (top === "graph.yaml") {
+      return event.type === "unlink" ? { rescan: true } : { rescan: false, graph: "default", kind: "graph" };
+    }
+    if (!LEGACY_INSIDE_TOPS.has(top)) return { rescan: true }; // 迁移/新图目录出现
+    return { rescan: false, graph: "default", kind: classifyInside(rest) };
+  }
+
+  // 多图布局
+  if (!rest.includes("/")) {
+    // .graph/ 顶层裸文件：active 变化 → 重扫（刷新列表 active 标记）；
+    // 旧布局残留 graph.yaml 消失（迁移中）→ 重扫；其余工作区级文件忽略。
+    if (rest === "active") return { rescan: true };
+    if (rest === "graph.yaml" && event.type === "unlink") return { rescan: true };
+    return null;
+  }
+  if (top.startsWith(".")) return null; // .trash/、.locks/ 等
+  const inside = rest.slice(top.length + 1);
+  // 建图（graph.yaml 落地）/删图（trash rename 触发 unlink）→ 图集合变化
+  if (inside === "graph.yaml" && (event.type === "add" || event.type === "unlink")) {
+    return { rescan: true };
+  }
+  if (WS_LEVEL_FILES.has(top)) return null;
+  if (ctx.names.includes(top)) return { rescan: false, graph: top, kind: classifyInside(inside) };
+  return { rescan: true }; // 未知一级目录：可能正在创建新图
+}
+
 /**
  * 邻接表 Map → 可 JSON 序列化的普通对象。
  * Map 直接 JSON.stringify 会变成 {}，MCP 侧用 Object.fromEntries，Web 侧保持一致。
- * 传入 rootDir 时附带图元信息（label/id/version，UI 头部展示用；读取失败静默降级）。
+ * 传入 rootDir（图目录）时附带图元信息（name/label/id/version，UI 展示用；读取失败静默降级）。
  */
-export function serializeGraphIndex(index: GraphIndex, rootDir?: string) {
-  let meta: { id?: string; label?: string; version?: string } = {};
+export function serializeGraphIndex(index: GraphIndex, rootDir?: string, name?: string) {
+  let meta: { name?: string; id?: string; label?: string; version?: string } = {};
   if (rootDir) {
     try {
       const g = readGraph(rootDir);
@@ -31,6 +130,7 @@ export function serializeGraphIndex(index: GraphIndex, rootDir?: string) {
     }
   }
   return {
+    name,
     ...meta,
     nodes: index.nodes,
     edges: index.edges,
@@ -106,21 +206,112 @@ export function startServer(
   port: number = 8934,
   options: { open?: boolean } = {},
 ) {
+  // rootDir 兼容两种传法：工作区根（CLI serve 的 process.cwd()）或图目录
+  // （workspaceOf 归一化到工作区根——多图服务必须以工作区为监听单位）
+  const wsRoot = workspaceOf(rootDir);
+  const graphsRoot = path.join(wsRoot, GRAPH_DIR);
+
+  // 图名 → 图目录（旧布局 default 的目录 = .graph/ 原地）
+  let graphEntries = new Map<string, string>();
+  let legacyMode = false;
+
+  function refreshGraphs(): void {
+    legacyMode = fs.existsSync(path.join(graphsRoot, GRAPH_FILE));
+    const names = listGraphNames(wsRoot);
+    graphEntries = new Map(
+      names.map((n) => [
+        n,
+        n === "default" && legacyMode ? graphsRoot : path.join(graphsRoot, n),
+      ]),
+    );
+  }
+  refreshGraphs();
+
+  function buildGraphMeta(name: string): GraphMeta {
+    const dir = graphEntries.get(name)!;
+    let label: string | undefined;
+    try {
+      label = readGraph(dir).label;
+    } catch {
+      /* graph.yaml 不可读：label 留空 */
+    }
+    let nodes: ReturnType<typeof buildGraphIndex>["nodes"] = [];
+    try {
+      nodes = buildGraphIndex(dir, { useCache: true }).nodes;
+    } catch {
+      /* 图半删除/不可读（refreshGraphs 与 trash 并发）：空计数，下一轮列表自愈 */
+    }
+    const statuses: Record<string, number> = {};
+    let lastActivity: string | null = null;
+    for (const n of nodes) {
+      statuses[String(n.status)] = (statuses[String(n.status)] ?? 0) + 1;
+      if (n.updated_at && (!lastActivity || n.updated_at > lastActivity)) {
+        lastActivity = n.updated_at;
+      }
+    }
+    return { name, label, nodeCount: nodes.length, statuses, lastActivity };
+  }
+
+  function graphsPayload(): GraphsPayload {
+    const active = readWorkspaceDefault(wsRoot);
+    return { active, graphs: [...graphEntries.keys()].map(buildGraphMeta) };
+  }
+
+  /**
+   * HTTP 查询目标图：?graph=<名> 指定；缺省 = toGraphDir 解析（active/唯一图/旧布局）。
+   * apiRoot 是传给 core 函数（buildGraphIndex/readGraph/listSnapshots…）的实参：
+   * 指定图时 = 图目录（真图目录含 graph.yaml，toGraphDir 原样通过）；
+   * 缺省时 = 工作区根（core 内部自会降入图目录——未初始化工作区传 .graph/
+   * 会被 toGraphDir 误拼成 .graph/.graph）。
+   */
+  function resolveGraphTarget(url: URL): { name: string; dir: string; apiRoot: string } | null {
+    const q = url.searchParams.get("graph");
+    if (q === null || q === "") {
+      const dir = toGraphDir(wsRoot);
+      for (const [name, d] of graphEntries) {
+        if (path.resolve(d) === path.resolve(dir)) return { name, dir: d, apiRoot: wsRoot };
+      }
+      return { name: "default", dir, apiRoot: wsRoot };
+    }
+    const dir = graphEntries.get(q);
+    return dir ? { name: q, dir, apiRoot: dir } : null;
+  }
+
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     const respondJson = (data: unknown) => {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(data));
     };
+    const respondError = (status: number, message: string) => {
+      res.writeHead(status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: message }));
+    };
 
-    if (url.pathname === "/api/graph") {
-      respondJson(serializeGraphIndex(buildGraphIndex(rootDir), rootDir));
+    // 全部图的元信息（图选择器数据源）
+    if (url.pathname === "/api/graphs") {
+      refreshGraphs();
+      respondJson(graphsPayload());
       return;
     }
-    // 快照列表（UI diff 视图数据源）
+    if (url.pathname === "/api/graph") {
+      const target = resolveGraphTarget(url);
+      if (!target) {
+        respondError(404, `图 "${url.searchParams.get("graph")}" 不存在`);
+        return;
+      }
+      respondJson(serializeGraphIndex(buildGraphIndex(target.apiRoot), target.apiRoot, target.name));
+      return;
+    }
+    // 快照列表（UI diff 视图数据源；?graph=<名> 缺省 = active 图）
     if (url.pathname === "/api/snapshots") {
       try {
-        respondJson(listSnapshots(rootDir));
+        const target = resolveGraphTarget(url);
+        if (!target) {
+          respondError(404, `图 "${url.searchParams.get("graph")}" 不存在`);
+          return;
+        }
+        respondJson(listSnapshots(target.apiRoot));
       } catch (err: any) {
         res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
         res.end(err.message);
@@ -130,16 +321,21 @@ export function startServer(
     // 拓扑差异：?against=<snapshot-id>（缺省 = 最新快照 vs 当前工作区）
     if (url.pathname === "/api/diff") {
       try {
+        const target = resolveGraphTarget(url);
+        if (!target) {
+          respondError(404, `图 "${url.searchParams.get("graph")}" 不存在`);
+          return;
+        }
         const against = url.searchParams.get("against") ?? undefined;
         let fromId: string | null = against ?? null;
         if (fromId === null) {
-          const snaps = listSnapshots(rootDir);
+          const snaps = listSnapshots(target.apiRoot);
           fromId = snaps.length > 0 ? snaps[snaps.length - 1].id : null;
         }
         if (fromId === null) {
           respondJson({ error: "no snapshots" });
         } else {
-          respondJson(diffSnapshot(rootDir, fromId, null));
+          respondJson(diffSnapshot(target.apiRoot, fromId, null));
         }
       } catch (err: any) {
         res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
@@ -174,39 +370,78 @@ export function startServer(
   wss.on("connection", (ws) => {
     clients.add(ws);
     ws.on("close", () => clients.delete(ws));
-    ws.send(
-      JSON.stringify({
-        type: "graph:full",
-        data: serializeGraphIndex(buildGraphIndex(rootDir), rootDir),
-      }),
-    );
+    // 连接建立：先推图列表（前端据此渲染选图器并选中 active），
+    // 再推初始图（active，无 active 时第一张）的 full 快照；
+    // 其余图由前端切换到时经 /api/graph?graph=<名> 懒加载。
+    const payload = graphsPayload();
+    ws.send(JSON.stringify({ type: "graphs:list", graph: "*", data: payload }));
+    const initial =
+      payload.active !== null && graphEntries.has(payload.active)
+        ? payload.active
+        : ([...graphEntries.keys()][0] ?? null);
+    if (initial !== null) {
+      const dir = graphEntries.get(initial)!;
+      try {
+        ws.send(
+          JSON.stringify({
+            type: "graph:full",
+            graph: initial,
+            data: serializeGraphIndex(buildGraphIndex(dir), dir, initial),
+          }),
+        );
+      } catch {
+        /* 图半初始化（graph.yaml 不可读）：跳过 full，等 watcher 推送 */
+      }
+    }
   });
 
-  // 边/图/其他变更 → trailing debounce 合并突发（批操作/多次写只推一次全量），
+  // 边/图/其他变更 → 按图 trailing debounce 合并突发（批操作/多次写只推一次全量），
   // 且全量重建走索引缓存（buildGraphIndex useCache），大图下不再每事件全量读盘。
   const FULL_BROADCAST_DEBOUNCE_MS = 250;
-  let fullTimer: ReturnType<typeof setTimeout> | null = null;
-  function scheduleFullBroadcast() {
-    if (fullTimer !== null) clearTimeout(fullTimer);
-    fullTimer = setTimeout(() => {
-      fullTimer = null;
-      broadcast({
-        type: "graph:update",
-        data: {
-          graph: serializeGraphIndex(
-            buildGraphIndex(rootDir, { useCache: true }),
-            rootDir,
-          ),
-        },
-      });
-    }, FULL_BROADCAST_DEBOUNCE_MS);
+  const fullTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  function scheduleFullBroadcast(graphName: string) {
+    const prev = fullTimers.get(graphName);
+    if (prev !== undefined) clearTimeout(prev);
+    fullTimers.set(
+      graphName,
+      setTimeout(() => {
+        fullTimers.delete(graphName);
+        const dir = graphEntries.get(graphName);
+        if (!dir || !fs.existsSync(path.join(dir, GRAPH_FILE))) return; // 图已删除：graphs:list 已接管
+        broadcast({
+          type: "graph:update",
+          graph: graphName,
+          data: serializeGraphIndex(buildGraphIndex(dir, { useCache: true }), dir, graphName),
+        });
+      }, FULL_BROADCAST_DEBOUNCE_MS),
+    );
   }
 
-  const watcher = createWatcher(rootDir, (event: FileChangeEvent) => {
-    const kind = classifyEvent(event.file);
+  // 图集合变化（建图/删图/迁移/active 切换）→ 去抖重扫 + 广播图列表
+  const RESCAN_DEBOUNCE_MS = 300;
+  let rescanTimer: ReturnType<typeof setTimeout> | null = null;
+  function scheduleGraphsRefresh() {
+    if (rescanTimer !== null) clearTimeout(rescanTimer);
+    rescanTimer = setTimeout(() => {
+      rescanTimer = null;
+      refreshGraphs();
+      broadcast({ type: "graphs:list", graph: "*", data: graphsPayload() });
+    }, RESCAN_DEBOUNCE_MS);
+  }
 
-    // 节点文件变更 → 增量推送该节点
-    if (kind === "node") {
+  const watcher = createWatcher(wsRoot, (event: FileChangeEvent) => {
+    const route = routeGraphEvent(event, { names: [...graphEntries.keys()], legacy: legacyMode });
+
+    if (route === null) return;
+    if (route.rescan) {
+      scheduleGraphsRefresh();
+      return;
+    }
+
+    // 节点文件变更 → 增量推送该节点（带图名，前端路由到对应桶）
+    if (route.kind === "node") {
+      const dir = graphEntries.get(route.graph);
+      if (!dir) return;
       const f = event.file.replace(/\\/g, "/");
       const nodeId = f
         .split("/")
@@ -216,12 +451,13 @@ export function startServer(
       // 软删除或 unlink 时节点可能不存在
       let node: ReturnType<typeof getNode> | null = null;
       try {
-        node = getNode(rootDir, nodeId);
+        node = getNode(dir, nodeId);
       } catch {
         /* 节点已删除 */
       }
       broadcast({
         type: "node:updated",
+        graph: route.graph,
         nodeId,
         node,
         removed: node === null,
@@ -229,8 +465,8 @@ export function startServer(
       return;
     }
 
-    // 边 / 图 / 其他变更 → 去抖后全量推送（低频事件，全量可接受）
-    scheduleFullBroadcast();
+    // 边 / 图 / 其他变更 → 该图去抖后全量推送（低频事件，全量可接受）
+    scheduleFullBroadcast(route.graph);
   });
 
   // 端口占用/监听错误必须友好处理（曾 unhandled 'error' event 裸崩溃）
@@ -246,19 +482,11 @@ export function startServer(
     const addr = server.address();
     const actualPort = typeof addr === "object" && addr !== null ? addr.port : port;
     const url = `http://localhost:${actualPort}`;
+    const names = [...graphEntries.keys()];
     console.log(`🌐 拓扑图可视化服务: ${url}`);
-    console.log(`📁 监控目录: ${toGraphDir(rootDir)}`);
+    console.log(`📁 监控工作区: ${wsRoot}${names.length > 0 ? `（图: ${names.join(", ")}）` : "（无图）"}`);
     if (options.open !== false) openBrowser(url);
   });
 
   return { server, wss, watcher };
-}
-
-/** 从文件路径解析出事件类型（node 变更 / edge 变更 / 其他）。Windows 路径用反斜杠，统一正斜杠 */
-function classifyEvent(file: string): "node" | "edge" | "graph" | "other" {
-  const f = file.replace(/\\/g, "/");
-  if (f.startsWith(".graph/nodes/") && f.endsWith(".yaml")) return "node";
-  if (f.startsWith(".graph/edges/") && f.endsWith(".yaml")) return "edge";
-  if (f === ".graph/graph.yaml") return "graph";
-  return "other";
 }

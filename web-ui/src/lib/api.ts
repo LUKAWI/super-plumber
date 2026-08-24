@@ -1,7 +1,11 @@
-import type { GraphIndex, NodeSchema, WsMessage } from "./types";
+import type { GraphIndex, GraphsListData, NodeSchema, WsMessage } from "./types";
 
-export type GraphListener = (graph: GraphIndex) => void;
-export type NodeUpdatedListener = (nodeId: string, node: NodeSchema | null) => void;
+/** 图数据消息（graph:full / graph:update）：graph = 所属图名 */
+export type GraphListener = (graph: string, g: GraphIndex) => void;
+/** 增量节点消息（node:updated）：graph = 所属图名 */
+export type NodeUpdatedListener = (graph: string, nodeId: string, node: NodeSchema | null) => void;
+/** 工作区图列表消息（graphs:list） */
+export type GraphsListListener = (data: GraphsListData) => void;
 export type ConnectionStatus = "connecting" | "connected" | "offline";
 
 export interface GraphConnectionOptions {
@@ -9,6 +13,8 @@ export interface GraphConnectionOptions {
 	url: string;
 	onGraph: GraphListener;
 	onNodeUpdated: NodeUpdatedListener;
+	/** 工作区图列表（选图器数据源；active = 初始选中） */
+	onGraphsList?: GraphsListListener;
 	onStatusChange?: (status: ConnectionStatus) => void;
 	/** 重连退避（毫秒），最后一档持续使用 */
 	reconnectDelays?: number[];
@@ -19,8 +25,10 @@ export interface GraphConnectionOptions {
 
 /**
  * 带指数退避重连的图连接（P4-1：历史实现断线后一次 HTTP 回退即永久假死）。
- * 重连成功后由服务端 graph:full 全量同步；离线期间用 HTTP 兜底刷新一次。
- * 返回断开函数（幂等）。
+ * v0.5.2 多图：按消息的 graph 字段路由到对应回调——后台图持续热更新，
+ * 前端 store 按图名分桶，切换查看不丢任何图的新鲜度。
+ * 重连成功后由服务端 graphs:list + graph:full（active 图）全量同步；
+ * 离线期间用 HTTP 兜底刷新一次（active 图）。返回断开函数（幂等）。
  */
 export function createGraphConnection(opts: GraphConnectionOptions): () => void {
 	const delays = opts.reconnectDelays ?? [1000, 2000, 5000, 10000];
@@ -40,7 +48,10 @@ export function createGraphConnection(opts: GraphConnectionOptions): () => void 
 	function httpFallback() {
 		fetchImpl("/api/graph")
 			.then((r) => r.json())
-			.then((g) => opts.onGraph(g as GraphIndex))
+			.then((g: GraphIndex) => {
+				// 服务端序列化带 name 字段；缺失时（旧服务端）退回 default
+				opts.onGraph(typeof g.name === "string" ? g.name : "default", g);
+			})
 			.catch(() => {
 				/* 服务端不可达：等待下一次重连 */
 			});
@@ -63,7 +74,7 @@ export function createGraphConnection(opts: GraphConnectionOptions): () => void 
 		ws.onopen = () => {
 			attempt = 0;
 			notify("connected");
-			// 服务端在连接建立时推送 graph:full
+			// 服务端在连接建立时推送 graphs:list + graph:full（active 图）
 		};
 
 		ws.onmessage = (event) => {
@@ -76,12 +87,13 @@ export function createGraphConnection(opts: GraphConnectionOptions): () => void 
 			switch (msg.type) {
 				case "graph:full":
 				case "graph:update":
-					opts.onGraph(msg.data as GraphIndex);
+					opts.onGraph(msg.graph, msg.data as GraphIndex);
 					break;
 				case "node:updated":
-					if (msg.nodeId !== undefined) {
-						opts.onNodeUpdated(msg.nodeId, msg.node ?? null);
-					}
+					opts.onNodeUpdated(msg.graph, msg.nodeId, msg.node ?? null);
+					break;
+				case "graphs:list":
+					opts.onGraphsList?.(msg.data as GraphsListData);
 					break;
 			}
 		};
@@ -109,18 +121,4 @@ export function createGraphConnection(opts: GraphConnectionOptions): () => void 
 		}
 		ws = null;
 	};
-}
-
-/** 兼容旧签名（App 使用） */
-export function connectGraph(
-	host: string,
-	onGraph: GraphListener,
-	onNodeUpdated: NodeUpdatedListener,
-): () => void {
-	const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-	return createGraphConnection({
-		url: `${protocol}//${host}`,
-		onGraph,
-		onNodeUpdated,
-	});
 }

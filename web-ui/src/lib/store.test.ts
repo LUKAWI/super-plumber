@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { graphState } from "./store.svelte";
 import type { GraphIndex, NodeSchema } from "./types";
 
@@ -115,5 +115,138 @@ describe("graphState store", () => {
     graphState.toggleMap("domain");
     expect(graphState.activeMaps).not.toBe(before);
     expect(before.domain).toBe(false); // 旧对象不被改写
+  });
+});
+
+// ── v0.5.2 多图分桶 store ─────────────────────────────────────────────────────
+function makeGraphOf(id: string, status = "pending"): GraphIndex {
+  return {
+    nodes: [
+      {
+        id,
+        type: "task",
+        label: id.toUpperCase(),
+        level: 1,
+        status: status as NodeSchema["status"],
+        attempts: 0,
+        max_attempts: 3,
+        created_at: "",
+        updated_at: "",
+      },
+    ],
+    edges: [],
+  };
+}
+
+function graphsListOf(names: string[], active: string | null) {
+  return {
+    active,
+    graphs: names.map((name) => ({ name, nodeCount: 1, statuses: { pending: 1 }, lastActivity: null })),
+  };
+}
+
+describe("多图分桶 store", () => {
+  beforeEach(() => {
+    graphState.resetAll();
+  });
+
+  it("applyGraphsList 初始选中 = 工作区 active", () => {
+    graphState.applyGraphsList(graphsListOf(["alpha", "beta"], "beta"));
+    expect(graphState.currentName).toBe("beta");
+    expect(graphState.activeName).toBe("beta");
+  });
+
+  it("active 无效/缺失时回落第一张图", () => {
+    graphState.applyGraphsList(graphsListOf(["alpha", "beta"], null));
+    expect(graphState.currentName).toBe("alpha");
+  });
+
+  it("后续 active 变化不夺走用户当前查看的图（纯审阅）", () => {
+    graphState.applyGraphsList(graphsListOf(["alpha", "beta"], "alpha"));
+    graphState.selectGraph("beta");
+    graphState.applyFull("beta", makeGraphOf("b1"));
+    graphState.applyGraphsList(graphsListOf(["alpha", "beta"], "alpha")); // CLI 切了 active
+    expect(graphState.currentName).toBe("beta"); // 视图不被拽走
+    expect(graphState.activeName).toBe("alpha"); // 标记照常更新
+  });
+
+  it("applyFull 按图分桶隔离，切换保留各自数据", () => {
+    graphState.applyGraphsList(graphsListOf(["alpha", "beta"], "alpha"));
+    graphState.applyFull("alpha", makeGraphOf("a1"));
+    graphState.applyFull("beta", makeGraphOf("b1"));
+    expect(graphState.graph?.nodes[0].id).toBe("a1");
+    graphState.selectGraph("beta");
+    expect(graphState.graph?.nodes[0].id).toBe("b1");
+    graphState.selectGraph("alpha");
+    expect(graphState.graph?.nodes[0].id).toBe("a1");
+  });
+
+  it("查看状态（过滤/搜索/选中）随桶隔离", () => {
+    graphState.applyGraphsList(graphsListOf(["alpha", "beta"], "alpha"));
+    graphState.applyFull("alpha", makeGraphOf("a1"));
+    graphState.applyFull("beta", makeGraphOf("b1"));
+    graphState.setLevelFilter([1]);
+    graphState.setQuery("a");
+    graphState.selectNode(graphState.graph!.nodes[0]);
+    graphState.selectGraph("beta");
+    expect(graphState.levelFilter).toBeNull();
+    expect(graphState.query).toBe("");
+    expect(graphState.selectedNode).toBeNull();
+    graphState.selectGraph("alpha");
+    expect(graphState.levelFilter).toEqual([1]);
+    expect(graphState.query).toBe("a");
+    expect(graphState.selectedNode?.id).toBe("a1");
+  });
+
+  it("后台图持续热更新：applyNodeUpdate 更新后台桶，切回即时新鲜", () => {
+    graphState.applyGraphsList(graphsListOf(["alpha", "beta"], "alpha"));
+    graphState.applyFull("alpha", makeGraphOf("a1"));
+    graphState.applyFull("beta", makeGraphOf("b1"));
+    // 当前在 alpha，beta 的增量照收（不打扰当前视图）
+    graphState.applyNodeUpdate("beta", "b1", { ...makeGraphOf("b1").nodes[0], status: "running" });
+    expect(graphState.graph?.nodes[0].id).toBe("a1"); // alpha 视图不动
+    expect(graphState.lastPatched?.id).not.toBe("b1"); // 画布局部刷新不被后台图触发
+    graphState.selectGraph("beta");
+    expect(graphState.graph?.nodes[0].status).toBe("running"); // 切回已新鲜
+  });
+
+  it("未加载的桶丢弃增量消息（等全量，不拼半图）", () => {
+    graphState.applyGraphsList(graphsListOf(["alpha", "beta"], "alpha"));
+    graphState.applyFull("alpha", makeGraphOf("a1"));
+    graphState.applyNodeUpdate("beta", "b1", makeGraphOf("b1").nodes[0]);
+    expect(graphState.isLoaded("beta")).toBe(false);
+  });
+
+  it("selectGraph 未加载的图触发懒加载 GET /api/graph?graph=<名>", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(makeGraphOf("b1")),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      graphState.applyGraphsList(graphsListOf(["alpha", "beta"], "alpha"));
+      graphState.applyFull("alpha", makeGraphOf("a1"));
+      graphState.selectGraph("beta");
+      expect(fetchMock).toHaveBeenCalledWith("/api/graph?graph=beta");
+      await vi.waitFor(() => expect(graphState.isLoaded("beta")).toBe(true));
+      expect(graphState.graph?.nodes[0].id).toBe("b1");
+      // 已加载的图再切换不重复拉取（纯本地切桶）
+      fetchMock.mockClear();
+      graphState.selectGraph("alpha");
+      graphState.selectGraph("beta");
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("当前图被删（列表刷新）→ 回落 active 图", () => {
+    graphState.applyGraphsList(graphsListOf(["alpha", "beta"], "alpha"));
+    graphState.applyFull("alpha", makeGraphOf("a1"));
+    graphState.applyFull("beta", makeGraphOf("b1"));
+    graphState.selectGraph("beta");
+    graphState.applyGraphsList(graphsListOf(["alpha"], "alpha")); // beta 被 trash
+    expect(graphState.currentName).toBe("alpha");
+    expect(graphState.graph?.nodes[0].id).toBe("a1");
   });
 });

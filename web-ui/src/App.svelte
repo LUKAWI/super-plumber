@@ -4,24 +4,30 @@
   import NodeDetail from "./components/NodeDetail.svelte";
   import EdgeDetail from "./components/EdgeDetail.svelte";
   import DiffPanel from "./components/DiffPanel.svelte";
-  import { connectGraph } from "./lib/api";
+  import { createGraphConnection } from "./lib/api";
   import { graphState } from "./lib/store.svelte";
   import { deriveMaps } from "./lib/maps";
 
   let disconnect: (() => void) | null = null;
-  let connected = $state(false);
+  let connStatus = $state<"connecting" | "connected" | "offline">("connecting");
+  let selectorOpen = $state(true);
 
   onMount(() => {
-    disconnect = connectGraph(
-      location.host,
-      (g) => {
-        graphState.setGraph(g);
-        connected = true;
-      },
-      (nodeId, node) => graphState.patchNode(nodeId, node),
-    );
+    const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+    disconnect = createGraphConnection({
+      url: `${protocol}//${location.host}`,
+      // 消息按 graph 字段路由到对应桶：当前图渲染刷新，后台图静默热更新
+      onGraph: (name, g) => graphState.applyFull(name, g),
+      onNodeUpdated: (name, nodeId, node) => graphState.applyNodeUpdate(name, nodeId, node),
+      onGraphsList: (data) => graphState.applyGraphsList(data),
+      onStatusChange: (s) => (connStatus = s),
+    });
   });
   onDestroy(() => disconnect?.());
+
+  // 多图选图器（v0.5.2）：有几张图显示几张；切换纯审阅（本地切桶，不写服务端）
+  const graphMetas = $derived(graphState.graphMetas);
+  const currentName = $derived(graphState.currentName);
 
   // 层级过滤（L0–L5，P4-4 分层钻取）
   const LEVELS = [0, 1, 2, 3, 4, 5];
@@ -60,8 +66,10 @@
       <span class="logo" aria-hidden="true">⬡</span>
       <div class="brand-text">
         <h1 class="title">SUPER PLUMBER</h1>
-        {#if graphState.graph}
-          <span class="graph-label">{graphState.graph.label}</span>
+        {#if currentName}
+          <span class="graph-label" title={graphState.graph?.label ?? ""}>
+            {currentName}{graphState.graph?.label ? ` · ${graphState.graph.label}` : ""}
+          </span>
         {/if}
       </div>
     </div>
@@ -98,11 +106,46 @@
       <span class="stat">{graphState.graph?.nodes.length ?? 0}<span class="stat-unit">n</span></span>
       <span class="stat-divider">·</span>
       <span class="stat">{graphState.graph?.edges.length ?? 0}<span class="stat-unit">e</span></span>
-      {#if !connected}
+      {#if connStatus === "offline"}
         <span class="conn-off" title="连接中断，自动重连中">offline</span>
       {/if}
     </div>
   </header>
+
+  {#if graphMetas && graphMetas.length > 0}
+    <div class="graph-tabbar" class:collapsed={!selectorOpen}>
+      <button
+        class="tabbar-toggle"
+        onclick={() => (selectorOpen = !selectorOpen)}
+        aria-expanded={selectorOpen}
+        aria-label={selectorOpen ? "折叠图选择器" : "展开图选择器"}
+        title={selectorOpen ? "折叠图选择器" : "展开图选择器"}
+      >
+        <span class="toggle-arrow" class:open={selectorOpen}>▸</span>
+        GRAPHS·{graphMetas.length}
+      </button>
+      {#if selectorOpen}
+        <div class="graph-tabs" role="tablist" aria-label="图选择（纯审阅，不影响 CLI/MCP 状态）">
+          {#each graphMetas as gm (gm.name)}
+            <button
+              class="graph-tab"
+              class:active={gm.name === currentName}
+              role="tab"
+              aria-selected={gm.name === currentName}
+              title={gm.label ? `${gm.name} · ${gm.label}` : gm.name}
+              onclick={() => graphState.selectGraph(gm.name)}
+            >
+              {#if gm.name === graphState.activeName}
+                <span class="tab-dot" title="工作区 active"></span>
+              {/if}
+              <span class="tab-name">{gm.name}</span>
+              <span class="tab-count">{graphState.nodeCountOf(gm.name)}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
+  {/if}
 
   {#if graphState.graph && levelsPresent.length > 0}
     <div class="filter-bar">
@@ -133,7 +176,7 @@
   {/if}
 
   <main class="main">
-    {#if !connected}
+    {#if connStatus === "connecting" && graphState.graph === null && currentName === null}
       <div class="loading-state">
         <div class="skeleton-graph">
           <div class="skeleton-node" style="left: 20%; top: 30%;"></div>
@@ -151,6 +194,15 @@
           </svg>
         </div>
         <p class="loading-text">connecting to topology service…</p>
+      </div>
+    {:else if graphMetas !== null && graphMetas.length === 0}
+      <div class="empty-state">
+        <h3 class="empty-title">no graphs</h3>
+        <p class="empty-hint">工作区尚未初始化任何图</p>
+      </div>
+    {:else if graphState.graph === null}
+      <div class="loading-state">
+        <p class="loading-text">loading graph "{currentName}"…</p>
       </div>
     {:else if graphState.graph && graphState.graph.nodes.length === 0}
       <div class="empty-state">
@@ -364,6 +416,110 @@
     border: 1px solid rgba(229, 80, 79, 0.5);
     border-radius: var(--r-sm);
     padding: 1px var(--sp-1);
+  }
+
+  /* ── 多图选图器（v0.5.2 折叠任务栏）── */
+  .graph-tabbar {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: var(--sp-1) var(--sp-4);
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-1);
+    flex-shrink: 0;
+    min-height: 30px;
+  }
+
+  .tabbar-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    font-weight: 700;
+    letter-spacing: var(--track-caps);
+    color: var(--ink-faint);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--r-sm);
+    padding: 2px var(--sp-1);
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: color 0.15s var(--ease-out-quart);
+  }
+
+  .tabbar-toggle:hover {
+    color: var(--ink-muted);
+  }
+
+  .toggle-arrow {
+    display: inline-block;
+    transition: transform 0.15s var(--ease-out-quart);
+    font-size: 9px;
+  }
+
+  .toggle-arrow.open {
+    transform: rotate(90deg);
+  }
+
+  .graph-tabs {
+    display: flex;
+    gap: var(--sp-1);
+    flex-wrap: wrap;
+    overflow-x: auto;
+  }
+
+  .graph-tab {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--ink-muted);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    padding: 2px var(--sp-2);
+    cursor: pointer;
+    max-width: 220px;
+    transition: background 0.15s var(--ease-out-quart), color 0.15s var(--ease-out-quart),
+      border-color 0.15s var(--ease-out-quart);
+  }
+
+  .graph-tab:hover {
+    color: var(--ink);
+    border-color: var(--line-strong);
+  }
+
+  .graph-tab.active {
+    background: var(--surface-3);
+    color: var(--ink);
+    border-color: var(--line-strong);
+    font-weight: 600;
+  }
+
+  .tab-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--status-ready);
+    flex-shrink: 0;
+  }
+
+  .tab-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tab-count {
+    font-size: var(--text-2xs);
+    color: var(--ink-faint);
+    background: var(--surface-3);
+    border-radius: var(--r-sm);
+    padding: 0 var(--sp-1);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
   }
 
   /* ── Filter bar ── */
