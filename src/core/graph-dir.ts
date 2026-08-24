@@ -18,8 +18,12 @@ export const GRAPH_NAME_RE = /^[a-z][a-z0-9-]{0,38}$/;
 const WS_EVENTS_FILE = "workspace-events.jsonl";
 const ACTIVE_FILE = "active";
 const TRASH_DIR = ".trash";
-/** 旧布局一次性迁移的 7 项（图内相对名） */
-const LEGACY_ITEMS = [GRAPH_FILE, NODES_DIR, EDGES_DIR, "snapshots", INDEX_DIR, "events.jsonl", ".locks"];
+/** 旧布局一次性迁移的图内项（6 项）。
+ * .locks **故意不在迁移清单**（A4 并发缺陷）：它是工作区级互斥锁的家
+ * （__ws_migrate__ 固定落 .graph/.locks/）——迁移时若连它一起搬走，
+ * 并发等待锁的进程会 ENOENT 崩溃；default 图的节点锁在迁移后自然改落
+ * .graph/default/.locks（锁文件瞬态、30s 陈锁自愈，无需迁移）。 */
+const LEGACY_ITEMS = [GRAPH_FILE, NODES_DIR, EDGES_DIR, "snapshots", INDEX_DIR, "events.jsonl"];
 
 function dotGraph(wsRoot: string): string {
   return path.join(wsRoot, GRAPH_DIR);

@@ -5,7 +5,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@lukawi/super-plumber)](https://www.npmjs.com/package/@lukawi/super-plumber)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-316%2F316-green)](https://github.com/LUKAWI/super-plumber/actions)
+[![Tests](https://img.shields.io/badge/tests-373%2F373-green)](https://github.com/LUKAWI/super-plumber/actions)
 [![GitHub](https://img.shields.io/badge/GitHub-LUKAWI%2Fsuper--plumber-black)](https://github.com/LUKAWI/super-plumber)
 
 **English:** [README.en.md](README.en.md) · **npm:** [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)
@@ -34,6 +34,7 @@ todo: "做个注册模块"            →     entry → l1_register → l1_login
 
 | 能力 | 说明 |
 |------|------|
+| 🗂️ **多图工作区（v0.5.2）** | 一个 `.graph/` 管多张命名图：类 git branch 的 `graph switch`（工作区默认 + MCP 进程内 active 双层语义）、`graph init <内容名>`/`list`/`rename-graph`/`delete-graph`（.trash 软删除）、全部命令支持 `--graph` 参数与 `SUPER_PLUMBER_GRAPH`；旧仓库零迁移兼容（建第二图时锁内一次性迁移）；每图独立锁/索引/事件/快照 |
 | 🧭 **类型化拓扑** | 9 种边类型：`depends_on` / `validates` 参与拓扑排序，`shares_context` / `fan_out` / `fan_in` / `fallback` / `iterates` 表达运行时控制流，`decides` / `relates`（v0.5）承载领域知识边 |
 | 🏛️ **领域语义（v0.5）** | **bounded context 与 ADR 是图中一等公民**：context 顶点"节点即文档"（boundary+术语表 glossary），节点归属（`--context`）派生工作流/领域两张 map；**ADR 三态机** proposed→accepted→superseded（废弃必带接替者、提议/裁决分离）；`graph adr` 命令组 + MCP `graph_create_adr`；决策变更沿 decides 边传播（claim 注入 `governing_adrs` 指针、调度条目打 `adr_flags` ⚠️）；跨 context 工作流边为契约边（必填 contract）；`graph export --docs` 导出 docs/adr + CONTEXT-MAP.md + 各 CONTEXT.md（图为真相源，md 是视图） |
 | 🔄 **状态机强制** | 7 态 + 三条硬规则：ready 门禁（门控前驱必须 passed）、max_attempts 上限、**passed 硬门禁**（无执行报告 / checkpoint 未聚合 / failed 裁决 → 拒绝 passed）；并发认领锁内原子；attempts 重置必须显式 `--reset-attempts`（写审计事件，改 plan 不再自动重置）；知识顶点豁免状态机（context 无状态、adr 走三态机） |
@@ -78,7 +79,7 @@ npm install -g @lukawi/super-plumber
 
 ```bash
 graph --version     # 输出 0.5.0 即成功
-graph --help        # 查看全部 22 个命令
+graph --help        # 查看全部 28 个命令
 which graph         # 确认命令位置（Windows: where graph）
 ```
 
@@ -407,9 +408,11 @@ npm install -g @lukawi/super-plumber
 
 > 单一固定图/测试场景才需要显式指定：`"command": "graph-mcp", "args": ["--root", "/path/to/graph"]`。
 
-### 20 个工具
+### 22 个工具
 
 **调度**：`graph_get_next_actions` — 一次返回可认领（ready）/ **可转 ready（ready_eligible，门禁已满足的 pending/failed——冷启动入口）** / 等依赖（blocked，附未满足前驱）/ 执行中（running，附时长）/ 疑似卡住（stale_running），每桶分页（`limit` + `truncated`），条目可含 `adr_flags`（决策依据已过时 ⚠️），是 agent 规划循环的首选。
+
+**多图（v0.5.2）**：`graph_switch`（进程内切换当前图：带名切换+摘要 / 无参查当前，重启回落工作区默认）、`graph_list_graphs`（列全部图含 is_current / 查单图详情）；**全部 22 个工具响应统一附 graph 名回显**；跨图智能纠错（当前图缺失的节点/边 id → 报错附『它存在于图 X，请先 graph_switch』，提示绝不代切）。
 
 **读取**：`graph_get_node`（节点 + 合法转换 + checkpoint 聚合 + 门禁状态 + **governing_adrs 管辖 ADR 指针**，可附拓扑邻居）、`graph_get_graph`（默认 summary 紧凑模式，`mode=full` + `offset/limit` 分页）、`graph_traverse`（`max_nodes` 上限）、`graph_search`（`limit` 上限 + 紧凑结果，可按 `--type adr/context` 查知识顶点）。
 
@@ -528,7 +531,7 @@ graph --version
 ## 项目状态
 
 ```text
-Tests: 316（后端）+ 36（前端）✅ | CLI: 22 命令 | MCP: 20 工具 | 状态机: 7 态 + ready 门禁 + max_attempts + passed 硬门禁 + 事件日志审计 + ADR 三态机（知识顶点豁免） | 边类型: 9 种 | 版本控制: snapshot/diff/rollback（含 design-only）| Web UI: Svelte 5 + D3.js（map 透镜）
+Tests: 373（后端）+ 49（前端）✅ | CLI: 28 命令 | MCP: 22 工具 | 状态机: 7 态 + ready 门禁 + max_attempts + passed 硬门禁 + 事件日志审计 + ADR 三态机（知识顶点豁免） | 边类型: 9 种 | 版本控制: snapshot/diff/rollback（含 design-only）| Web UI: Svelte 5 + D3.js（map 透镜）
 ```
 
 - **npm**: [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)

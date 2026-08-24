@@ -87,20 +87,29 @@ function renderContextMap(contexts: NodeSchema[]): string {
 
 /**
  * 清理同号旧命名文件（label 改了 slug 会变）。
- * D4 加固：个别环境下 rmSync 对 Unicode 文件名会静默崩溃——删除失败时降级为
- * 用 writeFileSync 把旧文件覆写成一行指向新文件的跳转注记（保证幂等且不中断导出）。
+ * D4 实锤升级：个别环境（本机 shell）对特定 Unicode 文件名的 fs.rmSync 是
+ * **进程级崩溃**（exit 127，无异常可捕，try/catch 无效）——renameSync 则正常。
+ * 因此绝不 rmSync 用户目录下的文件：mkdir .retired/ + renameSync 归档（原子、可逆），
+ * rename 失败再降级为覆写跳转注记（writeFileSync 对 Unicode 安全）。
  */
 function retireStaleSlugFiles(adrDir: string, num: string, canonical: string): void {
   for (const f of fs.readdirSync(adrDir)) {
     if (f.startsWith(`${num}-`) && f.endsWith(".md") && f !== canonical) {
+      const src = path.join(adrDir, f);
       try {
-        fs.rmSync(path.join(adrDir, f), { force: true });
+        const retiredDir = path.join(adrDir, ".retired");
+        fs.mkdirSync(retiredDir, { recursive: true });
+        fs.renameSync(src, path.join(retiredDir, f));
       } catch {
-        fs.writeFileSync(
-          path.join(adrDir, f),
-          `> 本决策文档已由 \`graph export\` 重命名：见 ${canonical}\n`,
-          "utf-8",
-        );
+        try {
+          fs.writeFileSync(
+            src,
+            `> 本决策文档已由 \`graph export\` 重命名：见 ${canonical}\n`,
+            "utf-8",
+          );
+        } catch {
+          /* 双保险都失败：保留旧文件（重复编号无害，幂等靠规范名覆盖） */
+        }
       }
     }
   }

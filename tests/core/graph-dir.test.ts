@@ -227,3 +227,27 @@ describe("多图隔离（每图独立锁/索引/事件/快照）", () => {
     expect(fs.existsSync(path.join(tmpDir, ".graph", "default", "nodes", "ws-n1.yaml"))).toBe(false);
   });
 });
+
+describe("并发迁移锁（cp_cross：无双迁）", () => {
+  it("两个进程并发建图 → 旧布局只迁移一次，两图都建成功", async () => {
+    legacyInit();
+    const { spawn } = await import("node:child_process");
+    const cli = path.resolve("dist/cli/index.js");
+    const runOne = (name: string) =>
+      new Promise<number>((resolve) => {
+        const p = spawn(process.execPath, [cli, "init", name, "-l", name], {
+          cwd: tmpDir,
+          stdio: "ignore",
+        });
+        p.on("exit", (code) => resolve(code ?? 1));
+      });
+    const [c1, c2] = await Promise.all([runOne("con-a"), runOne("con-b")]);
+    expect(c1).toBe(0);
+    expect(c2).toBe(0);
+    // 迁移只发生一次（workspace-events migrate 计数 = 1）
+    expect(readWorkspaceEvents(tmpDir, { kind: "migrate" })).toHaveLength(1);
+    expect(listGraphNames(tmpDir).sort()).toEqual(["con-a", "con-b", "default"]);
+    // default 数据无损（迁移进 default/ 后再无二次搬动）
+    expect(fs.existsSync(path.join(tmpDir, ".graph", "default", "graph.yaml"))).toBe(true);
+  });
+});

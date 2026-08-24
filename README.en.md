@@ -5,7 +5,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@lukawi/super-plumber)](https://www.npmjs.com/package/@lukawi/super-plumber)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-316%2F316-green)](https://github.com/LUKAWI/super-plumber/actions)
+[![Tests](https://img.shields.io/badge/tests-373%2F373-green)](https://github.com/LUKAWI/super-plumber/actions)
 [![GitHub](https://img.shields.io/badge/GitHub-LUKAWI%2Fsuper--plumber-black)](https://github.com/LUKAWI/super-plumber)
 
 **中文版:** [README.md](README.md) · **npm:** [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)
@@ -34,6 +34,7 @@ todo: "build a registration module"  →   entry → l1_register → l1_login �
 
 | Capability | Description |
 |------------|-------------|
+| 🗂️ **Multi-graph workspace (v0.5.2)** | One `.graph/` manages multiple named graphs: `graph switch` like git branch (workspace default + per-process MCP active, two-layer semantics), `graph init <name>`/`list`/`rename-graph`/`delete-graph` (.trash soft delete), `--graph` flag and `SUPER_PLUMBER_GRAPH` on every command; legacy repos stay compatible (one-shot locked migration when the second graph is born); per-graph locks/index/events/snapshots |
 | 🧭 **Typed topology** | 9 edge types: `depends_on` / `validates` participate in topological sort; `shares_context` / `fan_out` / `fan_in` / `fallback` / `iterates` express runtime control flow; `decides` / `relates` (v0.5) carry domain knowledge |
 | 🏛️ **Domain semantics (v0.5)** | **Bounded contexts and ADRs are first-class graph citizens**: context vertices follow "node as document" (boundary + glossary); node membership (`--context`) derives workflow/domain maps; **ADR state machine** proposed→accepted→superseded (supersede requires a successor; propose/adjudicate separation); `graph adr` command group + MCP `graph_create_adr`; decision changes propagate along decides edges (claim responses inject `governing_adrs` pointers, scheduling entries get `adr_flags` ⚠️); cross-context workflow edges are contract edges (contract required); `graph export --docs` regenerates docs/adr + CONTEXT-MAP.md + per-context CONTEXT.md (graph is the source of truth, markdown is a view) |
 | 🔄 **Enforced state machine** | 7 states + three hard rules: ready gate (gating predecessors must be `passed`), max_attempts cap, and a **passed hard gate** (no execution report / unaggregated checkpoints / failed verdict → `passed` rejected); concurrent claims are atomic under a lock; knowledge vertices are exempt (context is stateless, ADR has its own 3-state machine) |
@@ -77,7 +78,7 @@ npm install -g @lukawi/super-plumber
 
 ```bash
 graph --version     # prints 0.5.0 on success
-graph --help        # lists all 22 commands
+graph --help        # lists all 28 commands
 which graph         # confirm location (Windows: where graph)
 ```
 
@@ -499,7 +500,7 @@ graph --version
 ## Project Status
 
 ```text
-Tests: 316 backend + 36 frontend ✅ | CLI: 22 commands | MCP: 20 tools | State machine: 7 states + ready gate + max_attempts + passed hard gate + event-log audit + ADR 3-state machine (knowledge vertices exempt) | Edge types: 9 | Versioning: snapshot/diff/rollback (incl. design-only) | Web UI: Svelte 5 + D3.js (map lenses)
+Tests: 373 backend + 49 frontend ✅ | CLI: 28 commands | MCP: 22 tools | State machine: 7 states + ready gate + max_attempts + passed hard gate + event-log audit + ADR 3-state machine (knowledge vertices exempt) | Edge types: 9 | Versioning: snapshot/diff/rollback (incl. design-only) | Web UI: Svelte 5 + D3.js (map lenses)
 ```
 
 - **npm**: [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)

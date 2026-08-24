@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.5.2] — 2026-08-24（已同步 GitHub，未发 npm）
+
+> 单工作区多图管理：一个 `.graph/` 管多张命名任务图，agent 像切 git branch 一样按名切换、
+> 定向编辑，配全链路选错图兜底与多图并行渲染。设计经 grilling 六问共识（进程内 active 双层
+> 语义/扁平布局+一次性迁移/5 CLI 命令+2 MCP 工具/五兜底机制/多图并行渲染/难度总评）。
+> 全程 super-plumber 工作流自举交付（7 节点全部 passed；问题记录见 docs/v0.5.2-issue-log.md）。
+
+### 核心能力
+
+- **存储布局（扁平 + 一次性迁移）**：`.graph/{active, schema.yaml, workspace-events.jsonl, default/, <图名>/, .trash/}`——每图一个一级目录（图内=完整既有布局），每图独立锁/索引/事件/快照；旧仓库零迁移兼容（旧布局原地识别为 default），建第二张图时工作区级锁内一次性 renameSync 6 项迁入 `.graph/default/`（`.locks` 刻意不迁——工作区级互斥锁的家，见 issue log A4）。
+- **图目录解析五级链**：`--graph 参数 > SUPER_PLUMBER_GRAPH > 进程内 active（仅 MCP）> .graph/active > default`；CLI/MCP 共用 core 解析器；错名报错列全部可用图 + did-you-mean，绝不静默滑级。
+- **CLI 命令面（22→28）**：`graph init <内容名>`（新仓库必须带名；旧仓库带名 = 迁移+建图+设默认；`--force` 软删重建）、`graph switch [<名>]`（带名改写默认+目标摘要+原图 running 在途提示；无参显当前含来源）、`graph list [<名>]`（全量结构化含当前标记 / 单图详情，`--json`）、`graph rename-graph`（active 随迁+审计）、`graph delete-graph --confirm`（默认拒绝、拒删最后一张、拒删 active 默认、`.trash` 软删除可手工救回）；全部数据命令支持 `--graph` 与 `SUPER_PLUMBER_GRAPH`；关键输出首行标图名。
+- **MCP 工具面（20→22）**：`graph_switch`（**进程内** active——每个 agent=独立 MCP 进程=独立当前图，不落盘不污染工作区默认，重启回落）与 `graph_list_graphs`；**全部 22 个工具响应统一附 graph 名回显**；跨图智能纠错（当前图缺失节点/边 id → 报错附『它存在于图 X，请先 graph_switch』，多命中全列，提示绝不代切）。
+- **Web UI 多图并行渲染**：递归监听全部图目录按图路由 ws/HTTP（`/api/graphs` 图列表、`/api/graph?graph=` 指定图）；折叠任务栏/开关式选图器（有几张渲染几张，初始选中=工作区 active，切换纯审阅不影响 CLI/MCP），store 按图分桶、后台图持续热更新；UI 纯只读。
+- **领域结构 dogfood**：本图 4 context（多图存储/CLI 命令层/MCP 协议/Web 可视化）+ 3 ADR（扁平布局一次性迁移/双层 active/.trash 软删除，均 accepted）+ decides 挂接 + 跨 context 契约边；`export --docs` 视图再生（旧 v0.5.0 导出归档 `.retired/`）。
+
+### 缺陷修复（执行期发现，见 docs/v0.5.2-issue-log.md）
+
+- **A1**：MCP 回显层批量替换把 jsonGraph 内部 return 也替换成自身 → 自递归栈溢出——已修。
+- **A2**：CLI 未初始化守卫在 rootDir 语义变更后双拼 `.graph`——已修（守卫改为图目录内 graph.yaml 存在性）。
+- **A3**：特定 Unicode 文件名的 `fs.rmSync` 是进程级崩溃（exit 127 无异常可捕）——导出清理改 `renameSync` 归档 `.retired/`（snapshot 回滚同类风险列为后续优化）。
+- **A4**：并发建图迁移把 `.locks` 搬走致等待锁进程 ENOENT 崩溃——`.locks` 移出迁移清单（专项并发测试锁定）。
+- **C3**：dogfood 首版验证声明失实被裁决拦截（init 契约变更后 core 套件漏跑）——已修正，教训入 issue log。
+
+### 专项性能实测（tests/perf/multigraph-perf.test.ts）
+
+- 多图解析热路径：10 图工作区 resolveGraphDir/toGraphDir 千次中位数 <2ms（实测 ~0.1-0.7ms），listGraphNames 50 图 <10ms——多图兼容对热路径开销可忽略。
+- 快照自动导出（v0.5.1 CONTEXT-MAP 功能）：40 节点+7 知识顶点图快照中位数 <2s、幂等重跑 <500ms；10 图工作区中单图快照不受周边图影响。
+- 全局隐患推测 5 项（G1-G5：多图 export 目标冲突/纠错扫描成本/rename-delete 窗口期/workspace-events 无限增长/default 认知歧义）记录于 issue log，待后续版本处理。
+
+### 行为变更（升级注意）
+
+- `graph init` 在新仓库**必须带图名**（内容命名，禁止 default 式指代不清名称）；无名单图 init 与 `--force` 语义调整见 CLI 参考。
+- 图内路径从 `.graph/{nodes,…}` 变为 `.graph/<图名>/{nodes,…}`——依赖旧路径的脚本需适配（未迁移仓库完全不受影响）。
+- MCP 全部工具响应新增 `graph` 字段；`graph_get_graph`/`graph_get_node` 等语义不变。
+
 ## [0.5.1] — 2026-08-22（已同步 GitHub，未发 npm；按用户指令暂缓全量测试）
 
 ### 遗留问题修复（docs/v0.5.0-issue-log.md D1-D5 处置）
