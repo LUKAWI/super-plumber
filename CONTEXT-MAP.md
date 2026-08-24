@@ -5,7 +5,7 @@
 
 | Context | 边界 | 术语数 | 文档 |
 |---------|------|--------|------|
-| ctx_cli（命令行通道） | 人类运维通道：命令解析与输出格式化；无业务规则（全部下沉 core）；force 等越权操作仅此通道可用 | 2 | docs/contexts/ctx_cli.md |
-| ctx_core（核心引擎） | 数据模型、状态机、门禁、调度与存储原语——产品语义的唯一裁判；不含任何 I/O 面（CLI/MCP/Web 都只是它的视图） | 4 | docs/contexts/ctx_core.md |
-| ctx_mcp（MCP 协议通道） | agent 协议通道：20 个工具的 zod schema 与响应；无业务规则；force 在协议层拒绝（FIX-A1） | 2 | docs/contexts/ctx_mcp.md |
-| ctx_webui（Web 可视化） | 纯只读可视化：map 过滤与 D3 渲染；零写路径（裁决控制台是未来可选演进） | 2 | docs/contexts/ctx_webui.md |
+| ctx_cmds（CLI 命令层） | 人类运维通道：init/switch/list/rename-graph/delete-graph 五命令 + --graph 参数注入；无业务规则（全部下沉  | 2 | docs/contexts/ctx_cmds.md |
+| ctx_mgmt（多图存储与解析） | 工作区级多图状态：图目录解析（五级链）、扁平布局、一次性迁移、active 指针、workspace-events 审计、.trash 软删除；不负责任何命令面 | 4 | docs/contexts/ctx_mgmt.md |
+| ctx_proto（MCP 协议通道） | agent 协议通道：22 工具 zod schema 与响应；graph_switch 进程内 active；全响应回显 graph 字段；跨图纠错提示（提示 | 2 | docs/contexts/ctx_proto.md |
+| ctx_viz（Web 可视化） | 多图并行渲染：递归监听全部图目录、ws 消息按图路由、折叠任务栏选图器；纯只读观察窗，切图不影响 CLI/MCP 状态 | 2 | docs/contexts/ctx_viz.md |
