@@ -2,7 +2,7 @@
 
 active 分两层：.graph/active 是工作区默认（新进程与 CLI 无参的起点，graph switch 改写）；MCP 进程内 active 是每个 agent 私有的当前图（graph_switch 只改本进程内存，重启回落默认）。优先级链 --graph > SUPER_PLUMBER_GRAPH > 进程内 > active 文件 > default。
 
-**Status：** proposed（待裁决）
+**Status：** accepted
 
 **Context：** 类 git branch 的切换语义。备选：工作区全局单 active（同 git HEAD）。
 
