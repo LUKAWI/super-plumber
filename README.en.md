@@ -77,7 +77,7 @@ npm install -g @lukawi/super-plumber
 ### 2. Verify the install
 
 ```bash
-graph --version     # prints 0.6.0-beta.1 on success
+graph --version     # prints 0.6.0 on success
 graph --help        # lists all 27 commands
 which graph         # confirm location (Windows: where graph)
 ```
@@ -426,7 +426,7 @@ npm install -g @lukawi/super-plumber
 
 **Versioning**: `graph_snapshot` / `graph_diff` / `graph_rollback` (requires `confirm: true`; `design_only: true` rewinds design only, keeping execution progress).
 
-**Self-check & audit (v0.6.0-beta.1)**: `graph_validate` (cycle/ghost-edge/schema/six domain rules/reference-list drift in one summary, structured ok/errors/warnings — the self-check after batch creates or crash recovery), `graph_events` (event-log replay with `node`/`kind` filters and `last` tail; claim/force_override/attempts_reset traceable).
+**Self-check & audit (v0.6.0)**: `graph_validate` (cycle/ghost-edge/schema/six domain rules/reference-list drift in one summary, structured ok/errors/warnings — the self-check after batch creates or crash recovery), `graph_events` (event-log replay with `node`/`kind` filters and `last` tail; claim/force_override/attempts_reset traceable).
 
 **Reliability by design**: every param is zod-validated — missing params / invalid enums return `-32602` protocol errors; nonexistent nodes/edges return `isError=true` with readable messages; illegal state transitions, gate violations, attempt caps and the passed hard gate error explicitly. **Tools never fail silently.**
 

@@ -1,8 +1,8 @@
 # Changelog
 
-## [0.6.0-beta.1] — 2026-08-25（minor 预发布：S0-6 web 黑屏修复 + v0.5.2 代码评审 46+5 项全量修复）
+## [0.6.0] — 2026-08-25（minor：S0-6 web 黑屏修复 + v0.5.2 代码评审 46+5 项全量修复 + web-ui 文案板块 Markdown 渲染）
 
-- 版本决策：原计划 0.5.3 补丁，因含三处行为语义变更升 minor 预发布——①cancelled→pending 重开保留 attempts（重开≠重置预算，N5）；②写前校验架构收紧（此前可落盘的残缺数据现被拒，A2）；③快照 manifest 改名 manifest.json（读旧写新兼容，S3-10）。npm 发布走 `--tag beta`（latest 仍为 0.5.2，验证后 `npm dist-tag add @lukawi/super-plumber@0.6.0-beta.1 latest` 转正）。
+- 版本决策：原计划 0.5.3 补丁，因含三处行为语义变更升 minor——①cancelled→pending 重开保留 attempts（重开≠重置预算，N5）；②写前校验架构收紧（此前可落盘的残缺数据现被拒，A2）；③快照 manifest 改名 manifest.json（读旧写新兼容，S3-10）。先以 0.6.0-beta.1 预发布（tag=beta）验证，2026-08-25 转正 0.6.0 发布为 latest。
 
 > 0.5.2 已发布包 `graph serve` 打开即整页黑屏的紧急修复补丁。
 
@@ -10,7 +10,7 @@
 - **修复**：读/写路径分离——getter 统一走 `curReadonly()`（冻结空桶 `EMPTY_BUCKET` 兜底，**绝不建桶**），建桶只发生在事件/异步上下文（`selectGraph`/`applyFull` 等）；响应性不受影响（getter 仍读取 `$state`，真实桶落地后 derived 自动重算）。
 - **回归防线（三层）**：`store-probe.svelte.ts`（derived 上下文探针）+ `store-readonly.test.ts`（空桶缺省值/建桶时序 3 条）+ `render-smoke.test.ts`（jsdom 真实挂载 App：无数据初始渲染出骨架屏不崩、`applyFull` 后节点标签真实渲染进 DOM 2 条）。
 - **测试工具链**（支撑组件级测试）：vitest 2→3、vite-plugin-svelte 5.1.1→6.2.4（修复 vite 6.4 `preprocessCSS` Environment 兼容）、vite.config 增加 `resolve.conditions: ["browser"]`（Svelte 5 官方测试配方，vitest 默认 SSR transform 会使 `mount` 不可用）。web-ui 54/54 绿、svelte-check 0 错误。
-- 发布动作（npm publish 0.6.0-beta.1 --tag beta）由 fix-review-v052 修复计划 GATE 发布检查单执行（2026-08-25 完成）。
+- 发布动作：0.6.0-beta.1（--tag beta，2026-08-25）与 0.6.0（latest，2026-08-25）均由 fix-review-v052 修复计划 GATE 发布检查单执行；beta 转正后 beta tag 已移除。
 
 ### v0.5.2 代码评审修复（fix-review-v052，P1-P3；溯源各节点 execution report）
 
@@ -24,7 +24,8 @@
 - **转义修复（f15，S3-4/S3-5/S3-11/N4）**：Mermaid/DOT 导出 label 转义（引号/反斜杠/换行）；`createGraph` 手拼 YAML 改构造骨架 + yaml.dump（label 含冒号/井号/引号/换行不再产生非法或被注入的 graph.yaml——N4 PoC 四形回归锁定）+ 图 id 加随机后缀防同毫秒撞号；CONTEXT-MAP 表格 id/label 补 `|` 转义。
 - **算法与健壮性（f16，S3-8/S3-9/S3-10/S3-16）**：topologicalSort 头指出队替代 shift()（O(n²)→O(V+E)，10k 图毫秒级）+ 环报错路径 Set 化；CLI 错误分类改结构化 code 双通道（message 兜底）、ENOENT 死分支删除；快照 manifest.yaml（JSON 内容）改名 manifest.json（读侧兼容旧名，历史快照零迁移可见）；锁 pid 复用/长临界区两类已知窗口注释标注 + 真实死亡 pid 回收测试。
 - **reopen 语义（f19，N5）**：cancelled→pending 重开**保留 attempts**（原归零使 max_attempts 门禁可被 fail→cancel→reopen 循环无限绕过）——与死认领回收语义对齐；预算耗尽的重开走 CLI `--force`（force_override 审计）。
-- **承诺-实现断言与文档同步（f17，A5）**：四处"承诺-实现"断言纳入测试防漂移（工具计数=24 [tools-coverage TC-01]、artifacts 核验 [artifacts-check ART-01..04]、diff 默认值 [semantics SEM-02/03]、fallback/iterates 文档性标注 + 刻意无 MCP 通道披露 [description-contracts DC-01/02]）；双语 README 同步至 24 工具/27 命令/0.6.0-beta.1；全量回归 504 例后端全绿 + CLI validate 演练。
+- **web-ui 文案板块 Markdown 渲染（v0.6.0 并入）**：PLAN / DONE CRITERIA / CHECKPOINTS / EXECUTION REPORT 全部适配 Markdown——marked 解析 + DOMPurify 消毒（XSS 防线）、GFM 全量语法、外链强制 target=_blank+rel=noopener、inline 模式嵌入列表条目与标签；artifacts/blockers 保持 chip 纯文本（路径下划线不被误转斜体）；组件 11 例 + 集成 5 例，web-ui 70/70。
+- **承诺-实现断言与文档同步（f17，A5）**：四处"承诺-实现"断言纳入测试防漂移（工具计数=24 [tools-coverage TC-01]、artifacts 核验 [artifacts-check ART-01..04]、diff 默认值 [semantics SEM-02/03]、fallback/iterates 文档性标注 + 刻意无 MCP 通道披露 [description-contracts DC-01/02]）；双语 README 同步至 24 工具/27 命令/0.6.0；全量回归 504 例后端全绿 + CLI validate 演练。
 
 ## [0.5.2] — 2026-08-24（已同步 GitHub，未发 npm）
 

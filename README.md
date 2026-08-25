@@ -78,7 +78,7 @@ npm install -g @lukawi/super-plumber
 ### 2. 验证安装
 
 ```bash
-graph --version     # 输出 0.6.0-beta.1 即成功
+graph --version     # 输出 0.6.0 即成功
 graph --help        # 查看全部 27 个命令
 which graph         # 确认命令位置（Windows: where graph）
 ```
@@ -427,7 +427,7 @@ npm install -g @lukawi/super-plumber
 
 **版本**：`graph_snapshot` / `graph_diff` / `graph_rollback`（必须 `confirm: true`；`design_only: true` 只回卷设计、保留执行进度）。
 
-**自检与审计（v0.6.0-beta.1）**：`graph_validate`（环/幽灵边/schema/六条领域规则/引用列表双向漂移汇总，ok/errors/warnings 结构化返回，批量创建与 crash recovery 后的自检手段）、`graph_events`（事件日志回溯，`node`/`kind` 过滤 + `last` 截尾，claim/force_override/attempts_reset 可追查）。
+**自检与审计（v0.6.0）**：`graph_validate`（环/幽灵边/schema/六条领域规则/引用列表双向漂移汇总，ok/errors/warnings 结构化返回，批量创建与 crash recovery 后的自检手段）、`graph_events`（事件日志回溯，`node`/`kind` 过滤 + `last` 截尾，claim/force_override/attempts_reset 可追查）。
 
 **可靠性设计**：所有参数经 zod schema 校验——缺参、非法枚举返回 `-32602` 协议错误；不存在的节点/边返回 `isError=true` 和可读的错误消息；非法状态转换/门禁/次数上限/passed 硬门禁明确报错。**工具永远不静默失败**。
 

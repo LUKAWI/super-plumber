@@ -7,6 +7,7 @@
     isKnowledgeType,
   } from "../lib/types";
   import { adrFlagsFor } from "../lib/maps";
+  import Markdown from "../lib/components/Markdown.svelte";
 
   let visible = $state(false);
   let prevId: string | undefined;
@@ -192,7 +193,7 @@
             <span class="section-icon">▸</span>
             PLAN
           </h3>
-          <p class="plan-desc">{graphState.selectedNode.plan.description}</p>
+          <Markdown text={graphState.selectedNode.plan.description} />
           {#if graphState.selectedNode.plan.output_to && graphState.selectedNode.plan.output_to.length > 0}
             <div class="sub-list">
               <span class="sub-label">outputs:</span>
@@ -213,7 +214,7 @@
           </h3>
           <ul class="dod-list">
             {#each graphState.selectedNode.expected_outcome.definition_of_done as item}
-              <li>{item}</li>
+              <li><Markdown inline text={item} /></li>
             {/each}
           </ul>
           {#if graphState.selectedNode.expected_outcome.quality_gates && graphState.selectedNode.expected_outcome.quality_gates.length > 0}
@@ -270,7 +271,7 @@
               <div class="cp-item">
                 <span class="cp-icon {cpClass(cp.status)}">{cpIcon(cp.status)}</span>
                 <div class="cp-body">
-                  <span class="cp-label">{cp.label}</span>
+                  <span class="cp-label"><Markdown inline text={cp.label} /></span>
                   <span class="cp-status {cpClass(cp.status)}">{cp.status}</span>
                 </div>
               </div>
@@ -286,7 +287,7 @@
             <span class="section-icon">▸</span>
             EXECUTION REPORT
           </h3>
-          <p class="plan-desc">{graphState.selectedNode.execution_report.summary || '(no summary)'}</p>
+          <Markdown text={graphState.selectedNode.execution_report.summary || '(no summary)'} />
 
           {#if graphState.selectedNode.execution_report.verification}
             <div class="verdict-row">
@@ -296,7 +297,7 @@
                 {graphState.selectedNode.execution_report.verification.verdict}
               </span>
               {#if graphState.selectedNode.execution_report.verification.note}
-                <span class="verdict-note">{graphState.selectedNode.execution_report.verification.note}</span>
+                <span class="verdict-note"><Markdown inline text={graphState.selectedNode.execution_report.verification.note} /></span>
               {/if}
             </div>
           {/if}
@@ -318,9 +319,9 @@
             </div>
           {/if}
           {#if graphState.selectedNode.execution_report.notes}
-            <div class="sub-list">
-              <span class="sub-label">notes:</span>
-              <span class="plan-desc">{graphState.selectedNode.execution_report.notes}</span>
+            <div class="notes-block">
+              <div class="sub-label">notes:</div>
+              <Markdown text={graphState.selectedNode.execution_report.notes} />
             </div>
           {/if}
         </section>
@@ -544,6 +545,15 @@
     flex-wrap: wrap;
     gap: var(--sp-2);
     align-items: center;
+  }
+
+  .notes-block {
+    margin-top: var(--sp-3);
+  }
+
+  .notes-block .sub-label {
+    margin-bottom: var(--sp-1);
+    display: block;
   }
 
   .sub-label {
