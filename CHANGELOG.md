@@ -10,7 +10,7 @@
 - **修复**：读/写路径分离——getter 统一走 `curReadonly()`（冻结空桶 `EMPTY_BUCKET` 兜底，**绝不建桶**），建桶只发生在事件/异步上下文（`selectGraph`/`applyFull` 等）；响应性不受影响（getter 仍读取 `$state`，真实桶落地后 derived 自动重算）。
 - **回归防线（三层）**：`store-probe.svelte.ts`（derived 上下文探针）+ `store-readonly.test.ts`（空桶缺省值/建桶时序 3 条）+ `render-smoke.test.ts`（jsdom 真实挂载 App：无数据初始渲染出骨架屏不崩、`applyFull` 后节点标签真实渲染进 DOM 2 条）。
 - **测试工具链**（支撑组件级测试）：vitest 2→3、vite-plugin-svelte 5.1.1→6.2.4（修复 vite 6.4 `preprocessCSS` Environment 兼容）、vite.config 增加 `resolve.conditions: ["browser"]`（Svelte 5 官方测试配方，vitest 默认 SSR transform 会使 `mount` 不可用）。web-ui 54/54 绿、svelte-check 0 错误。
-- 发布动作：0.6.0-beta.1（--tag beta，2026-08-25）与 0.6.0（latest，2026-08-25）均由 fix-review-v052 修复计划 GATE 发布检查单执行；beta 转正后 beta tag 已移除。
+- 发布动作：0.6.0-beta.1（--tag beta，2026-08-25）与 0.6.0（latest，2026-08-25）均由 fix-review-v052 修复计划 GATE 发布检查单执行；beta 转正后 npm 不允许删除 dist-tag，beta 保留指向 0.6.0-beta.1（latest 已是 0.6.0）。
 
 ### v0.5.2 代码评审修复（fix-review-v052，P1-P3；溯源各节点 execution report）
 
