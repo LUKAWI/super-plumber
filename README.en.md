@@ -5,7 +5,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@lukawi/super-plumber)](https://www.npmjs.com/package/@lukawi/super-plumber)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-373%2F373-green)](https://github.com/LUKAWI/super-plumber/actions)
+[![Tests](https://img.shields.io/badge/tests-504%2F504-green)](https://github.com/LUKAWI/super-plumber/actions)
 [![GitHub](https://img.shields.io/badge/GitHub-LUKAWI%2Fsuper--plumber-black)](https://github.com/LUKAWI/super-plumber)
 
 **中文版:** [README.md](README.md) · **npm:** [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)
@@ -38,7 +38,7 @@ todo: "build a registration module"  →   entry → l1_register → l1_login �
 | 🧭 **Typed topology** | 9 edge types: `depends_on` / `validates` participate in topological sort; `shares_context` / `fan_out` / `fan_in` / `fallback` / `iterates` express runtime control flow; `decides` / `relates` (v0.5) carry domain knowledge |
 | 🏛️ **Domain semantics (v0.5)** | **Bounded contexts and ADRs are first-class graph citizens**: context vertices follow "node as document" (boundary + glossary); node membership (`--context`) derives workflow/domain maps; **ADR state machine** proposed→accepted→superseded (supersede requires a successor; propose/adjudicate separation); `graph adr` command group + MCP `graph_create_adr`; decision changes propagate along decides edges (claim responses inject `governing_adrs` pointers, scheduling entries get `adr_flags` ⚠️); cross-context workflow edges are contract edges (contract required); `graph export --docs` regenerates docs/adr + CONTEXT-MAP.md + per-context CONTEXT.md (graph is the source of truth, markdown is a view) |
 | 🔄 **Enforced state machine** | 7 states + three hard rules: ready gate (gating predecessors must be `passed`), max_attempts cap, and a **passed hard gate** (no execution report / unaggregated checkpoints / failed verdict → `passed` rejected); concurrent claims are atomic under a lock; knowledge vertices are exempt (context is stateless, ADR has its own 3-state machine) |
-| 🤖 **Native MCP** | 20 `graph_*` tools covering the whole flow: design (batch create / add edge / edit entry-exit / **graph_create_adr**), execution (atomic claim with governing-ADR pointers / checkpoint / report / **reclaim of dead claims**), adjudication (verdict), versioning (snapshot/diff/rollback) — all with zod-validated params |
+| 🤖 **Native MCP** | 24 `graph_*` tools covering the whole flow: design (batch create / add edge / edit entry-exit / **graph_create_adr**), execution (atomic claim with governing-ADR pointers / checkpoint / report / **reclaim of dead claims**), adjudication (verdict), versioning (snapshot/diff/rollback), self-check (**graph_validate**: structure + domain rules + reference drift), audit (**graph_events**: event-log replay) — all with zod-validated params |
 | 🎯 **Scheduling decisions** | `graph next` / `graph_get_next_actions` returns claimable / ready-eligible (cold-start entry) / waiting-on-deps / running / possibly-stale in one screen, with per-bucket pagination + truncated flags; ready buckets ordered by node `priority`; staleness = last activity (reporting acts as a heartbeat); entries may carry `adr_flags` (stale decision basis ⚠️); knowledge vertices never enter scheduling buckets — the agent planning loop's first call |
 | 🗂️ **Versioning** | `snapshot` / `diff` / `rollback` primitives (auto-backup before rollback, explicit confirm required; **design-only rollback** rewinds design fields while keeping execution progress); Branch/Merge stays with Git |
 | 🧾 **Event log** | `.graph/events.jsonl` append-only audit: who created/deleted/transitioned/claimed/overrode/reset/rolled back what and when, including the ADR lifecycle (adr_created/accepted/superseded) — `graph events` for one-command traceability |
@@ -77,8 +77,8 @@ npm install -g @lukawi/super-plumber
 ### 2. Verify the install
 
 ```bash
-graph --version     # prints 0.5.0 on success
-graph --help        # lists all 28 commands
+graph --version     # prints 0.6.0-beta.1 on success
+graph --help        # lists all 27 commands
 which graph         # confirm location (Windows: where graph)
 ```
 
@@ -86,18 +86,18 @@ which graph         # confirm location (Windows: where graph)
 
 ```bash
 mkdir ~/my-first-graph && cd ~/my-first-graph
-graph init -l "My first topology"
+graph init my-first-graph -l "My first topology"
 ```
 
-You should see `✅ 已初始化 .graph/ 目录`. A `.graph/` folder now exists in the directory — that's your graph.
+You should see `✅ 已创建图 "my-first-graph" 并设为工作区默认`. A `.graph/` folder now exists in the directory — your graph's data lives in `.graph/my-first-graph/`.
 
 ---
 
 ## Quick Start (a graph in 2 minutes)
 
 ```bash
-# 1. Initialize
-graph init -l "User Registration"
+# 1. Initialize (v0.5.2: a fresh repo requires a content-named graph name)
+graph init user-registration -l "User Registration"
 
 # 2. Create nodes (-i id, -l label, --level, --plan-desc plan, --dod repeatable)
 graph create-node -i l1_register -l "Registration" -t task --level 1 \
@@ -128,23 +128,16 @@ We'll build a "User Registration" module through the complete lifecycle.
 ### Step 1 — Initialize and design entry/exit
 
 ```bash
-graph init -l "User Registration"
+graph init user-registration -l "User Registration"
 ```
 
-Every graph has exactly one **entry** (the requirement) and one **exit** (the acceptance criteria), both at level 0. The CLI has no dedicated entry/exit command yet — edit `.graph/graph.yaml` in your editor:
+Every graph has exactly one **entry** (the requirement) and one **exit** (the acceptance criteria), both at level 0. Fill them in with `graph update-graph` (no hand-editing graph.yaml anymore):
 
-```yaml
-entry:
-  description: "Build a user registration module: email+password signup and login"
-  defined_by: human
-  level: 0
-exit:
-  description: "Working registration/login, all tests pass"
-  acceptance_criteria:
-    - "Register API works"
-    - "Login keeps a session"
-  defined_by: human
-  level: 0
+```bash
+graph update-graph \
+  --entry-desc "Build a user registration module: email+password signup and login" \
+  --exit-desc "Working registration/login, all tests pass" \
+  --add-criteria "Register API works" --add-criteria "Login keeps a session"
 ```
 
 > `graph validate` warns when entry/exit are empty — a hint, not an error. Fill them in and the warning goes away.
@@ -180,7 +173,7 @@ graph update-node -i l1_register \
 graph update-node -i l1_register --show
 ```
 
-### Step 3 — Connect edges (any of 7 types)
+### Step 3 — Connect edges (7 workflow + 2 knowledge types)
 
 ```bash
 graph add-edge -i e1 -s l1_register -t l1_login --type depends_on
@@ -198,8 +191,10 @@ graph add-edge -i e4 -s l1_register -t l1_login --type shares_context # shared c
 | `fan_in` | C runs only after all upstreams finish | ❌ |
 | `fallback` | On B's failure, retry via A | ❌ |
 | `iterates` | A ⇄ B iterate until satisfactory | ❌ |
+| `decides` | ADR → any vertex: decision governance; supersession propagates adr_flags along it (v0.5 knowledge edge) | ❌ |
+| `relates` | context ↔ context: domain relationship, free-form `--rel-kind` label (v0.5 knowledge edge) | ❌ |
 
-> `depends_on` / `validates` feed the topological sort; runtime edges are ignored for sorting (e.g. `fallback`'s backward reference won't be misreported as a cycle).
+> `depends_on` / `validates` feed the topological sort; other workflow edges express runtime control flow and are ignored for sorting (e.g. `fallback`'s backward reference won't be misreported as a cycle); knowledge edges (`decides` / `relates`) are excluded from sorting and gates.
 
 ### Step 4 — Validate
 
@@ -214,7 +209,7 @@ Expected output:
 ✅ 边: 4 条
 ✅ 拓扑排序: 3 节点通过
 ✅ 循环检测: 无环路
-📊 校验结果: 0 错误, 0 警告
+📊 结果: 0 错误, 0 警告
 ```
 
 > **Try creating a cycle on purpose**: `graph add-edge -i e_cycle -s l1_login -t l1_register --type depends_on`
@@ -225,7 +220,7 @@ Expected output:
 ```bash
 # State machine: pending → ready → running → passed
 graph update-status -i l1_register -s ready      # deps done, ready to run
-graph update-status -i l1_register -s running    # claim: records start time (record the executor via MCP `claim_by`)
+graph update-status -i l1_register -s running    # claim: records start time (pass `--claim-by <agent>` to record the executor)
 graph update-status -i l1_register -s passed     # done
 
 # Try an illegal jump — the state machine stops you:
@@ -268,22 +263,36 @@ graph serve                           # open http://localhost:8934 for the force
 
 ---
 
-## CLI Reference (22 commands)
+## CLI Reference (27 commands)
 
 | Command | Purpose | Key flags |
 |---------|---------|-----------|
-| `graph init` | Initialize the `.graph/` skeleton | `-l <label>`; `--force` to reset an initialized graph |
-| `graph create-node` | Create a node | `-i <id>` `-l <label>` `-t <type>` (task/checkpoint/decision/gate) `--level <n>` `--plan-desc <text>` `--dod <item>` (repeatable) `--assigned-to <agent>` |
-| `graph add-edge` | Add a typed edge | `-i <id>` `-s <source>` `-t <target>` `--type <one of 7>` |
-| `graph update-status` | State transition (state machine validated) | `-i <id>` `-s <status>` (pending/ready/running/passed/failed/blocked/cancelled) |
-| `graph update-node` | Update node details | `-i <id>` `--plan-desc` `--add-dod <item>` (repeatable) `--clear-dod` `--add-checkpoint '<JSON>'` (repeatable) `--set-assigned <agent>` `--show` |
-| `graph delete-node` | Soft-delete a node | `-i <id>` (keeps `.deleted.yaml` history) |
-| `graph status` | Status overview + topo check | — |
-| `graph validate` | Integrity check (references + topo sort + cycles) | — |
-| `graph rebuild` | Rebuild `index/` derived indexes | — |
-| `graph rollback` | Rollback to a snapshot (auto-backup first) | `<snapshot-id>` `--confirm` (required); `--design-only` keeps execution progress |
+| `graph init` | Initialize: a fresh repo must create a named graph (v0.5.2); on a legacy repo, `init <name>` = migrate + create | `<name>` content-named graph id (required for fresh repos, e.g. refactor-auth); `-l <label>` display name; `--force` trash-and-rebuild same-name graph / reset legacy single graph |
+| `graph switch` | Switch the workspace default graph (writes `.graph/active`); no arg prints the current graph (with source) | `[<name>]`; warns about in-flight running nodes on the previous default |
+| `graph list` | List all graphs in the workspace (or one graph's detail) | `[<name>]`; `--json` |
+| `graph rename-graph` | Rename a graph (directory moves, active fixed up, audited); CLI human channel only | `-o <old>` `-n <new>` |
+| `graph delete-graph` | Delete a graph (soft delete into `.trash/`, manually recoverable; refuses the last graph / the active default); CLI human channel only | `-i <name>` `--confirm` |
+| `graph create-node` | Create a node (plan + DoD in one call; checkpoints go through `update-node`) | `-i <id>` `-l <label>` `-t <type>` (task/checkpoint/decision/gate/context/adr) `--level <n>` `--priority <n>` (lower runs first) `--context <ctx_id>` (v0.5 membership) `--plan-desc <text>` `--dod <item>` (repeatable) `--assigned-to <agent>` |
+| `graph get-node` | Read a node + allowed transitions + gate status (optional topology neighbors) | `-i <id>`; `--json` stable output; `--neighbors up\|down\|none` |
+| `graph add-edge` | Add a typed edge (core validates endpoints) | `-i <id>` `-s <source>` `-t <target>` `--type <one of 9>`; `--contract '<json>'` cross-context contract; `--rel-kind <text>` |
+| `graph update-status` | State transition (state machine + ready gate + max_attempts + passed hard gate) | `-i <id>` `-s <status>`; `--claim-by <agent>` to claim; `--force` human ops only |
+| `graph reclaim` | Reclaim a dead claim: running → pending (clears assignee, notes the reclaim) | `-i <id>`; `--by <actor>` |
+| `graph update-node` | Update node details | `-i <id>` `--plan-desc` `--add-dod <item>` (repeatable) `--clear-dod` `--add-checkpoint '<JSON>'` (repeatable) `--set-assigned <agent>` `--label <text>` `--max-attempts <n>` `--set-priority <n>` `--set-context <ctx_id>` `--boundary <text>` `--glossary-add '<JSON>'` (repeatable) `--reset-attempts` (explicit, audited) `--show` |
+| `graph update-graph` | Edit entry/exit/acceptance criteria/label (no hand-editing graph.yaml) | `--entry-desc` `--exit-desc` `--add-criteria <item>` (repeatable) `--clear-criteria` `--label` `--set-context '<json>'` |
+| `graph adr` | ADR lifecycle command group (v0.5): create lands as proposed; accept/supersede are adjudication | `create -t <title> -d <decision>`; `accept -i <id>`; `supersede -i <id> --by <id>`; `list [-s <status>]` |
+| `graph delete-node` | Soft-delete a node; refused while edges reference it | `-i <id>`; `--cascade` deletes referencing edges too |
+| `graph delete-edge` | Soft-delete an edge (keeps `.deleted.yaml` history) | `-i <id>` |
+| `graph status` | Status overview + topo check | `--json` |
+| `graph validate` | schema + references + topo sort + cycles (per-file locating) | `--json` |
+| `graph next` | Scheduling decision: claimable / ready-eligible / waiting / running / possibly stale | `--stale-ms <ms>` (default 30 min); `--json` |
+| `graph verdict` | Record an adjudication verdict (Super Mario) | `-i <id>` `--verdict passed\|failed\|pending` `--note <text>` |
+| `graph snapshot` | Create a version snapshot | `-m <msg>`; `--git` also git-commits |
+| `graph snapshots` | List snapshots | `--json` |
+| `graph diff` | Diff topologies (default: latest snapshot vs current) | `--from <id>` `--to <id>`; `--json` |
+| `graph rollback` | Rollback (auto-backup first) | `<snapshot-id>` `--confirm` (required); `--design-only` keeps execution progress |
 | `graph events` | Read the append-only event log (audit trail) | `--node <id>` `--kind <k>` `--last <n>`; `--json` |
-| `graph export --mermaid` | Export a Mermaid diagram | `-o <file>` |
+| `graph rebuild` | Rebuild `index/` derived indexes (graph.json + meta.json + topology.dot) | — |
+| `graph export` | Export a Mermaid diagram; `--docs` exports domain docs views (graph is the source of truth, md is a view) | `--mermaid -o <file>`; `--docs` (ADRs → docs/adr/, contexts → CONTEXT-MAP.md + docs/contexts/; `--adr-dir`/`--ctx-dir`) |
 | `graph serve` | Start the Web UI (auto-opens browser) | `-p <port>` (default 8934); `--no-open` to skip |
 
 > Not sure about flags? Every command has `--help`: `graph create-node --help`.
@@ -296,16 +305,23 @@ Common commands accept 1-2 character aliases; full names still work (equivalent)
 |--------------|-------|--------------|-------|
 | `graph init` | `graph i` | `graph update-node` | `graph un` |
 | `graph create-node` | `graph cn` | `graph delete-node` | `graph dn` |
-| `graph add-edge` | `graph ae` | `graph status` | `graph s` |
-| `graph update-status` | `graph us` | `graph validate` | `graph v` |
-| `graph rebuild` | `graph rb` | `graph export --mermaid` | `graph x --mermaid` |
-| `graph serve` | `graph sv` | | |
+| `graph get-node` | `graph gn` | `graph delete-edge` | `graph de` |
+| `graph add-edge` | `graph ae` | `graph update-graph` | `graph ug` |
+| `graph update-status` | `graph us` | `graph next` | `graph n` |
+| `graph reclaim` | `graph rc` | `graph verdict` | `graph vd` |
+| `graph snapshot` | `graph sp` | `graph snapshots` | `graph sps` |
+| `graph diff` | `graph d` | `graph rollback` | `graph rol` |
+| `graph status` | `graph s` | `graph validate` | `graph v` |
+| `graph export --mermaid` | `graph x --mermaid` | `graph rebuild` | `graph rb` |
+| `graph serve` | `graph sv` | `graph switch` | `graph sw` |
+| `graph list` | `graph ls` | `graph rename-graph` | `graph rg` |
+| `graph delete-graph` | `graph dg` | | |
 
 E.g. `graph cn -i t1 -l "Task 1"` ≡ `graph create-node -i t1 -l "Task 1"`.
 
 ---
 
-## State Machine (7 states, 14 transitions)
+## State Machine (7 states, 16 transitions)
 
 ```text
 pending ──► ready ──► running ──► passed ──► blocked
@@ -318,6 +334,8 @@ pending ──► ready ──► running ──► passed ──► blocked
 
 - **Claim**: `ready → running` records `assigned_to` + `started_at` (pass `claim_by` over MCP)
 - **Completion**: transitioning to `passed` / `failed` auto-records `completed_at`
+- **Passed hard gate**: `running → passed` is rejected by the core layer when the execution report is missing (empty summary), a verdict is `failed`, or checkpoints are not aggregated (`--force` is human-ops only)
+- **Reclaim**: `graph reclaim` returns a dead claim from `running` to `pending` (recovery after an executor crash); `cancelled` can be reopened as `pending`
 - **Protection**: illegal transitions (e.g. `pending → running`) return an explicit error — **never silent**
 
 ---
@@ -387,26 +405,30 @@ npm install -g @lukawi/super-plumber
 
 1. `--root <dir>` launch arg / `SUPER_PLUMBER_ROOT` env var — only if you want to pin the server to one graph;
 2. **MCP workspace roots**: the client reports the currently open project root(s) over the MCP protocol; the first one containing `.graph/` wins;
-3. walk **up from the server process cwd** looking for `.graph/graph.yaml` (agents started inside a subdirectory still hit the project root);
+3. walk **up from the server process cwd** looking for a `.graph/` directory (agents started inside a subdirectory still hit the project root);
 4. nothing found → a readable error ("graph not initialized… run graph init or pass --root") — never a silently empty graph.
 
+> Once the workspace is located, the current graph inside it resolves as (v0.5.2): `SUPER_PLUMBER_GRAPH` env var > in-process active (set by `graph_switch`, MCP only) > `.graph/active` workspace default > default fallback; `graph_switch` switches in-process and never rewrites the workspace default (CLI data commands additionally take a leading `--graph` flag).
+>
 > Pinning to a single fixed graph (testing etc.): `"command": "graph-mcp", "args": ["--root", "/path/to/graph"]`.
 
-### The 18 tools
+### The 24 tools
 
-| Tool | Purpose | Required params |
-|------|---------|-----------------|
-| `graph_get_node` | Read a node's full content | `id` |
-| `graph_create_node` | Create a node | `id, label` |
-| `graph_update_node_status` | State transition; **pass `claim_by` when `status=running` to claim** | `id, status` |
-| `graph_update_checkpoint` | Report checkpoint progress mid-execution | `node_id, checkpoint_id, status` |
-| `graph_update_execution_report` | Submit the handoff report (for spot-checking) | `node_id, summary` |
-| `graph_delete_node` | Soft-delete | `id` |
-| `graph_get_graph` | Full topology (nodes + edges + adjacency) | — |
-| `graph_traverse` | Traverse neighbors from a node | `node_id` |
-| `graph_search` | Search nodes by criteria | `query/status/type/assigned_to` |
+**Scheduling**: `graph_get_next_actions` — one call returns claimable (ready) / ready-eligible (pending/failed whose gates are satisfied — the cold-start entry) / waiting-on-deps (blocked, with unmet predecessors) / running (with elapsed time) / possibly-stale (stale_running), paginated per bucket (`limit` + `truncated`), entries may carry `adr_flags` (stale decision basis ⚠️) — the first call of any agent planning loop.
 
-**Reliability by design**: every param is zod-validated — missing params / invalid enums return `-32602` protocol errors; nonexistent nodes/edges return `isError=true` with readable messages; illegal state transitions error explicitly. **Tools never fail silently.**
+**Multi-graph (v0.5.2)**: `graph_switch` (in-process switch of the current graph: named switch + summary / no-arg shows current; restart falls back to the workspace default), `graph_list_graphs` (list all graphs with is_current / single-graph detail); every tool response carries the graph name; cross-graph hints (a node/edge id missing from the current graph → the error notes "it exists in graph X, run graph_switch first" — never auto-switches).
+
+**Reads**: `graph_get_node` (node + allowed transitions + checkpoint aggregate + gate status + **governing_adrs pointers**, optional topology neighbors), `graph_get_graph` (compact summary mode by default, `mode=full` + `offset/limit` pagination), `graph_traverse` (`max_nodes` cap), `graph_search` (`limit` cap + compact results; `--type adr/context` finds knowledge vertices).
+
+**Design-time writes**: `graph_create_node` (full bundle with plan/DoD/checkpoints; `type=context/adr` and `context` membership), `graph_create_adr` (v0.5: auto-numbered adr_NNNN, lands as proposed — propose/adjudicate separation; accept/supersede belong to Super Mario/humans), `graph_batch_create` (batch nodes+edges, full pre-validation reporting all conflicts), `graph_add_edge` (incl. `decides`/`relates` knowledge edges with `contract`/`rel_kind`), `graph_update_node` (incl. domain fields `set_context`/`boundary`/`glossary_add`/`superseded_by`), `graph_update_graph` (entry/exit/acceptance criteria), `graph_delete_node` (refuses while referenced, `cascade` deletes together), `graph_delete_edge`.
+
+**Execution-time writes**: `graph_update_node_status` (`claim_by` with `status=running` performs an **atomic claim** — concurrent double-claims fail for the loser, response carries governing_adrs pointers; **force is rejected at protocol level on the MCP channel** — human ops go through CLI `--force` with a force_override audit event; the ADR state machine flows through this tool too, supersede is two-step: `graph_update_node {superseded_by}` first, then the status), `graph_update_checkpoint` (checkpoint state machine + idempotent), `graph_update_execution_report` (handoff + `verification` verdict), `graph_reclaim_node` (reclaim dead claims: running → pending). Attempts reset requires an explicit `reset_attempts: true` on `graph_update_node` (plan edits no longer reset implicitly; a reset always writes an audit event).
+
+**Versioning**: `graph_snapshot` / `graph_diff` / `graph_rollback` (requires `confirm: true`; `design_only: true` rewinds design only, keeping execution progress).
+
+**Self-check & audit (v0.6.0-beta.1)**: `graph_validate` (cycle/ghost-edge/schema/six domain rules/reference-list drift in one summary, structured ok/errors/warnings — the self-check after batch creates or crash recovery), `graph_events` (event-log replay with `node`/`kind` filters and `last` tail; claim/force_override/attempts_reset traceable).
+
+**Reliability by design**: every param is zod-validated — missing params / invalid enums return `-32602` protocol errors; nonexistent nodes/edges return `isError=true` with readable messages; illegal state transitions, gate violations, attempt caps and the passed hard gate error explicitly. **Tools never fail silently.**
 
 ---
 
@@ -417,26 +439,36 @@ graph serve
 # auto-opens the default browser at http://localhost:8934; CI/headless: `graph serve --no-open`
 ```
 
-- **Force-directed graph**: zoom / pan / auto-fit, colored by node status
-- **Edge-type visualization**: distinct color per type, hover highlight
+- **Force-directed graph**: zoom / pan / auto-fit / fixed-layout toggle, colored by node status
+- **Map lenses (v0.5)**: checkbox any subset of the **workflow map / domain map** — the domain view renders context vertices + relates edges with boundary and glossary detail; the overlay view wraps members in D3 cluster hulls, badges ADRs, and highlights cross-context contract edges; the UI stays strictly read-only
+- **Edge-type visualization**: distinct color per type (9 types), hover highlight, **click an edge for its semantics and contract** (decides/relates carry domain meaning)
 - **Flow dots**: animated dots travel the downstream edges of `running` nodes (the "vascular" metaphor)
-- **Checkpoint progress bars**: sub-step completion shown under each node
+- **Checkpoint progress bars**: sub-step completion shown under each node; the detail panel shows the execution report (handoff + verdict badge)
 - **Assignee labels**: `assigned_to` shown next to `running` nodes
-- **WebSocket delta push**: node changes push `node:updated` deltas (not full re-sends); automatic HTTP fallback when the socket drops
+- **Layer drill-down & search**: L0–L5 level chips to filter/highlight + id/label search + status summary bar
+- **Version diff view**: snapshot list → added (green) / removed (red) / modified (yellow) coloring on the canvas + status-change details
+- **WebSocket delta push**: node changes push `node:updated` deltas (not full re-sends); edge changes update the edge layer only; **automatic reconnection with exponential backoff** (+ HTTP fallback refresh)
 
 ---
 
 ## Storage Layout (Git-friendly, human-readable)
 
 ```text
-.graph/                    # runtime directory (created by graph init; gitignored)
-├── graph.yaml             # graph definition: entry/exit/root context + node/edge reference lists
-├── nodes/*.yaml           # node files: plan / checkpoints / expected_outcome / execution_report
-├── edges/*.yaml           # edge files: source / target / type / contract
-├── snapshots/<id>/        # version snapshots: manifest + full file copies (graph snapshot)
-├── events.jsonl           # append-only event log (read with graph events; commit it for audit or gitignore it)
-└── index/                 # derived indexes (graph.json / meta.json — deletable, rebuildable)
+.graph/                    # workspace directory (created by graph init; gitignored)
+├── active                 # workspace default graph name (rewritten by graph switch)
+├── schema.yaml            # human-readable schema doc (runtime validation lives in core/schema.ts)
+├── workspace-events.jsonl # workspace-level audit (init/switch/migrate/rename/delete)
+├── <graph-name>/          # one first-level directory per graph (v0.5.2; per-graph locks/index/events/snapshots)
+│   ├── graph.yaml         # graph definition: entry/exit/root context + node/edge reference lists
+│   ├── nodes/*.yaml       # node files: plan / checkpoints / expected_outcome / execution_report
+│   ├── edges/*.yaml       # edge files: source / target / type / contract
+│   ├── snapshots/<id>/    # version snapshots: manifest + full file copies (graph snapshot)
+│   ├── events.jsonl       # append-only event log (read with graph events; commit it for audit or gitignore it)
+│   └── index/             # derived indexes (graph.json / meta.json / topology.dot — deletable, rebuildable)
+└── .trash/                # delete-graph soft-delete trash (manually recoverable)
 ```
+
+> Legacy repos stay compatible with zero migration: an old flat `.graph/graph.yaml` at the root is recognized in place as the `default` graph; a one-shot locked migration into `.graph/default/` happens when the second graph is created.
 
 **Design principles:**
 
@@ -471,7 +503,7 @@ cd super-plumber
 npm install
 npm run build && npm --prefix web-ui run build
 
-# Tests (316 backend + 36 frontend cases)
+# Tests (504 backend + 54 frontend cases)
 npm test
 
 # Link globally for local dev
@@ -485,7 +517,7 @@ graph --version
 
 | Problem | Cause & fix |
 |---------|-------------|
-| `❌ 未找到 .../.graph/graph.yaml，请先运行 graph init` | No graph in the current directory. Run `graph init`, or `cd` into the graph directory |
+| `❌ 未找到图（.../.graph 无 graph.yaml），请先运行 graph init <内容名>` | No graph in the current directory. Run `graph init <name>`, or `cd` into the graph directory |
 | **MCP tools still behave like the old version after upgrading** (e.g. schema errors on context/adr vertices) | The connected MCP server process still runs the old code in memory. **Restart the MCP server** (reconnect the client, or restart it after `npm i -g @lukawi/super-plumber`) to load the new build — upgrades never hot-swap a running process |
 | `❌ 端口 8934 已被占用` | Another serve is running. Use `graph serve -p 8935` |
 | `❌ Node x already exists` / `Edge x already exists` | Duplicate id. The tool refuses to overwrite — pick a new id |
@@ -500,7 +532,7 @@ graph --version
 ## Project Status
 
 ```text
-Tests: 373 backend + 49 frontend ✅ | CLI: 28 commands | MCP: 22 tools | State machine: 7 states + ready gate + max_attempts + passed hard gate + event-log audit + ADR 3-state machine (knowledge vertices exempt) | Edge types: 9 | Versioning: snapshot/diff/rollback (incl. design-only) | Web UI: Svelte 5 + D3.js (map lenses)
+Tests: 504 backend + 54 frontend ✅ | CLI: 27 commands | MCP: 24 tools | State machine: 7 states + ready gate + max_attempts + passed hard gate + event-log audit + ADR 3-state machine (knowledge vertices exempt) | Edge types: 9 | Versioning: snapshot/diff/rollback (incl. design-only) | Web UI: Svelte 5 + D3.js (map lenses)
 ```
 
 - **npm**: [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)

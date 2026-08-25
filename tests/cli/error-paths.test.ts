@@ -213,7 +213,7 @@ describe("CLI error paths (regression)", () => {
     const net = require("node:net");
     const blocker = net.createServer();
     return new Promise<void>((resolve) => {
-      blocker.listen(0, () => {
+      blocker.listen(0, "127.0.0.1", () => {  // S0-5：serve 现绑 127.0.0.1，占用方须同族才冲突
         const port = (blocker.address() as { port: number }).port;
         const r = spawnSync(
           process.execPath,

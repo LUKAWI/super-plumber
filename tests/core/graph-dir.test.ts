@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import { NodeType } from "../../src/core/types.js";
 import {
   toGraphDir,
   workspaceOf,
@@ -98,13 +99,13 @@ describe("旧布局零迁移兼容 + 一次性迁移", () => {
   it("旧布局只读识别为 default，行为不变", () => {
     legacyInit();
     expect(listGraphNames(tmpDir)).toEqual(["default"]);
-    createNode(tmpDir, { id: "t1", label: "T1" }); // 传工作区根照样工作
+    createNode(tmpDir, { id: "t1", type: NodeType.Task, label: "T1" }); // 传工作区根照样工作
     expect(getNode(tmpDir, "t1").id).toBe("t1");
   });
 
   it("建第二图触发迁移：7 项搬入 .graph/default/，default 可读，事件落审计", () => {
     legacyInit("旧图内容");
-    createNode(tmpDir, { id: "t1", label: "T1" });
+    createNode(tmpDir, { id: "t1", type: NodeType.Task, label: "T1" });
     const dir = createGraph(tmpDir, "billing-v2", "计费v2");
     expect(dir).toBe(path.join(tmpDir, ".graph", "billing-v2"));
     // 迁移后旧图在 .graph/default/，数据无损
@@ -195,8 +196,8 @@ describe("多图隔离（每图独立锁/索引/事件/快照）", () => {
     const gA = path.join(tmpDir, ".graph", "graph-a");
     const gB = path.join(tmpDir, ".graph", "graph-b");
 
-    createNode(gA, { id: "n1", label: "A 的节点" });
-    createNode(gB, { id: "n1", label: "B 的同名节点" }); // 同 id 不同图互不冲突
+    createNode(gA, { id: "n1", type: NodeType.Task, label: "A 的节点" });
+    createNode(gB, { id: "n1", type: NodeType.Task, label: "B 的同名节点" }); // 同 id 不同图互不冲突
     createEdge(gA, { id: "e1", source: "n1", target: "n1", type: "depends_on" });
 
     // 事件流独立
@@ -222,7 +223,7 @@ describe("多图隔离（每图独立锁/索引/事件/快照）", () => {
     migrateLegacyLayout(tmpDir);
     createGraph(tmpDir, "target", "目标图");
     writeWorkspaceDefault(tmpDir, "target");
-    createNode(tmpDir, { id: "ws-n1", label: "经工作区根写入" }); // toGraphDir 自动降入 target
+    createNode(tmpDir, { id: "ws-n1", type: NodeType.Task, label: "经工作区根写入" }); // toGraphDir 自动降入 target
     expect(getNode(path.join(tmpDir, ".graph", "target"), "ws-n1").id).toBe("ws-n1");
     expect(fs.existsSync(path.join(tmpDir, ".graph", "default", "nodes", "ws-n1.yaml"))).toBe(false);
   });

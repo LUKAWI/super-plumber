@@ -1,8 +1,7 @@
 // src/cli/init.ts
 import { Command } from "commander";
-import { writeGraph } from "../core/parser.js";
+import { createGraph, listGraphNames, writeWorkspaceDefault, trashGraph, migrateLegacyLayout } from "../core/graph-dir.js";
 import { VERSION } from "../version.js";
-import { createGraph, listGraphNames, writeWorkspaceDefault, trashGraph } from "../core/graph-dir.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -65,22 +64,19 @@ export const initCommand = new Command("init").alias("i")
       );
       process.exit(1);
     }
-    // --force 重置旧式单图
-    const graph = {
-      id: `graph_${Date.now()}`,
-      version: VERSION,
-      label: options.label,
-      entry: { description: "", defined_by: "human" as const, level: 0 },
-      exit: { description: "", acceptance_criteria: [], defined_by: "human" as const, level: 0 },
-      nodes: [],
-      edges: [],
-    };
-    writeGraph(rootDir, graph);
-    for (const d of ["nodes", "edges", "snapshots", "index"]) {
-      fs.mkdirSync(path.join(rootDir, ".graph", d), { recursive: true });
+    // S1-10：--force 整目录重置（对齐带名 init 的 trash 语义）——旧实现只把
+    // graph.yaml 引用列表清空、不删 nodes/*.yaml，重置后 readdir 与 refs 永久
+    // 自相矛盾。旧布局原地先一次性迁移，再整目录回收重建（含 .locks，对齐
+    // createGraph 的目录清单）。
+    if (isLegacySingle) {
+      const moved = migrateLegacyLayout(rootDir, "cli");
+      console.log(`📦 旧布局已迁移至 .graph/default/（${moved.length} 项）`);
     }
+    trashGraph(rootDir, "default", "cli");
+    createGraph(rootDir, "default", options.label, { actor: "cli", version: VERSION });
+    writeWorkspaceDefault(rootDir, "default", "cli");
     writeSchemaDoc();
-    console.log(`✅ 已重置旧式单图: ${rootDir}`);
+    console.log(`✅ 已整目录重置旧式单图: ${path.join(rootDir, ".graph", "default")}（旧内容在 .graph/.trash/ 可手工救回）`);
   });
 
 // 人类可读 schema 说明（校验的文档化对应物，随版本更新）
@@ -88,7 +84,11 @@ const SCHEMA_DOC = `# Super Plumber — 节点/边/图 schema 说明（v${VERSIO
 # 本文件是文档性说明，运行时校验由 core/schema.ts 强制执行（graph validate 可查）。
 
 # ── 节点（nodes/*.yaml）──
-# 必填: id (string), label (string)
+# 必填: id (string), label (string), type, status, level, attempts, max_attempts,
+#       created_at, updated_at（graph 工具创建时自动补全；手写文件必须齐全——
+#       缺字段会被 schema 校验拒绝，不会静默通过）
+#       注意：时间戳必须带引号（"2026-08-24T00:00:00.000Z"）——js-yaml 会把
+#       裸 ISO 时间戳解析成 Date 对象而非字符串，同样过不了 schema 校验
 # 可选: type: task|checkpoint|decision|gate          （工作流顶点，默认 task）
 #       type: context|adr                             （v0.5 知识顶点：豁免调度与工作流状态机）
 #       level: number ≥ 0                             （默认 1）

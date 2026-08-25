@@ -15,6 +15,7 @@ import {
   CHECKPOINT_STATUSES,
 } from "./checkpoint.js";
 import { listNodeFileNames } from "./schema.js";
+import { assertValidEntityId } from "./schema.js";
 import { buildGraphIndex } from "./index-service.js";
 import { governingAdrsFor } from "./domain.js";
 import { appendEvent } from "./eventlog.js";
@@ -42,6 +43,9 @@ export function createNode(
   params: CreateNodeParams,
   opts: { syncRef?: boolean; actor?: string } = {},
 ): NodeSchema {
+  // S0-3：入口断言（进锁之前）——非法 ID（含 Windows 非法文件名字符）若先进锁，
+  // 锁文件名编码不覆盖 * 等字符会在 .locks/ 上 ENOENT 崩掉，报错面目全非
+  assertValidEntityId("节点", params.id);
   return withLockSync(rootDir, params.id, () => {
     // 重复 id 检查（锁内）：不静默覆盖已有节点，并发创建也只有一个成功
     if (fs.existsSync(nodeFilePath(rootDir, params.id))) {
@@ -216,7 +220,19 @@ export function updateNodeStatus(
 
     // 幂等：同一认领者重复 claim 返回成功（agent 重试友好）
     if (to === NodeStatus.Running && node.status === NodeStatus.Running) {
-      if (claimBy && node.assigned_to === claimBy) return node;
+      if (claimBy && node.assigned_to === claimBy) {
+        // S2-12：幂等 re-claim 补审计痕迹——此前静默短路，重试风暴/网络抖动
+        // 场景下审计日志看不出"发生了重复认领尝试"，裁决方无法回溯
+        appendEvent(rootDir, {
+          actor: opts.actor ?? claimBy ?? "unknown",
+          kind: "node_status",
+          node: id,
+          from: node.status,
+          to,
+          detail: "幂等 re-claim（同一认领者重复 claim，无状态变更）",
+        });
+        return node;
+      }
       throw new Error(
         `Node ${id} already claimed by ${node.assigned_to ?? "unknown"}`,
       );
@@ -339,17 +355,23 @@ export function updateExecutionReport(
       updated_at: new Date().toISOString(),
     };
     writeNode(rootDir, merged);
-    appendEvent(rootDir, {
-      actor: opts.actor ?? "unknown",
-      kind: "execution_report",
-      node: id,
-      ...(report.verification
-        ? {
-            kind: "verdict" as const,
-            detail: `verdict=${report.verification.verdict}`,
-          }
-        : {}),
-    });
+    // S3-3（f14）：kind 显式分支——带 verification 恒为 verdict，否则恒为
+    // execution_report。此前对象字面量先写 kind: "execution_report" 再条件展开
+    // kind: "verdict"，靠后键覆盖前键的隐式顺序；重构后一次只写一个 kind。
+    if (report.verification) {
+      appendEvent(rootDir, {
+        actor: opts.actor ?? "unknown",
+        kind: "verdict",
+        node: id,
+        detail: `verdict=${report.verification.verdict}`,
+      });
+    } else {
+      appendEvent(rootDir, {
+        actor: opts.actor ?? "unknown",
+        kind: "execution_report",
+        node: id,
+      });
+    }
     return merged;
   });
 }
@@ -472,44 +494,62 @@ export function nextAdrId(rootDir: string): string {
 /**
  * 创建 ADR 顶点：自动编号、状态落 proposed（记录在案但不生效——
  * accept/supersede 归裁决方，提议/裁决分离）。任何 agent 可提议。
+ * S1-3：编号扫描在锁外、锁内缺重复检查——并发双 adr_0007 后到者静默覆盖
+ * 先到者。修复：锁内补 existsSync 重复检查（对齐 createNode），冲突时重扫
+ * 编号重试（各得唯一编号），重试上限防御病态场景。
  */
+const ADR_CONFLICT_RETRIES = 5;
+
 export function createAdr(
   rootDir: string,
   params: CreateAdrParams,
   opts: { actor?: string } = {},
 ): NodeSchema {
-  const id = nextAdrId(rootDir);
-  const now = new Date().toISOString();
-  const node: NodeSchema = {
-    id,
-    type: NodeType.Adr,
-    label: params.title,
-    level: 1,
-    status: AdrStatus.Proposed,
-    attempts: 0,
-    max_attempts: 0,
-    created_at: now,
-    updated_at: now,
-    decision: params.decision,
-    ...(params.background !== undefined ? { background: params.background } : {}),
-    ...(params.considered_options !== undefined
-      ? { considered_options: params.considered_options }
-      : {}),
-    ...(params.why !== undefined ? { why: params.why } : {}),
-    ...(params.consequences !== undefined ? { consequences: params.consequences } : {}),
-  };
-  withLockSync(rootDir, id, () => {
-    writeNode(rootDir, node);
-    addGraphRef(rootDir, "node", id);
-    appendEvent(rootDir, {
-      actor: opts.actor ?? "unknown",
-      kind: "adr_created",
-      node: id,
-      to: AdrStatus.Proposed,
-      detail: params.title,
-    });
-  });
-  return node;
+  for (let attempt = 1; ; attempt++) {
+    const id = nextAdrId(rootDir);
+    const now = new Date().toISOString();
+    const node: NodeSchema = {
+      id,
+      type: NodeType.Adr,
+      label: params.title,
+      level: 1,
+      status: AdrStatus.Proposed,
+      attempts: 0,
+      max_attempts: 0,
+      created_at: now,
+      updated_at: now,
+      decision: params.decision,
+      ...(params.background !== undefined ? { background: params.background } : {}),
+      ...(params.considered_options !== undefined
+        ? { considered_options: params.considered_options }
+        : {}),
+      ...(params.why !== undefined ? { why: params.why } : {}),
+      ...(params.consequences !== undefined ? { consequences: params.consequences } : {}),
+    };
+    try {
+      withLockSync(rootDir, id, () => {
+        // S1-3：锁内重复检查——编号扫描与抢锁之间的竞争在此收口，绝不覆盖
+        if (fs.existsSync(nodeFilePath(rootDir, id))) {
+          throw new Error(`Node ${id} already exists`);
+        }
+        writeNode(rootDir, node);
+        addGraphRef(rootDir, "node", id);
+        appendEvent(rootDir, {
+          actor: opts.actor ?? "unknown",
+          kind: "adr_created",
+          node: id,
+          to: AdrStatus.Proposed,
+          detail: params.title,
+        });
+      });
+      return node;
+    } catch (err: any) {
+      const conflict =
+        typeof err?.message === "string" && err.message.includes("already exists");
+      if (conflict && attempt < ADR_CONFLICT_RETRIES) continue; // 重扫编号（他人已占号）
+      throw err;
+    }
+  }
 }
 
 /**

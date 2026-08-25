@@ -1,6 +1,8 @@
 import { Command } from "commander";
 import { cliGraphDir } from "./graph-ctx.js";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
+import * as path from "node:path";
+import { workspaceOf } from "../core/graph-dir.js";
 import { createSnapshot, listSnapshots } from "../core/snapshot.js";
 
 export const snapshotCommand = new Command("snapshot").alias("sp")
@@ -15,13 +17,16 @@ export const snapshotCommand = new Command("snapshot").alias("sp")
       console.log(`   ${snap.files.length} 个文件${snap.message ? ` | ${snap.message}` : ""}`);
       if (options.git) {
         try {
-          execSync(`git add .graph && git commit -m "snapshot: ${snap.id}${options.message ? ` — ${options.message}` : ""}"`, {
-            cwd: rootDir,
-            stdio: "pipe",
-          });
+          // S0-1：消息经 argv 数组传给 git，不经 shell——用户文本中的元字符只是字面量
+          // S0-2：rootDir 是图目录，git 仓库根在工作区级；add 图目录自身（非 .graph/.graph）
+          const wsRoot = workspaceOf(rootDir);
+          const graphRel = path.relative(wsRoot, rootDir) || ".";
+          const msg = `snapshot: ${snap.id}${options.message ? ` — ${options.message}` : ""}`;
+          execFileSync("git", ["add", graphRel], { cwd: wsRoot, stdio: "pipe" });
+          execFileSync("git", ["commit", "-m", msg], { cwd: wsRoot, stdio: "pipe" });
           console.log(`   ✅ 已创建 Git commit`);
         } catch (err: any) {
-          console.warn(`   ⚠️  Git commit 失败（快照文件已保存）: ${err.stderr ?? err.message}`);
+          console.warn(`   ⚠️  Git commit 失败（快照文件已保存）: ${String(err.stderr ?? err.message)}`);
         }
       }
     } catch (err: any) {

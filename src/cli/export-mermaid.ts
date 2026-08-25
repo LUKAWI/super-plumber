@@ -7,6 +7,15 @@ import { runDocsExport } from "../core/docs-export.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+/** S3-4（f15）：mermaid label 转义——`"` 会破坏 ["..."] 文本定界、裸换行会破坏行结构。
+ * mermaid 语法实体：`#quot;` 表示双引号；换行用 `<br/>`（graph TD 文本节点支持）。 */
+export function escapeMermaidLabel(label: string): string {
+  return label
+    .replace(/\r\n?/g, "\n")
+    .replace(/"/g, "#quot;")
+    .replace(/\n/g, "<br/>");
+}
+
 function statusClass(status: string): string {
   // 与 web-ui/index.html CSS 变量、web-ui/src/lib/types.ts 同一调色板
   const map: Record<string, string> = {
@@ -52,13 +61,13 @@ export const exportMermaidCommand = new Command("export").alias("x")
     mermaid += "  %% 节点定义 (按状态着色)\n";
 
     for (const node of nodes) {
-      mermaid += `  ${node.id}["${node.label}"]:::${node.status};\n`;
+      mermaid += `  ${node.id}["${escapeMermaidLabel(node.label)}"]:::${node.status};\n`;
     }
 
     mermaid += "\n  %% 边\n";
     for (const edge of edges) {
       const label = edge.type.replace("_", " ");
-      mermaid += `  ${edge.source} -->|"${label}"| ${edge.target};\n`;
+      mermaid += `  ${edge.source} -->|"${escapeMermaidLabel(label)}"| ${edge.target};\n`;
     }
 
     mermaid += "\n  %% 样式定义\n";

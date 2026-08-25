@@ -9,7 +9,8 @@
 // 这让既有调用方（CLI cwd、测试 tmpDir、旧脚本）零改动获得兼容，新调用方显式传图目录。
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { GRAPH_DIR, GRAPH_FILE, NODES_DIR, EDGES_DIR, INDEX_DIR } from "./types.js";
+import * as yaml from "js-yaml";
+import { GRAPH_DIR, GRAPH_FILE, NODES_DIR, EDGES_DIR, INDEX_DIR, type GraphSchema } from "./types.js";
 // 循环依赖说明：lock → graph-dir（WORKSPACE_MIGRATE_LOCK 常量）与
 // graph-dir → lock（迁移互斥）互为环，但两侧都只在函数体内互调，ESM 安全（同 parser↔index-service 先例）。
 import { withLockSync } from "./lock.js";
@@ -76,11 +77,18 @@ export function appendWorkspaceEvent(
 ): void {
   try {
     fs.mkdirSync(dotGraph(wsRoot), { recursive: true });
-    fs.appendFileSync(
-      path.join(dotGraph(wsRoot), WS_EVENTS_FILE),
-      JSON.stringify({ ts: new Date().toISOString(), actor, kind, detail }) + "\n",
-      "utf-8",
-    );
+    // S3-6：与图内 eventlog（"__events__" 锁）对齐加锁，不再裸 append。
+    // 已知边界：锁文件经 toGraphDir 随 active 图走（图级），跨图并发追加
+    // 依赖单行 appendFileSync 的 O_APPEND 原子性（单次 write 原子追加）；
+    // 同图内（单图工作区/同 active——绝大多数场景）完全互斥。
+    // 备注：做工作区级锁需 lock.ts 扩展 ws 专属锁 id（f7 文件边界外，留 r1 裁决）。
+    withLockSync(wsRoot, "__ws_events__", () => {
+      fs.appendFileSync(
+        path.join(dotGraph(wsRoot), WS_EVENTS_FILE),
+        JSON.stringify({ ts: new Date().toISOString(), actor, kind, detail }) + "\n",
+        "utf-8",
+      );
+    });
   } catch {
     /* 审计失败不阻断主操作 */
   }
@@ -282,25 +290,24 @@ export function createGraph(
   for (const d of [NODES_DIR, EDGES_DIR, "snapshots", INDEX_DIR, ".locks"]) {
     fs.mkdirSync(path.join(dir, d), { recursive: true });
   }
+  // S3-5/N4（f15）：graph.yaml 骨架改走 GraphSchema 对象 + yaml.dump 落盘——
+  // 与 parser.writeGraph 同一序列化器，label 含 : # " 换行时自动加引号/转义。
+  // 旧实现手拼 `label: ${label}` 模板：冒号形产出非法 YAML（init 退出码 0 但
+  // status 误报"无 graph.yaml"）；换行形更静默注入额外字段（如 tampered: true）
+  // 且 graph validate 零错误——注入面而非解析面。
+  // id 加随机后缀：graph_${Date.now()} 毫秒粒度不足，同毫秒建两图会撞 id。
+  const skeleton: Omit<GraphSchema, "version"> & { version?: string } = {
+    id: `graph_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    label,
+    entry: { description: "", defined_by: "human", level: 0 },
+    exit: { description: "", acceptance_criteria: [], defined_by: "human", level: 0 },
+    nodes: [],
+    edges: [],
+  };
+  if (opts.version) skeleton.version = opts.version;
   fs.writeFileSync(
     path.join(dir, GRAPH_FILE),
-    [
-      `id: graph_${Date.now()}`,
-      ...(opts.version ? [`version: ${opts.version}`] : []),
-      `label: ${label}`,
-      `entry:`,
-      `  description: ""`,
-      `  defined_by: human`,
-      `  level: 0`,
-      `exit:`,
-      `  description: ""`,
-      `  acceptance_criteria: []`,
-      `  defined_by: human`,
-      `  level: 0`,
-      `nodes: []`,
-      `edges: []`,
-      ``,
-    ].join("\n"),
+    yaml.dump(skeleton, { indent: 2, lineWidth: 120 }),
     "utf-8",
   );
   appendWorkspaceEvent(wsRoot, "init", `graph=${name} label="${label}"`, opts.actor);

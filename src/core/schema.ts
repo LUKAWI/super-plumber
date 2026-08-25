@@ -54,6 +54,46 @@ const VERIFIERS = ["auto", "cross_review", "human"];
 const VERDICTS = ["pending", "passed", "failed"];
 const DEFINED_BY = ["human", "llm"];
 
+// ── 实体 ID 规则（S0-3 路径穿越防护）──
+// ID 直接拼入文件路径（nodes/<id>.yaml、edges/<id>.yaml）：禁路径分隔符、
+// 盘符冒号、前导点（".." 变体），长度 ≤64。允许小写字母/数字/点/下划线/连字符
+// ——"n1.deleted-check" 合法（S3-13：.deleted 只在作为文件名后缀时排除）。
+export const NODE_ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+
+// N2（r0 交叉评审）：Windows 保留设备名。ID 即文件基名（<id>.yaml），
+// con/nul/aux/prn/com1-9/lpt1-9 在部分 Windows 配置/API 下映射设备而非文件，
+// 落盘行为平台相关（EPERM/静默写设备）——确定性拒绝优于困惑性失败。
+// NODE_ID_RE 已强制小写，故保留名单只收小写形态。
+const WINDOWS_RESERVED_NAMES = new Set<string>([
+  "con", "prn", "aux", "nul",
+  ...Array.from({ length: 9 }, (_, i) => `com${i + 1}`),
+  ...Array.from({ length: 9 }, (_, i) => `lpt${i + 1}`),
+]);
+
+/** ID 合法性（格式 + Windows 保留名 + 后缀）：以 .deleted/.deleted.<数字> 结尾的
+ * id 会与软删除历史文件名（x.deleted.yaml）冲突而被列表隐藏——文件名空间二义性，
+ * 创建即拒。保留名按首个点分段匹配（"con" 与 "con.x" 同拒——Win32 对
+ * "保留名.任意后缀" 形态的设备映射解释跨版本不一致） */
+export function isValidEntityId(id: string): boolean {
+  return (
+    NODE_ID_RE.test(id) &&
+    !WINDOWS_RESERVED_NAMES.has(id.split(".")[0]) &&
+    !/\.deleted(\.\d+)?$/.test(id)
+  );
+}
+
+/** 运行时断言（创建/读写咽喉点用）：非法 ID 立即抛错，不进文件系统。
+ * what 为人类可读的实体描述（"节点" / "边" / "边 source"…） */
+export function assertValidEntityId(what: string, id: string): void {
+  if (!isValidEntityId(id)) {
+    throw new Error(
+      `非法${what} ID: "${id}"。规则: ^[a-z0-9][a-z0-9._-]{0,63}$ 且不得以 .deleted 结尾 ` +
+        `（小写字母/数字开头，仅小写字母/数字/./_/-，≤64 字符；禁路径分隔符与冒号；` +
+        `禁 Windows 保留名 con/nul/aux/prn/com1-9/lpt1-9 及其加点形态）`,
+    );
+  }
+}
+
 // ── 基础校验工具 ──
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -244,6 +284,10 @@ export function validateNode(data: unknown): SchemaIssue[] {
     return issues;
   }
   reqString(data, "id", issues);
+  // S0-3：ID 格式读时校验（手编文件也拦截——ID 拼路径，非法格式即穿越面）
+  if (typeof data.id === "string" && !isValidEntityId(data.id)) {
+    issues.push(issue("id", `非法 ID 格式: "${data.id}"（规则 ^[a-z0-9][a-z0-9._-]{0,63}$，不得以 .deleted 结尾，禁路径分隔符）`));
+  }
   reqString(data, "label", issues);
   optEnum(data, "type", NODE_TYPES, issues);
   // v0.5：status 合法值随类型变化——adr 走三态机，context 无状态（仅 pending），其余为工作流七态
@@ -258,6 +302,25 @@ export function validateNode(data: unknown): SchemaIssue[] {
     issues.push(
       issue("status", `非法值 "${String(data.status)}"，${nodeType ?? "该类型"}允许: ${statusAllowed.join("|")}`),
     );
+  }
+  // S1-6：必填字段对齐 NodeSchema 接口声明——此前仅 id/label 必填，缺字段
+  // 经 loadYamlFile 的 as T 掩盖成"合法"节点，下游按类型访问拿到 undefined
+  // （status.ts 打印 undefined 分布、index-service 产出垃圾键、状态机静默空转换）
+  if (data.type === undefined) {
+    issues.push(issue("type", "必填（task|checkpoint|decision|gate|context|adr）"));
+  }
+  if (data.status === undefined) {
+    issues.push(issue("status", "必填（工作流七态 / adr 三态 proposed|accepted|superseded / context 恒 pending）"));
+  }
+  for (const k of ["level", "attempts", "max_attempts"] as const) {
+    if (data[k] === undefined) {
+      issues.push(issue(k, "必填数字（graph 工具创建时自动补全；手写文件需齐全）"));
+    }
+  }
+  for (const k of ["created_at", "updated_at"] as const) {
+    if (data[k] === undefined) {
+      issues.push(issue(k, "必填（ISO 8601 时间戳）"));
+    }
   }
   optNumber(data, "level", issues, { min: 0 });
   optNumber(data, "priority", issues, { min: 0 });
@@ -297,6 +360,12 @@ export function validateEdge(data: unknown): SchemaIssue[] {
   reqString(data, "id", issues);
   reqString(data, "source", issues);
   reqString(data, "target", issues);
+  // S0-3：id/source/target 全部做 ID 格式校验（source/target 同样参与路径与查表）
+  for (const k of ["id", "source", "target"] as const) {
+    if (typeof data[k] === "string" && !isValidEntityId(data[k] as string)) {
+      issues.push(issue(k, `非法 ID 格式: "${String(data[k])}"（规则 ^[a-z0-9][a-z0-9._-]{0,63}$，不得以 .deleted 结尾）`));
+    }
+  }
   optEnum(data, "type", EDGE_TYPES, issues);
   optString(data, "rel_kind", issues);
   if (data.contract !== undefined) {
@@ -304,9 +373,34 @@ export function validateEdge(data: unknown): SchemaIssue[] {
       issues.push(issue("contract", "必须是对象"));
     } else {
       optString(data.contract, "produces", issues);
-      optEnum(data.contract, "method", ["auto", "cross_review", "human"], issues);
-      if (data.contract.consumed_by !== undefined && !Array.isArray(data.contract.consumed_by)) {
-        issues.push(issue("contract.consumed_by", "必须是数组"));
+      // S1-8：校验目标修正——旧代码 optEnum(contract, "method") 校验的是不存在
+      // 的顶层 contract.method，真实字段位于 contract.validation.method，
+      // 非法 method 因此从未被拦截；consumed_by 也只查数组不查元素结构
+      if (data.contract.consumed_by !== undefined) {
+        if (!Array.isArray(data.contract.consumed_by)) {
+          issues.push(issue("contract.consumed_by", "必须是数组"));
+        } else {
+          for (const c of data.contract.consumed_by) {
+            if (!isRecord(c) || typeof c.artifact !== "string" || typeof c.used_as !== "string") {
+              issues.push(issue("contract.consumed_by", "每项需包含 artifact 与 used_as 字符串"));
+            }
+          }
+        }
+      }
+      if (data.contract.validation !== undefined) {
+        if (!isRecord(data.contract.validation)) {
+          issues.push(issue("contract.validation", "必须是对象"));
+        } else {
+          const v = data.contract.validation as Record<string, unknown>;
+          if (v.required !== undefined && typeof v.required !== "boolean") {
+            issues.push(issue("contract.validation.required", "必须是布尔值"));
+          }
+          if (v.method !== undefined && !VERIFIERS.includes(v.method as string)) {
+            issues.push(
+              issue("contract.validation.method", `非法值 "${String(v.method)}"，允许: ${VERIFIERS.join("|")}`),
+            );
+          }
+        }
       }
     }
   }
@@ -396,6 +490,10 @@ function loadYamlFile<T>(
   return { ok: true, data: data as T };
 }
 
+// S3-13：软删除文件按后缀模式排除（x.deleted.yaml / x.deleted.<时间戳>.yaml），
+// 不再按 ".deleted" 任意子串——合法 id（如 n1.deleted-check）不再被静默隐藏
+const DELETED_FILE_RE = /\.deleted(\.\d+)?\.yaml$/;
+
 export function listNodeFileNames(rootDir: string): string[] {
   const dir = path.join(toGraphDir(rootDir), NODES_DIR);
   if (!fs.existsSync(dir)) return [];
@@ -404,7 +502,7 @@ export function listNodeFileNames(rootDir: string): string[] {
   }
   return fs
     .readdirSync(dir)
-    .filter((f) => f.endsWith(".yaml") && !f.includes(".deleted"));
+    .filter((f) => f.endsWith(".yaml") && !DELETED_FILE_RE.test(f));
 }
 
 export function listEdgeFileNames(rootDir: string): string[] {
@@ -415,7 +513,7 @@ export function listEdgeFileNames(rootDir: string): string[] {
   }
   return fs
     .readdirSync(dir)
-    .filter((f) => f.endsWith(".yaml") && !f.includes(".deleted"));
+    .filter((f) => f.endsWith(".yaml") && !DELETED_FILE_RE.test(f));
 }
 
 export function loadNodeFile(rootDir: string, fileName: string): LoadResult<NodeSchema> {

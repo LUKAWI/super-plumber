@@ -1,7 +1,10 @@
 // src/core/snapshot.ts
 // 版本控制原语（需求 4.3）：文件级 Snapshot / Diff / Rollback。
 // Branch / Merge 由 Git 承担（文件即真相源），本模块只做三个文件级原语。
-// 快照布局：.graph/snapshots/<id>/{manifest.yaml, graph.yaml, nodes/*, edges/*}
+// 快照布局：.graph/snapshots/<id>/{manifest.json, graph.yaml, nodes/*, edges/*}
+// S3-10（f16）：manifest 文件名修正——内容自始是 JSON.stringify 产物、JSON.parse
+// 读出，此前叫 manifest.yaml 名不副实，现统一为 manifest.json；历史快照目录里
+// 的 manifest.yaml 由 readManifest 兼容读取（只读兼容，不再写出）。
 // rollback 前自动备份当前状态（pre-rollback 快照），且必须显式 confirm。
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
@@ -10,8 +13,7 @@ import * as yaml from "js-yaml";
 import { type NodeSchema } from "./types.js";
 import { listNodeFileNames, listEdgeFileNames } from "./schema.js";
 import { appendEvent } from "./eventlog.js";
-import { withLockSync } from "./lock.js";
-import { rebuildGraphRefs } from "./parser.js";
+import { rebuildGraphRefsLocked, withGraphLock } from "./parser.js";
 import { runDocsExport } from "./docs-export.js";
 import { toGraphDir } from "./graph-dir.js";
 
@@ -43,7 +45,11 @@ export interface DiffResult {
 }
 
 const SNAPSHOTS_DIR = "snapshots";
-const MANIFEST = "manifest.yaml";
+const MANIFEST = "manifest.json";
+// S3-10（f16）之前的旧名：内容同为 JSON，仅供 readManifest 向后兼容读取——
+// 存量历史快照（.graph/*/snapshots/ 下）只有 manifest.yaml，不认它会让
+// listSnapshots/diff/rollback 对全部历史快照失明（行为回归）
+const LEGACY_MANIFEST = "manifest.yaml";
 
 function snapshotsDir(rootDir: string): string {
   return path.join(toGraphDir(rootDir), SNAPSHOTS_DIR);
@@ -54,13 +60,18 @@ function snapPath(rootDir: string, id: string): string {
 }
 
 function readManifest(rootDir: string, id: string): SnapshotManifest | null {
-  const f = path.join(snapPath(rootDir, id), MANIFEST);
-  if (!fs.existsSync(f)) return null;
-  try {
-    return JSON.parse(fs.readFileSync(f, "utf-8")) as SnapshotManifest;
-  } catch {
-    return null;
+  const dir = snapPath(rootDir, id);
+  // S3-10（f16）：优先 manifest.json；不存在再回落旧名 manifest.yaml（内容同为 JSON）
+  for (const name of [MANIFEST, LEGACY_MANIFEST]) {
+    const f = path.join(dir, name);
+    if (!fs.existsSync(f)) continue;
+    try {
+      return JSON.parse(fs.readFileSync(f, "utf-8")) as SnapshotManifest;
+    } catch {
+      return null;
+    }
   }
+  return null;
 }
 
 export function listSnapshots(rootDir: string): SnapshotManifest[] {
@@ -86,18 +97,19 @@ function collectSourceFiles(rootDir: string): string[] {
   return files;
 }
 
-// FIX-E1（评审 E 级·快照无锁）：快照/回滚共用全局锁 id "__snapshot__"，
-// 串行化多文件复制，避免与并发的同类操作交错产生撕裂快照。
-// （节点级写入持的是各自的 id 锁，与该锁无嵌套关系，无死锁风险；
-//  持锁超 30s 会被判陈锁——常规规模图复制远低于该阈值。）
-const SNAPSHOT_LOCK = "__snapshot__";
-
+// FIX-E1 + S1-11（f7）：快照/回滚改持图级锁（GRAPH_LOCK）——
+// 不再只串行化同类操作：writeNode/writeEdge/writeGraph/syncGraphRef 等
+// 写路径同样持图级锁，逐文件复制期间写入被互斥（无撕裂副本/新旧混装），
+// 回滚恢复期间写入被互斥（防复活半旧状态）。备份走无锁内层避免重入死锁
+// （锁不可重入——图锁持有人只能调 *Core/*Locked 变体）。
+// 持锁超 30s 会被判陈锁；常规规模图复制远低于该阈值，写方默认 3s 超时
+// 撞上大图快照会收到可读的 LockTimeoutError（可重试，不静默腐化）。
 export function createSnapshot(
   rootDir: string,
   message?: string,
   opts: { actor?: string } = {},
 ): SnapshotManifest {
-  return withLockSync(rootDir, SNAPSHOT_LOCK, () =>
+  return withGraphLock(rootDir, () =>
     createSnapshotUnlocked(rootDir, message, opts),
   );
 }
@@ -250,8 +262,8 @@ export function rollbackToSnapshot(
       `rollback 会覆盖当前 .graph/ 内容，请显式加 --confirm（自动备份当前状态）`,
     );
   }
-  // FIX-E1：与 createSnapshot 共用全局锁（备份走无锁内层，避免重入死锁）
-  return withLockSync(rootDir, SNAPSHOT_LOCK, () =>
+  // FIX-E1 + S1-11：与写路径共持图级锁（备份走无锁内层，避免重入死锁）
+  return withGraphLock(rootDir, () =>
     rollbackToSnapshotUnlocked(rootDir, id, opts),
   );
 }
@@ -374,7 +386,8 @@ function rollbackToSnapshotUnlocked(
     }
 
     // 2c. 节点集合已变（删除新增/无恢复缺失时引用列表可能过期）→ 从目录重建
-    rebuildGraphRefs(rootDir);
+    //（Locked 变体：rollback 已持图锁，公共入口会重入死锁）
+    rebuildGraphRefsLocked(rootDir);
   }
 
   appendEvent(rootDir, {

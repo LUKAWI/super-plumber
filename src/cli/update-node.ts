@@ -2,6 +2,17 @@ import { Command } from "commander";
 import { cliGraphDir } from "./graph-ctx.js";
 import { getNode, updateNodeContent, buildNodeUpdates } from "../core/node.js";
 import { CHECKPOINT_STATUSES } from "../core/checkpoint.js";
+import { coerceInt } from "./coerce.js";
+
+// S3-9（f16）：错误分类双通道——结构化 code 优先，message 兜底保持现状行为。
+// getNode（node.ts）目前抛无 code 的普通 Error（`Node <id> not found`），
+// node.ts 不在 f16 文件边界内，NODE_NOT_FOUND 落地前 message 通道继续兜底。
+function isNodeNotFound(err: any): boolean {
+  return (
+    err?.code === "NODE_NOT_FOUND" ||
+    (typeof err?.message === "string" && err.message.includes("not found"))
+  );
+}
 
 export const updateNodeCommand = new Command("update-node").alias("un")
   .description("更新节点的详细内容（plan、expected_outcome、checkpoints 等）")
@@ -118,17 +129,18 @@ export const updateNodeCommand = new Command("update-node").alias("un")
           : {}),
         ...(options.label !== undefined ? { label: options.label } : {}),
         ...(options.maxAttempts !== undefined
-          ? { max_attempts: parseInt(options.maxAttempts, 10) }
+          ? { max_attempts: coerceInt("--max-attempts", options.maxAttempts, { min: 0 }) }
           : {}),
         ...(options.setPriority !== undefined
-          ? { set_priority: parseInt(options.setPriority, 10) }
+          ? { set_priority: coerceInt("--set-priority", options.setPriority, { min: 0 }) }
           : {}),
         ...(options.setContext !== undefined ? { set_context: options.setContext } : {}),
         ...(options.boundary !== undefined ? { boundary: options.boundary } : {}),
         ...(glossaryAdd !== undefined ? { glossary_add: glossaryAdd } : {}),
       });
 
-      if (Object.keys(updates).length === 0) {
+      // S1-9：--reset-attempts 单独使用必须生效（MCP 对应 length === 0 && !reset_attempts）
+      if (Object.keys(updates).length === 0 && !options.resetAttempts) {
         console.log("⚠️  没有指定任何更新项");
         return;
       }
@@ -139,7 +151,7 @@ export const updateNodeCommand = new Command("update-node").alias("un")
       });
       console.log(`✅ 已更新节点: ${options.id}`);
     } catch (err: any) {
-      if (err?.message?.includes("not found")) {
+      if (isNodeNotFound(err)) {
         console.error(`❌ 节点不存在: ${options.id}`);
       } else {
         console.error(`❌ ${err.message}`);

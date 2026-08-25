@@ -6,6 +6,16 @@ import { toGraphDir } from "../core/graph-dir.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+/** S3-4（f15）：DOT label 属性转义——`\` 与 `"` 会破坏 "..." 定界，裸换行会破坏行结构
+ * （换行写成 `\n` 两字符字面，Graphviz 识别为节点内换行）。转义顺序：先 `\` 再 `"`。 */
+export function escapeDotLabel(label: string): string {
+  return label
+    .replace(/\r\n?/g, "\n")
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n");
+}
+
 export const rebuildCommand = new Command("rebuild").alias("rb")
   .description("从源文件重建 index/ 派生索引（graph.json 完整数据 + meta.json + topology.dot）")
   .action(() => {
@@ -44,10 +54,10 @@ export const rebuildCommand = new Command("rebuild").alias("rb")
     const dotPath = path.join(indexPath, "topology.dot");
     const dotLines: string[] = ["digraph topology {"];
     for (const n of index.nodes) {
-      dotLines.push(`  "${n.id}" [label="${n.label}\\n${n.status}", shape=box];`);
+      dotLines.push(`  "${n.id}" [label="${escapeDotLabel(n.label)}\\n${n.status}", shape=box];`);
     }
     for (const e of index.edges) {
-      dotLines.push(`  "${e.source}" -> "${e.target}" [label="${e.type}"];`);
+      dotLines.push(`  "${e.source}" -> "${e.target}" [label="${escapeDotLabel(e.type)}"];`);
     }
     dotLines.push("}");
     fs.writeFileSync(dotPath, dotLines.join("\n") + "\n", "utf-8");

@@ -1,6 +1,8 @@
 # Changelog
 
-## [0.5.3] — 2026-08-24（补丁：S0-6 web 黑屏修复）
+## [0.6.0-beta.1] — 2026-08-25（minor 预发布：S0-6 web 黑屏修复 + v0.5.2 代码评审 46+5 项全量修复）
+
+- 版本决策：原计划 0.5.3 补丁，因含三处行为语义变更升 minor 预发布——①cancelled→pending 重开保留 attempts（重开≠重置预算，N5）；②写前校验架构收紧（此前可落盘的残缺数据现被拒，A2）；③快照 manifest 改名 manifest.json（读旧写新兼容，S3-10）。npm 发布走 `--tag beta`（latest 仍为 0.5.2，验证后 `npm dist-tag add @lukawi/super-plumber@0.6.0-beta.1 latest` 转正）。
 
 > 0.5.2 已发布包 `graph serve` 打开即整页黑屏的紧急修复补丁。
 
@@ -8,7 +10,21 @@
 - **修复**：读/写路径分离——getter 统一走 `curReadonly()`（冻结空桶 `EMPTY_BUCKET` 兜底，**绝不建桶**），建桶只发生在事件/异步上下文（`selectGraph`/`applyFull` 等）；响应性不受影响（getter 仍读取 `$state`，真实桶落地后 derived 自动重算）。
 - **回归防线（三层）**：`store-probe.svelte.ts`（derived 上下文探针）+ `store-readonly.test.ts`（空桶缺省值/建桶时序 3 条）+ `render-smoke.test.ts`（jsdom 真实挂载 App：无数据初始渲染出骨架屏不崩、`applyFull` 后节点标签真实渲染进 DOM 2 条）。
 - **测试工具链**（支撑组件级测试）：vitest 2→3、vite-plugin-svelte 5.1.1→6.2.4（修复 vite 6.4 `preprocessCSS` Environment 兼容）、vite.config 增加 `resolve.conditions: ["browser"]`（Svelte 5 官方测试配方，vitest 默认 SSR transform 会使 `mount` 不可用）。web-ui 54/54 绿、svelte-check 0 错误。
-- 发布动作（npm publish 0.5.3）归 fix-review-v052 修复计划 GATE 发布检查单执行。
+- 发布动作（npm publish 0.6.0-beta.1 --tag beta）由 fix-review-v052 修复计划 GATE 发布检查单执行（2026-08-25 完成）。
+
+### v0.5.2 代码评审修复（fix-review-v052，P1-P3；溯源各节点 execution report）
+
+- **写前校验架构（f5，A2/S1-1/S1-8/S3-12/N2）**：writeNode/writeEdge/writeGraph 落盘前统一 schema 校验（毒化对象在源头被拒，文件不落盘）——NaN/负数 level、非法枚举、缺字段的延时炸弹类缺陷单点消灭；contract 校验目标从不存在的顶层 `contract.method` 修正为 `contract.validation.method` + `consumed_by` 逐元素校验；MCP checkpoint id/label 补 `.min(1)`（与 CLI 对齐）；实体 id 拒绝 Windows 保留设备名（con/nul/com1-9 等）。
+- **并发与图级锁（f7，S1-3/S1-4/S1-7/S1-11/S3-6 + A1/A3）**：新增图级锁 `__graph__`（锁序恒为实体锁→图锁，锁内用 *Locked/*Core 变体防重入）——graph.yaml 引用列表读-改-写、快照/回滚整体、写路径落盘段全部互斥：并发建节点引用零丢失、快照不再新旧文件混装；createAdr 编号与重复检查入锁内（并发双号不再静默覆盖）；invalidateIndex 缓存键统一（两种 rootDir 传法不再删错键）；工作区事件追加加锁。A1 决策：保留 graph.yaml refs 引用列表（图级锁让写路径原子化、validate 双向校验兜底，删除 refs 属破坏性格式变更留待 v0.6）。
+- **MCP 工具补全（f10，S2-1）**：新增 `graph_validate`（schema+环+幽灵边+六条领域规则+引用列表双向漂移，与 CLI 同构）与 `graph_events`（审计回溯：node/kind/last 过滤）——工具面 22→24，agent 具备批量创建后的自检与裁决审计手段；建图/删图/导出刻意不设 MCP 通道在 `graph_list_graphs` 描述中显式说明。
+- **MCP 语义修复（f11，S2-2/S2-3/S2-10/S2-11/S2-12）**：`graph_switch` 在 SUPER_PLUMBER_GRAPH 压制下如实上报未生效（不再假成功）；diff `from` 缺省一律回填最新快照（CLI/MCP 双通道对齐文档承诺）；`graph_add_edge` 描述如实披露 fallback/iterates 为文档性标注；审计 actor 透传真实身份（MCP client 名/claim_by，替换 15 处硬编码 "mcp"）；幂等 re-claim 补审计痕迹。
+- **MCP 服务层（f12，S3-1/S2-7/S2-8/S3-14/S3-15）**：`as never` 类型逃逸清零（编译期类型检查恢复）；core 桶补导出 graph-dir/domain/eventlog/docs-export/index-service、根入口转口齐备（多图/领域 API 对库用户开放）；`graph_search` 改走缓存索引；`graph_get_graph` 边同窗口分页（edge_total）；uncaughtException 改 fail-fast 退出（不再带病服务）。
+- **Web 缓存（f13，S2-9）**：`/api/graph` 与 WS 初始推送统一启用索引缓存（与 watcher 推送同一 I/O 模型），轮询不再全量扫盘；WS 初始推送与 REST 数据一致性有测试锁定。
+- **去重（f14，S3-2/S3-3，纯重构零行为变化）**：三处"旧布局 default 目录判定"合一为 graphDirOf、两份图摘要逻辑合一为 summarize（MCP 复用 CLI 实现）；updateExecutionReport 审计事件 kind 双写重构为显式分支。等价性由金样对照测试（重构前输出逐字节一致）保证。
+- **转义修复（f15，S3-4/S3-5/S3-11/N4）**：Mermaid/DOT 导出 label 转义（引号/反斜杠/换行）；`createGraph` 手拼 YAML 改构造骨架 + yaml.dump（label 含冒号/井号/引号/换行不再产生非法或被注入的 graph.yaml——N4 PoC 四形回归锁定）+ 图 id 加随机后缀防同毫秒撞号；CONTEXT-MAP 表格 id/label 补 `|` 转义。
+- **算法与健壮性（f16，S3-8/S3-9/S3-10/S3-16）**：topologicalSort 头指出队替代 shift()（O(n²)→O(V+E)，10k 图毫秒级）+ 环报错路径 Set 化；CLI 错误分类改结构化 code 双通道（message 兜底）、ENOENT 死分支删除；快照 manifest.yaml（JSON 内容）改名 manifest.json（读侧兼容旧名，历史快照零迁移可见）；锁 pid 复用/长临界区两类已知窗口注释标注 + 真实死亡 pid 回收测试。
+- **reopen 语义（f19，N5）**：cancelled→pending 重开**保留 attempts**（原归零使 max_attempts 门禁可被 fail→cancel→reopen 循环无限绕过）——与死认领回收语义对齐；预算耗尽的重开走 CLI `--force`（force_override 审计）。
+- **承诺-实现断言与文档同步（f17，A5）**：四处"承诺-实现"断言纳入测试防漂移（工具计数=24 [tools-coverage TC-01]、artifacts 核验 [artifacts-check ART-01..04]、diff 默认值 [semantics SEM-02/03]、fallback/iterates 文档性标注 + 刻意无 MCP 通道披露 [description-contracts DC-01/02]）；双语 README 同步至 24 工具/27 命令/0.6.0-beta.1；全量回归 504 例后端全绿 + CLI validate 演练。
 
 ## [0.5.2] — 2026-08-24（已同步 GitHub，未发 npm）
 

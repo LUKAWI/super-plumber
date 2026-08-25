@@ -20,7 +20,7 @@ import { readGraph } from "../core/parser.js";
 import type { NodeStatus } from "../core/types.js";
 import { cliGraphCtx } from "./graph-ctx.js";
 
-interface GraphSummary {
+export interface GraphSummary {
   name: string;
   label: string;
   nodeCount: number;
@@ -30,7 +30,11 @@ interface GraphSummary {
   lastActivity: string | null;
 }
 
-function graphDirOf(wsRoot: string, name: string): string {
+// S3-2（f14）：旧布局 default 目录解析的唯一实现（原本 graph-ops.ts graphDirOf、
+// mcp/server.ts hintMissing 与 graphBriefOf 三处手写同一判定，合一到此处）。
+// 取舍：不下沉 core/graph-dir.ts（那里是并行修复的他人边界），由 mcp/server.ts
+// 从这里导入——mcp → cli 单向依赖，不引入环。
+export function graphDirOf(wsRoot: string, name: string): string {
   // 旧布局 default = .graph/ 原地；多图 = .graph/<名>/
   if (name === "default" && fs.existsSync(path.join(wsRoot, ".graph", "graph.yaml"))) {
     return path.join(wsRoot, ".graph");
@@ -38,7 +42,10 @@ function graphDirOf(wsRoot: string, name: string): string {
   return path.join(wsRoot, ".graph", name);
 }
 
-function summarize(wsRoot: string, name: string): GraphSummary {
+// S3-2（f14）：图摘要的唯一实现（原 CLI summarize 与 MCP graphBriefOf 近乎逐行
+// 重复，合一到此处；MCP 侧 graphBriefOf = summarize + isCurrent）。逐字段等价由
+// tests/f14-dedupe.test.ts 的合并前后 golden 对照保障。
+export function summarize(wsRoot: string, name: string): GraphSummary {
   const dir = graphDirOf(wsRoot, name);
   let label = name;
   try {

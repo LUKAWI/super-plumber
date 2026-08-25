@@ -7,6 +7,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { listNodes } from "./node.js";
 import { toGraphDir, workspaceOf } from "./graph-dir.js";
+import { assertValidEntityId } from "./schema.js";
 import { AdrStatus, NodeType, type NodeSchema } from "./types.js";
 
 export interface DocsExportResult {
@@ -78,8 +79,11 @@ function renderContextMap(contexts: NodeSchema[]): string {
   ];
   for (const c of contexts) {
     const terms = c.glossary?.length ?? 0;
-    const boundary = (c.boundary ?? "").replace(/\|/g, "\\|").slice(0, 80);
-    lines.push(`| ${c.id}（${c.label}） | ${boundary} | ${terms} | docs/contexts/${c.id}.md |`);
+    // S3-11（f15）：`|` 是表格定界符，id/label 与 boundary 一样必须转义
+    // （此前只转义了 boundary，label 含 | 会撕裂表格列）。
+    const esc = (s: string) => s.replace(/\|/g, "\\|");
+    const boundary = esc(c.boundary ?? "").slice(0, 80);
+    lines.push(`| ${esc(c.id)}（${esc(c.label)}） | ${boundary} | ${terms} | docs/contexts/${c.id}.md |`);
   }
   lines.push("");
   return lines.join("\n");
@@ -142,6 +146,9 @@ export function runDocsExport(
     const ctxDir = path.join(wsRoot, opts.ctxDir ?? "docs/contexts");
     fs.mkdirSync(ctxDir, { recursive: true });
     for (const c of contexts) {
+      // S0-3 次生面兜底：拼接 docs/contexts/<id>.md 前的最后防线
+      // （正常链路经 schema 读校验已拦截，此处防直调绕过）
+      assertValidEntityId("节点", c.id);
       const file = path.join(ctxDir, `${c.id}.md`);
       fs.writeFileSync(file, renderContextFile(c), "utf-8");
       written.push(path.relative(wsRoot, file));

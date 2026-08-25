@@ -14,6 +14,7 @@ import {
   writeWorkspaceDefault,
 } from "../../src/core/graph-dir.js";
 import { createSnapshot } from "../../src/core/snapshot.js";
+import { NodeType } from "../../src/core/types.js";
 import { createNode, createAdr } from "../../src/core/node.js";
 import { resetIndexCache } from "../../src/core/index-service.js";
 
@@ -72,7 +73,7 @@ describe("快照自动导出（CONTEXT-MAP）性能影响", () => {
     createGraph(tmpDir, "big-graph", "大图");
     const g = path.join(tmpDir, ".graph", "big-graph");
     // 知识顶点 ×7 + 30 个普通节点
-    for (let i = 0; i < 30; i++) createNode(g, { id: `n${String(i).padStart(2, "0")}`, label: `N${i}` });
+    for (let i = 0; i < 30; i++) createNode(g, { id: `n${String(i).padStart(2, "0")}`, type: NodeType.Task, label: `N${i}` });
     for (const [id, label] of [
       ["ctx_alpha", "甲"], ["ctx_beta", "乙"], ["ctx_gamma", "丙"], ["ctx_delta", "丁"],
     ] as const) {

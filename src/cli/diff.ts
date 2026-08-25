@@ -11,10 +11,12 @@ export const diffCommand = new Command("diff").alias("d")
     const rootDir = cliGraphDir(process.cwd());
     try {
       let fromId: string | null = options.from ?? null;
-      if (fromId === null && options.to === undefined) {
-        // 默认基线 = 最新快照
+      // S2-3（f11）：from 缺省一律回填最新快照（与 --help 描述一致）。
+      // 此前仅当 --to 也缺省时才回填，`graph diff --to snapX` 实际执行
+      // working→snapX 而帮助文本承诺 latest→snapX。无快照时保持 working。
+      if (fromId === null) {
         const snaps = listSnapshots(rootDir);
-        fromId = snaps.length > 0 ? snaps[snaps.length - 1].id : null;
+        if (snaps.length > 0) fromId = snaps[snaps.length - 1].id;
       }
       if (fromId === null && options.to === undefined) {
         console.error(`❌ 没有可用快照，请先运行 graph snapshot 创建基线`);

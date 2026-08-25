@@ -34,7 +34,7 @@ beforeAll(async () => {
     edges: [],
   });
   for (let i = 0; i < N; i++) {
-    createNode(tmpDir, { id: "n" + i, label: "n" + i, level: 1 }, { syncRef: false });
+    createNode(tmpDir, { id: "n" + i, type: NodeType.Task, label: "n" + i, level: 1 }, { syncRef: false });
   }
   for (let i = 0; i < N - 1; i++) {
     createEdge(

@@ -185,20 +185,34 @@ function serveStatic(req: http.IncomingMessage, res: http.ServerResponse): void 
     return;
   }
 
-  if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-    filePath = path.join(WEB_UI_DIR, "index.html");
-  }
+  // S3-7：exists/stat/read 之间的删除/权限竞态不再抛进 http handler（曾可击穿整个 serve 进程）
+  try {
+    const st = fs.existsSync(filePath) ? fs.statSync(filePath) : null;
+    if (!st || st.isDirectory()) {
+      filePath = path.join(WEB_UI_DIR, "index.html");
+    }
 
-  const ext = path.extname(filePath);
-  const mime: Record<string, string> = {
-    ".html": "text/html",
-    ".js": "application/javascript",
-    ".css": "text/css",
-    ".json": "application/json",
-    ".svg": "image/svg+xml",
-  };
-  res.writeHead(200, { "Content-Type": mime[ext] ?? "application/octet-stream" });
-  res.end(fs.readFileSync(filePath));
+    const ext = path.extname(filePath);
+    const mime: Record<string, string> = {
+      ".html": "text/html",
+      ".js": "application/javascript",
+      ".css": "text/css",
+      ".json": "application/json",
+      ".svg": "image/svg+xml",
+    };
+    // 先读后写头：读取失败时 headers 尚未发出，catch 才能安全回 500
+    // （writeHead 在读取之前的话，竞态抛错后再 writeHead(500) 会 ERR_HTTP_HEADERS_SENT）
+    const data = fs.readFileSync(filePath);
+    res.writeHead(200, { "Content-Type": mime[ext] ?? "application/octet-stream" });
+    res.end(data);
+  } catch {
+    if (!res.headersSent) {
+      res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("Internal Server Error");
+    } else {
+      res.end(); // 头已发出：直接结束响应，不再重复写头
+    }
+  }
 }
 
 export function startServer(
@@ -300,7 +314,9 @@ export function startServer(
         respondError(404, `图 "${url.searchParams.get("graph")}" 不存在`);
         return;
       }
-      respondJson(serializeGraphIndex(buildGraphIndex(target.apiRoot), target.apiRoot, target.name));
+      // S2-9（f13）：启用索引缓存——与 watcher 推送路径同一 I/O 模型，
+      // 连续 /api/graph 轮询不再全量扫盘；跨进程写由 isFresh 的 mtime 检查兜底
+      respondJson(serializeGraphIndex(buildGraphIndex(target.apiRoot, { useCache: true }), target.apiRoot, target.name));
       return;
     }
     // 快照列表（UI diff 视图数据源；?graph=<名> 缺省 = active 图）
@@ -313,8 +329,9 @@ export function startServer(
         }
         respondJson(listSnapshots(target.apiRoot));
       } catch (err: any) {
-        res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
-        res.end(err.message);
+        // S0-5：内部错误脱敏——细节只进本机终端，不向客户端回显
+        console.error("[serve] /api/snapshots failed:", err?.message);
+        respondError(500, "内部错误（详见 serve 终端输出）");
       }
       return;
     }
@@ -338,8 +355,9 @@ export function startServer(
           respondJson(diffSnapshot(target.apiRoot, fromId, null));
         }
       } catch (err: any) {
-        res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
-        res.end(err.message);
+        // S0-5：内部错误脱敏——细节只进本机终端，不向客户端回显
+        console.error("[serve] /api/diff failed:", err?.message);
+        respondError(500, "内部错误（详见 serve 终端输出）");
       }
       return;
     }
@@ -386,7 +404,8 @@ export function startServer(
           JSON.stringify({
             type: "graph:full",
             graph: initial,
-            data: serializeGraphIndex(buildGraphIndex(dir), dir, initial),
+            // S2-9（f13）：初始推送同样走索引缓存（此前只有 watcher 推送用）
+            data: serializeGraphIndex(buildGraphIndex(dir, { useCache: true }), dir, initial),
           }),
         );
       } catch {
@@ -478,7 +497,8 @@ export function startServer(
     throw err;
   });
 
-  server.listen(port, () => {
+  // S0-5：本地开发工具显式绑定回环地址，不再默认暴露到局域网（0.0.0.0/::）
+  server.listen(port, "127.0.0.1", () => {
     const addr = server.address();
     const actualPort = typeof addr === "object" && addr !== null ? addr.port : port;
     const url = `http://localhost:${actualPort}`;

@@ -8,6 +8,7 @@ import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { writeGraph } from "../../src/core/parser.js";
 import { createNode } from "../../src/core/node.js";
+import { NodeType } from "../../src/core/types.js";
 
 const SDK = "@modelcontextprotocol/sdk";
 
@@ -25,7 +26,7 @@ function initGraph(dir: string, nodeId: string): void {
     nodes: [],
     edges: [],
   });
-  createNode(dir, { id: nodeId, label: nodeId.toUpperCase() });
+  createNode(dir, { id: nodeId, type: NodeType.Task, label: nodeId.toUpperCase() });
 }
 
 async function connect(opts: {

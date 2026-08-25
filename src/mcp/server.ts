@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // src/mcp/server.ts
-// Super Plumber MCP Server（stdio）— 18 个 graph_* 工具。
+// Super Plumber MCP Server（stdio）— 24 个 graph_* 工具。
 // 设计原则（agent 原生化）：
 //   1. 设计期/执行期/裁决期全流程 MCP 覆盖（建图→调度→claim→checkpoint→report→verdict→验收）
 //   2. zod 参数校验（缺参/非法枚举 → 协议错误），错误消息可读可自纠
@@ -25,6 +25,8 @@ import {
   getGoverningAdrs,
   reclaimNode,
   listNodes,
+  type CreateNodeParams,
+  type NodeUpdateParams,
 } from "../core/node.js";
 import { createEdge as createEdgeOp, listEdges } from "../core/edge.js";
 import { readGraph } from "../core/parser.js";
@@ -32,16 +34,41 @@ import { deleteNode, deleteEdge, updateGraph, rebuildGraphRefs } from "../core/p
 import {
   buildGraphIndex,
   computeNextActions,
+  topologicalSort,
+  detectCycles,
+  detectHiddenCycles,
 } from "../core/graph.js";
 import { allowedTransitionsFor, aggregateCheckpointStatus } from "../core/state-machine.js";
+import { validateDomainRules } from "../core/domain.js";
+import {
+  NODE_ID_RE,
+  loadNodeFile,
+  loadEdgeFile,
+  listNodeFileNames,
+  listEdgeFileNames,
+} from "../core/schema.js";
+import { readEvents } from "../core/eventlog.js";
 import {
   createSnapshot,
   diffSnapshot,
   rollbackToSnapshot,
   listSnapshots,
 } from "../core/snapshot.js";
-import { NodeType, NodeStatus, AdrStatus, EdgeType, isKnowledgeType } from "../core/types.js";
+import {
+  NodeType,
+  NodeStatus,
+  AdrStatus,
+  EdgeType,
+  isKnowledgeType,
+  type GraphSchema,
+  type NodeSchema,
+  type EdgeSchema,
+} from "../core/types.js";
 import { listGraphNames, resolveGraphDir, didYouMean } from "../core/graph-dir.js";
+// S3-2（f14）：旧布局目录判定与图摘要复用 cli/graph-ops.ts 的唯一实现
+// （graphDirOf/summarize）。mcp → cli 单向依赖；不放 core/graph-dir.ts 是因为
+// 该文件在并行修复的他人边界内（取舍见 graph-ops.ts 注释）。
+import { graphDirOf, summarize } from "../cli/graph-ops.js";
 import { VERSION } from "../version.js";
 
 // ── 图目录定位（全局配置一次、随项目自动跟随）──
@@ -94,6 +121,18 @@ const server = new McpServer({
   name: "super-plumber",
   version: VERSION,
 });
+
+// S2-11（f11）：审计 actor 透传真实 agent 身份——取 MCP initialize 握手时客户端
+// 上报的 client 名（如 claude-code / cursor / test），回落 "mcp"。此前所有写操作
+// 硬编码 actor: "mcp"，多 agent 并发时审计日志无法区分行为主体。
+function mcpActor(claimBy?: string): string {
+  if (claimBy) return claimBy; // claim 语义：认领者身份优先
+  try {
+    return server.server.getClientVersion()?.name ?? "mcp";
+  } catch {
+    return "mcp";
+  }
+}
 
 // v0.5.2：返回**图上下文**（dir/name/source）。优先级链与 CLI 一致：
 // SUPER_PLUMBER_GRAPH 环境变量 > 进程内 active（graph_switch 设置）> .graph/active > default。
@@ -187,10 +226,7 @@ async function hintMissing<T>(
       if (siblings.length > 0) {
         const hits: string[] = [];
         for (const n of siblings) {
-          const dir =
-            n === "default" && fs.existsSync(path.join(gctx.wsRoot, ".graph", "graph.yaml"))
-              ? path.join(gctx.wsRoot, ".graph")
-              : path.join(gctx.wsRoot, ".graph", n);
+          const dir = graphDirOf(gctx.wsRoot, n); // S3-2（f14）：三处手写判定合一
           try {
             for (const node of listNodes(dir)) {
               if (ids.includes(node.id)) {
@@ -223,41 +259,11 @@ function jsonGraph(gctx: { name: string }, data: unknown) {
 
 // ════════════════════ v0.5.2 多图：切换与列举 ════════════════════
 
-interface GraphBrief {
-  name: string;
-  label: string;
-  nodeCount: number;
-  edgeCount: number;
-  running: number;
-  passed: number;
-  lastActivity: string | null;
-  isCurrent: boolean;
-}
-
-function graphBriefOf(wsRoot: string, name: string, current: string): GraphBrief {
-  const dir =
-    name === "default" && fs.existsSync(path.join(wsRoot, ".graph", "graph.yaml"))
-      ? path.join(wsRoot, ".graph")
-      : path.join(wsRoot, ".graph", name);
-  let label = name;
-  try {
-    label = readGraph(dir).label;
-  } catch {
-    /* graph.yaml 损坏退回图名 */
-  }
-  const nodes = listNodes(dir);
-  const lastActivity =
-    nodes.map((n) => n.updated_at ?? "").sort().pop() || null;
-  return {
-    name,
-    label,
-    nodeCount: nodes.length,
-    edgeCount: listEdges(dir).length,
-    running: nodes.filter((n) => n.status === ("running" as never)).length,
-    passed: nodes.filter((n) => n.status === ("passed" as never)).length,
-    lastActivity,
-    isCurrent: name === current,
-  };
+// S3-2（f14）：graphBriefOf 的重复实现已删——与 CLI graph list 共用
+// cli/graph-ops.ts 的 summarize（唯一实现），此处只补 MCP 特有的 isCurrent。
+// 逐字段等价（含键序）由 tests/f14-dedupe.test.ts 对照合并前 golden 保障。
+function graphBriefOf(wsRoot: string, name: string, current: string) {
+  return { ...summarize(wsRoot, name), isCurrent: name === current };
 }
 
 server.registerTool(
@@ -293,7 +299,7 @@ server.registerTool(
     let runningNote: string | undefined;
     if (gctx.name !== name) {
       try {
-        const running = listNodes(gctx.dir).filter((n) => n.status === ("running" as never)).length;
+        const running = listNodes(gctx.dir).filter((n) => n.status === NodeStatus.Running).length;
         if (running > 0) runningNote = `原图 ${gctx.name} 有 ${running} 个 running 节点在途（切换不影响它们继续执行）`;
       } catch {
         /* 原图不可读则跳过提示 */
@@ -301,11 +307,26 @@ server.registerTool(
     }
     setProcessActiveGraph(name);
     const brief = graphBriefOf(gctx.wsRoot, name, name);
+    // S2-2（f11）：env 压制时如实上报——SUPER_PLUMBER_GRAPH 优先级高于进程内
+    // active，此时 switch 不改变实际目标图，返回值不得假装切换成功
+    const envName = process.env.SUPER_PLUMBER_GRAPH;
+    const notes: string[] = [];
+    if (runningNote) notes.push(runningNote);
+    let effective = true;
+    if (envName !== undefined && envName !== name) {
+      effective = false;
+      notes.push(
+        `⚠️ 未生效：SUPER_PLUMBER_GRAPH=${envName} 环境变量优先级高于进程内切换，` +
+          `本进程实际目标图仍是 ${envName}。清除该环境变量后 switch 才能生效。`,
+      );
+    } else if (envName === name) {
+      notes.push(`SUPER_PLUMBER_GRAPH=${envName} 已固定该图，进程内切换与之一致。`);
+    }
     return jsonText({
       graph: name,
-      switched: { from: gctx.name, to: name, persistent: false },
+      switched: { from: gctx.name, to: name, persistent: false, effective },
       summary: brief,
-      ...(runningNote ? { note: runningNote } : {}),
+      ...(notes.length > 0 ? { notes } : {}),
     });
   },
 );
@@ -314,7 +335,8 @@ server.registerTool(
   "graph_list_graphs",
   {
     description:
-      "v0.5.2 列举工作区全部图（或查指定图详情）：名/label/节点数/running/passed/最近活动/is_current。与 CLI graph list 同构。",
+      "v0.5.2 列举工作区全部图（或查指定图详情）：名/label/节点数/running/passed/最近活动/is_current。与 CLI graph list 同构。" +
+      "注意：建图（graph init）/删图（trash）/文档导出（export --docs）刻意不设 MCP 通道（工作区级破坏性操作，人类走 CLI）——agent 需要时提示用户执行 CLI。",
     inputSchema: {
       name: z.string().optional().describe("图名（缺省列全部）"),
     },
@@ -406,8 +428,8 @@ server.registerTool(
   {
     description:
       "获取图拓扑（节点 + 边 + 邻接表，命中 index 缓存）。默认 summary 模式：节点为紧凑字段（id/label/status/type/level/assigned_to），" +
-      "先拿全局再按需解压节点，避免大图 token 爆炸。mode=full 返回完整节点内容，用 offset/limit 分页（每页默认 200）。" +
-      "Returns total + nodes + edges + adjacency.",
+      "先拿全局再按需解压节点，避免大图 token 爆炸。mode=full 返回完整节点内容，用 offset/limit 分页（每页默认 200；offset/limit 同窗口作用于节点与边，" +
+      "summary 模式边为紧凑字段并返回 edge_total——S3-14 前边始终全量）。Returns total + edge_total + nodes + edges + adjacency.",
     inputSchema: {
       mode: z
         .enum(["summary", "full"])
@@ -434,12 +456,26 @@ server.registerTool(
             level: n.level,
             assigned_to: n.assigned_to,
           }));
+    // S3-14（f12）：edges 不再始终全量——同窗口分页（offset/limit 同时作用于
+    // 节点与边），summary 模式紧凑化（id/source/target/type/rel_kind，剔除 contract）
+    const edgePage = index.edges.slice(offset, offset + limit);
+    const edges =
+      mode === "full"
+        ? edgePage
+        : edgePage.map((e) => ({
+            id: e.id,
+            source: e.source,
+            target: e.target,
+            type: e.type,
+            ...(e.rel_kind !== undefined ? { rel_kind: e.rel_kind } : {}),
+          }));
     return jsonGraph(gctx, {
       total: index.nodes.length,
+      edge_total: index.edges.length,
       offset,
       limit,
       nodes,
-      edges: index.edges,
+      edges,
       adjacency: Object.fromEntries(index.adjacency),
       reverseAdj: Object.fromEntries(index.reverseAdj),
     });
@@ -566,7 +602,7 @@ server.registerTool(
   {
     description:
       "按条件过滤节点（query 模糊匹配 id/label，可叠加 status/type/assigned_to/level）。Use when you need to find specific nodes, e.g. all ready tasks assigned to nobody. " +
-      "Returns { total, limit, nodes } — nodes 为紧凑字段（id/label/status/type/level/assigned_to），total > limit 时缩小条件或增大 limit 继续查。",
+      "与 graph_get_graph 同一 I/O 模型（命中 index 缓存，重复查询不重读盘）。Returns { total, limit, nodes } — nodes 为紧凑字段（id/label/status/type/level/assigned_to），total > limit 时缩小条件或增大 limit 继续查。",
     inputSchema: {
       query: z.string().optional(),
       status: nodeStatusSchema.optional(),
@@ -586,7 +622,9 @@ server.registerTool(
   async ({ query, status, type, assigned_to, level, limit }) => {
     const gctx = await resolveGraphCtx();
     const rootDir = gctx.dir;
-    const nodes = listNodes(rootDir);
+    // S2-8（f12）：与 graph_get_graph 同一 I/O 模型——命中索引缓存，
+    // 重复查询不再全量读盘（此前 listNodes 逐文件读 + schema 校验）
+    const nodes = buildGraphIndex(rootDir, { useCache: true }).nodes;
     const filtered = nodes.filter((n) => {
       if (query && !n.id.includes(query) && !n.label.includes(query)) return false;
       if (status && n.status !== status) return false;
@@ -610,11 +648,211 @@ server.registerTool(
   },
 );
 
+// S0-3：实体 ID zod 收紧——LLM 供给的 ID 在协议层即拒（防路径穿越 confused-deputy）
+const entityIdSchema = (what: string) =>
+  z
+    .string()
+    .regex(NODE_ID_RE, `${what} ID 规则: ^[a-z0-9][a-z0-9._-]{0,63}$（小写字母/数字开头，禁路径分隔符/冒号/大写）`);
+
+server.registerTool(
+  "graph_validate",
+  {
+    description:
+      "校验当前图的结构完整性：schema 逐文件校验 + 幽灵边 + 循环依赖（含 fan 门控隐藏环）+ " +
+      "v0.5 领域规则六条 + graph.yaml 引用列表双向漂移。Use after graph_batch_create / 批量改动 / 手编文件后自检；" +
+      "crash recovery 场景先调它再决定重跑范围。Returns { ok, errors[], warnings[], node_count, edge_count } — " +
+      "ok=false 时 errors 非空（结构问题），warnings 为提示性（如 entry/exit 描述为空、fallback/iterates 仅文档性标注）。",
+    inputSchema: {},
+  },
+  async () => {
+    const gctx = await resolveGraphCtx();
+    const rootDir = gctx.dir;
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    // 1. graph.yaml 可读 + 入口/出口骨架
+    let graph: GraphSchema;
+    try {
+      graph = readGraph(rootDir);
+    } catch (e: any) {
+      return jsonGraph(gctx, {
+        ok: false,
+        errors: [`无法读取 graph.yaml: ${e.message}`],
+        warnings,
+        node_count: 0,
+        edge_count: 0,
+      });
+    }
+    if (!graph.entry.description) warnings.push("图入口(entry)描述为空");
+    if (!graph.exit.description) warnings.push("图出口(exit)描述为空");
+    if (graph.exit.acceptance_criteria.length === 0) {
+      warnings.push("图出口(exit)验收标准为空");
+    }
+
+    // 2. 节点逐文件 schema 校验（单文件损坏不中断其余）
+    const nodes: NodeSchema[] = [];
+    for (const f of listNodeFileNames(rootDir)) {
+      const r = loadNodeFile(rootDir, f);
+      if (r.ok) nodes.push(r.data);
+      else for (const i of r.issues) errors.push(`nodes/${f}: ${i.field}: ${i.message}`);
+    }
+    if (nodes.length === 0) warnings.push("图中没有节点");
+    for (const node of nodes) {
+      // S2-5：max_attempts=0 表示不限重试，不参与超限判定
+      if (node.max_attempts > 0 && node.attempts > node.max_attempts) {
+        warnings.push(
+          `节点 ${node.id} 已超出最大重试次数 (${node.attempts}/${node.max_attempts})`,
+        );
+      }
+    }
+
+    // 3. 边逐文件 schema 校验 + 幽灵端点
+    const edges: EdgeSchema[] = [];
+    for (const f of listEdgeFileNames(rootDir)) {
+      const r = loadEdgeFile(rootDir, f);
+      if (r.ok) edges.push(r.data);
+      else for (const i of r.issues) errors.push(`edges/${f}: ${i.field}: ${i.message}`);
+    }
+    const nodeIds = new Set(nodes.map((n) => n.id));
+    for (const edge of edges) {
+      if (!nodeIds.has(edge.source)) {
+        errors.push(`边 ${edge.id} 引用了不存在的源节点: ${edge.source}`);
+      }
+      if (!nodeIds.has(edge.target)) {
+        errors.push(`边 ${edge.id} 引用了不存在的目标节点: ${edge.target}`);
+      }
+    }
+    // 运行时控制流边未实现运行时语义（FIX-B1 同构）
+    for (const edge of edges) {
+      if (edge.type === "fallback" || edge.type === "iterates") {
+        warnings.push(
+          `边 ${edge.id} (${edge.type}) 为运行时控制流边，但工具未实现其运行时语义（不执行回退/迭代）——当前仅文档性标注`,
+        );
+      }
+    }
+    const ctxEdges = edges.filter((e) => e.type === "shares_context");
+    if (ctxEdges.length > 0) {
+      warnings.push(
+        `检测到 ${ctxEdges.length} 条 shares_context 边：不参与门禁与拓扑排序，仅表达上下文共享意图`,
+      );
+    }
+
+    // 4. v0.5 领域语义六规则（悬空归属/术语重复/跨context契约/relates端点/孤儿ADR/decides源）
+    for (const d of validateDomainRules(nodes, edges)) {
+      if (d.level === "error") errors.push(d.message);
+      else warnings.push(d.message);
+    }
+
+    // 5. 拓扑排序 + 环检测（含 fan 门控隐藏环）
+    if (nodes.length > 1) {
+      try {
+        topologicalSort(
+          nodes.map((n) => n.id),
+          edges,
+        );
+      } catch (e: any) {
+        errors.push(`拓扑排序失败: ${e.message}`);
+      }
+      for (const cycle of detectCycles(
+        nodes.map((n) => n.id),
+        edges,
+      )) {
+        errors.push(`检测到循环依赖: ${cycle.join(" → ")}`);
+      }
+      for (const cycle of detectHiddenCycles(
+        nodes.map((n) => n.id),
+        edges,
+      )) {
+        warnings.push(
+          `隐藏环路（fan_out/fan_in 门控边闭合: ${cycle.join(" → ")}）：门禁互等，节点可能永远无法 ready`,
+        );
+      }
+    }
+
+    // 6. 引用列表双向漂移（refs→文件 与 文件→refs，中性警告——rebuild 可自愈）
+    const nodeFileIds = new Set(nodes.map((n) => n.id));
+    const edgeFileIds = new Set(edges.map((e) => e.id));
+    const refNodeIds = new Set<string>();
+    const refEdgeIds = new Set<string>();
+    for (const ref of graph.nodes) {
+      const nid = ref.file.replace(/^nodes\//, "").replace(/\.yaml$/, "");
+      refNodeIds.add(nid);
+      if (!nodeFileIds.has(nid)) {
+        warnings.push(`graph.yaml 引用了不存在的节点文件: ${ref.file}`);
+      }
+    }
+    for (const ref of graph.edges) {
+      const eid = ref.file.replace(/^edges\//, "").replace(/\.yaml$/, "");
+      refEdgeIds.add(eid);
+      if (!edgeFileIds.has(eid)) {
+        warnings.push(`graph.yaml 引用了不存在的边文件: ${ref.file}`);
+      }
+    }
+    for (const nid of nodeFileIds) {
+      if (!refNodeIds.has(nid)) {
+        warnings.push(
+          `nodes/${nid}.yaml 存在但不在 graph.yaml 引用列表（引用列表与目录漂移，请检查 graph.yaml 或 graph rebuild）`,
+        );
+      }
+    }
+    for (const eid of edgeFileIds) {
+      if (!refEdgeIds.has(eid)) {
+        warnings.push(
+          `edges/${eid}.yaml 存在但不在 graph.yaml 引用列表（引用列表与目录漂移，请检查 graph.yaml 或 graph rebuild）`,
+        );
+      }
+    }
+
+    return jsonGraph(gctx, {
+      ok: errors.length === 0,
+      errors,
+      warnings,
+      node_count: nodes.length,
+      edge_count: edges.length,
+    });
+  },
+);
+
+server.registerTool(
+  "graph_events",
+  {
+    description:
+      "读取当前图的审计日志（events.jsonl：node_created/node_status/checkpoint_updated/force_override/attempts_reset/node_reclaimed/snapshot_created/rollback 等）。" +
+      "Use when 裁决 agent 需要回溯执行历史（谁在何时 claim/强制流转/重置了重试计数）。" +
+      "Returns { total, count, events[] } — 可按 node/kind 过滤，last 取最近 N 条（默认全部）。",
+    inputSchema: {
+      node: entityIdSchema("节点").optional().describe("按节点 id 过滤"),
+      kind: z.string().optional().describe("按事件类型过滤（如 force_override / attempts_reset / node_status）"),
+      last: z.number().int().min(1).max(1000).optional().describe("只取最近 N 条"),
+    },
+  },
+  async ({ node, kind, last }) => {
+    const gctx = await resolveGraphCtx();
+    const events = readEvents(gctx.dir, {
+      ...(node !== undefined ? { node } : {}),
+      ...(kind !== undefined ? { kind } : {}),
+    });
+    const sliced = last !== undefined ? events.slice(-last) : events;
+    return jsonGraph(gctx, {
+      total: events.length,
+      count: sliced.length,
+      events: sliced,
+    });
+  },
+);
+
 // ════════════════════ 创建 ════════════════════
 
+// S2-1（f10）：MCP 通道补 graph_validate / graph_events——批量创建指引"崩溃后重跑"
+// 但 agent 此前无任何自检手段；审计日志（force_override/attempts_reset 等）只能 CLI 看。
+// 校验逻辑与 src/cli/validate.ts 同构（同一组 core 原语：schema 逐文件 + 幽灵边 +
+// 领域规则 + 拓扑/环 + 引用列表双向漂移），CLI 与 MCP 双通道行为一致。
+
 const checkpointSchema = z.object({
-  id: z.string(),
-  label: z.string(),
+  // S3-12：与 CLI 对齐——空 id/label 使 checkpoint 无法被 update_checkpoint
+  // 寻址（id）或读报告（label），协议层即拒
+  id: z.string().min(1),
+  label: z.string().min(1),
   status: cpStatusSchema.optional().default("pending"),
   verifier: verifierSchema.optional().default("auto"),
 });
@@ -627,7 +865,7 @@ server.registerTool(
       "v0.5 知识顶点：type=context（领域上下文，节点即文档——boundary/glossary 经 graph_update_node 填充）；type=adr 建议改用 graph_create_adr（自动编号+proposed）。" +
       "Duplicate id returns an error (never overwrites).",
     inputSchema: {
-      id: z.string().describe("节点 ID"),
+      id: entityIdSchema("节点").describe("节点 ID"),
       label: z.string().describe("节点标签"),
       type: nodeTypeSchema.optional().default(NodeType.Task),
       level: z.number().int().optional().default(1),
@@ -652,10 +890,10 @@ server.registerTool(
       ...(context !== undefined ? { context } : {}),
       plan_description,
       definition_of_done,
-      checkpoints: checkpoints as never,
+      checkpoints: checkpoints as CreateNodeParams["checkpoints"],
       assigned_to,
       max_attempts,
-    }, { actor: "mcp" });
+    }, { actor: mcpActor() });
     return jsonGraph(gctx, node);
   },
 );
@@ -689,14 +927,14 @@ server.registerTool(
         ...(why !== undefined ? { why } : {}),
         ...(consequences !== undefined ? { consequences } : {}),
       },
-      { actor: "mcp" },
+      { actor: mcpActor() },
     );
     return jsonGraph(gctx, adr);
   },
 );
 
 const batchNodeSchema = z.object({
-  id: z.string(),
+  id: entityIdSchema("节点"),
   label: z.string(),
   type: nodeTypeSchema.optional().default(NodeType.Task),
   level: z.number().int().optional().default(1),
@@ -710,9 +948,9 @@ const batchNodeSchema = z.object({
 });
 
 const batchEdgeSchema = z.object({
-  id: z.string(),
-  source: z.string(),
-  target: z.string(),
+  id: entityIdSchema("边"),
+  source: entityIdSchema("边 source"),
+  target: entityIdSchema("边 target"),
   type: edgeTypeSchema,
   rel_kind: z.string().optional(),
   contract: z.record(z.string(), z.unknown()).optional(),
@@ -781,11 +1019,11 @@ server.registerTool(
           ...(n.context !== undefined ? { context: n.context } : {}),
           plan_description: n.plan_description,
           definition_of_done: n.definition_of_done,
-          checkpoints: n.checkpoints as never,
+          checkpoints: n.checkpoints as CreateNodeParams["checkpoints"],
           assigned_to: n.assigned_to,
           max_attempts: n.max_attempts,
         },
-        { syncRef: false, actor: "mcp" },
+        { syncRef: false, actor: mcpActor() },
       );
     }
     for (const e of edges) {
@@ -797,9 +1035,9 @@ server.registerTool(
           target: e.target,
           type: e.type as EdgeType,
           ...(e.rel_kind !== undefined ? { rel_kind: e.rel_kind } : {}),
-          ...(e.contract !== undefined ? { contract: e.contract as never } : {}),
+          ...(e.contract !== undefined ? { contract: e.contract as EdgeSchema["contract"] } : {}),
         },
-        { syncRef: false, actor: "mcp" },
+        { syncRef: false, actor: mcpActor() },
       );
     }
     rebuildGraphRefs(rootDir);
@@ -811,14 +1049,16 @@ server.registerTool(
   "graph_add_edge",
   {
     description:
-      "添加一条类型化边（depends_on/validates 参与拓扑排序；fan_out/fan_in/shares_context/fallback/iterates 表达运行时控制流）。" +
+      "添加一条类型化边（depends_on/validates 参与拓扑排序与门禁；fan_out/fan_in 参与门控边语义）。" +
+      "注意：shares_context 不参与门禁与排序（仅表达上下文共享）；fallback/iterates 当前为**文档性标注**——" +
+      "工具未实现其运行时回退/迭代语义，graph validate 会逐条警告（S2-10）。" +
       "v0.5 知识边：decides（ADR → 任意顶点，决策管辖，superseded 时沿此传播 adr_flags）；relates（仅 context↔context，rel_kind 自由标注）。" +
       "跨 context 的工作流边是契约边，须填 contract（未填会被 graph validate 警告）。Both endpoints must exist. " +
       "Duplicate edge id returns an error.",
     inputSchema: {
-      id: z.string(),
-      source: z.string(),
-      target: z.string(),
+      id: entityIdSchema("边"),
+      source: entityIdSchema("边 source"),
+      target: entityIdSchema("边 target"),
       type: edgeTypeSchema,
       rel_kind: z.string().optional().describe("v0.5：relates 边的领域关系标注（自由文本）"),
       contract: z
@@ -837,8 +1077,8 @@ server.registerTool(
         target,
         type: type as EdgeType,
         ...(rel_kind !== undefined ? { rel_kind } : {}),
-        ...(contract !== undefined ? { contract: contract as never } : {}),
-      } as never, { actor: "mcp" }),
+        ...(contract !== undefined ? { contract: contract as EdgeSchema["contract"] } : {}),
+      }, { actor: mcpActor() }),
     );
     return jsonGraph(gctx, edge);
   },
@@ -888,7 +1128,7 @@ server.registerTool(
       ...(plan_description !== undefined ? { plan_description } : {}),
       ...(add_dod ? { add_dod } : {}),
       ...(clear_dod ? { clear_dod } : {}),
-      ...(add_checkpoints ? { add_checkpoints: add_checkpoints as never } : {}),
+      ...(add_checkpoints ? { add_checkpoints: add_checkpoints as NodeUpdateParams["add_checkpoints"] } : {}),
       ...(set_assigned_to !== undefined ? { set_assigned_to } : {}),
       ...(label !== undefined ? { label } : {}),
       ...(max_attempts !== undefined ? { max_attempts } : {}),
@@ -903,7 +1143,7 @@ server.registerTool(
     }
     return jsonGraph(gctx, 
       updateNodeContent(rootDir, id, updates, {
-        actor: "mcp",
+        actor: mcpActor(),
         ...(reset_attempts ? { resetAttempts: true } : {}),
       }),
     );
@@ -944,7 +1184,7 @@ server.registerTool(
     }
     const node = await hintMissing(gctx, [id], () =>
       updateNodeStatus(rootDir, id, status as NodeStatus, claim_by, {
-        actor: "mcp",
+        actor: mcpActor(claim_by), // S2-11：claim 审计 actor = 认领者身份
       }),
     );
     // v0.5：claim（→running）响应附管辖 ADR 指针——agent 此刻最需要知道"依据哪些决策干活"
@@ -992,7 +1232,7 @@ server.registerTool(
     const gctx = await resolveGraphCtx();
     const rootDir = gctx.dir;
     return jsonGraph(gctx, await hintMissing(gctx, [node_id], () =>
-      updateCheckpoint(rootDir, node_id, checkpoint_id, status, { actor: "mcp" }),
+      updateCheckpoint(rootDir, node_id, checkpoint_id, status, { actor: mcpActor() }),
     ));
   },
 );
@@ -1001,7 +1241,7 @@ server.registerTool(
   "graph_update_execution_report",
   {
     description:
-      "填写执行报告（交接单），供裁决方（Super Mario）抽查。artifacts 填真实文件路径 — verification 层会实际检查它们存在。 " +
+      "填写执行报告（交接单），供裁决方（Super Mario）抽查。artifacts 填真实文件路径 — 响应会对每个路径做存在性核验并返回 artifacts_check: [{path, exists}]（相对路径按工作区根解析；只核存在性，不代表内容正确），提交不存在的路径会以 exists=false 明确示警。 " +
       "Optional verification {verdict, note} records the adjudication result after checkpoint aggregation + output spot-check.",
     inputSchema: {
       node_id: z.string(),
@@ -1032,9 +1272,18 @@ server.registerTool(
               },
             }
           : {}),
-      } as never, { actor: "mcp" }),
+      }, { actor: mcpActor() }),
     );
-    return jsonGraph(gctx, node);
+    // S0-4：artifacts 存在性如实核验并写入响应（相对路径按工作区根解析）。
+    // 只核存在性不代验内容——裁决方据此决定是否抽查。
+    const artifactsCheck = (artifacts ?? []).map((p) => {
+      const abs = path.isAbsolute(p) ? p : path.resolve(gctx.wsRoot, p);
+      return { path: p, exists: fs.existsSync(abs) };
+    });
+    return jsonGraph(gctx, {
+      ...node,
+      ...(artifactsCheck.length > 0 ? { artifacts_check: artifactsCheck } : {}),
+    });
   },
 );
 
@@ -1089,7 +1338,7 @@ server.registerTool(
   async ({ id, cascade }) => {
     const gctx = await resolveGraphCtx();
     const rootDir = gctx.dir;
-    deleteNode(rootDir, id, { cascade, actor: "mcp" });
+    deleteNode(rootDir, id, { cascade, actor: mcpActor() });
     return jsonGraph(gctx, { deleted: id, cascade });
   },
 );
@@ -1104,7 +1353,7 @@ server.registerTool(
   async ({ id }) => {
     const gctx = await resolveGraphCtx();
     const rootDir = gctx.dir;
-    deleteEdge(rootDir, id, { actor: "mcp" });
+    deleteEdge(rootDir, id, { actor: mcpActor() });
     return jsonGraph(gctx, { deleted: id });
   },
 );
@@ -1124,7 +1373,7 @@ server.registerTool(
   async ({ message }) => {
     const gctx = await resolveGraphCtx();
     const rootDir = gctx.dir;
-    return jsonGraph(gctx, createSnapshot(rootDir, message, { actor: "mcp" }));
+    return jsonGraph(gctx, createSnapshot(rootDir, message, { actor: mcpActor() }));
   },
 );
 
@@ -1135,7 +1384,7 @@ server.registerTool(
       "比较拓扑差异（默认：最新快照 vs 当前工作区；也可指定任意两个快照）。Use to audit what changed since a snapshot or review a design iteration. " +
       "Returns added/removed/modified files and node status changes.",
     inputSchema: {
-      from: z.string().optional().describe("基线快照 id（默认最新快照）"),
+      from: z.string().optional().describe("基线快照 id（默认最新快照；无快照时为 working）"),
       to: z.string().optional().describe("目标快照 id（默认当前工作区）"),
     },
   },
@@ -1143,9 +1392,11 @@ server.registerTool(
     const gctx = await resolveGraphCtx();
     const rootDir = gctx.dir;
     let fromId: string | null = from ?? null;
-    if (fromId === null && to === undefined) {
+    // S2-3（f11）：from 缺省一律回填最新快照——与描述一致。此前仅当 to 也缺省时
+    // 才回填，`graph_diff {to: snapX}` 实际执行 working→snapX 而描述承诺 latest→snapX
+    if (fromId === null) {
       const snaps = listSnapshots(rootDir);
-      fromId = snaps.length > 0 ? snaps[snaps.length - 1].id : null;
+      if (snaps.length > 0) fromId = snaps[snaps.length - 1].id;
     }
     if (fromId === null && to === undefined) {
       throw new Error("没有可用快照，请先 graph_snapshot 创建基线");
@@ -1177,7 +1428,7 @@ server.registerTool(
     const result = rollbackToSnapshot(rootDir, snapshot_id, {
       confirm,
       ...(design_only ? { designOnly: true } : {}),
-      actor: "mcp",
+      actor: mcpActor(),
     });
     return jsonGraph(gctx, {
       restored: result.restored.id,
@@ -1188,8 +1439,16 @@ server.registerTool(
 );
 
 // ── 传输/进程级错误处理 ──
+// S3-15（f12）：未捕获异常意味着进程处于未定义状态——记录后 fail-fast 退出
+// （非 0），由宿主（agent 客户端）按需重启。继续服务等于在未知状态下响应请求。
+// unhandledRejection 记录但继续：工具调用均被 SDK 包裹路由为 isError 响应，
+// 泄漏的拒绝多来自后台任务；uncaughtException 同帧再触发时直接退出防递归。
+let exiting = false;
 process.on("uncaughtException", (err) => {
   console.error("[mcp] uncaught exception:", err);
+  if (exiting) return;
+  exiting = true;
+  process.exit(1);
 });
 process.on("unhandledRejection", (reason) => {
   console.error("[mcp] unhandled rejection:", reason);

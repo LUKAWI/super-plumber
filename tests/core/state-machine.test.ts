@@ -69,11 +69,14 @@ describe("StateMachine", () => {
     expect(result.attempts).toBe(2);
   });
 
-  it("cancelled → pending 重开时 attempts 归零", () => {
-    const node = makeNode({ status: NodeStatus.Cancelled, attempts: 5 });
+  it("cancelled → pending 重开时 attempts 保留（N5：重开≠重置预算）", () => {
+    // 旧语义是"预算内重开=全新开始（attempts 归零）"——这让 fail→cancel→reopen
+    // 循环每轮清空计数、永远到不了 max_attempts，令 f8 的重开门禁形同虚设（N5）。
+    // 现与 running→pending 死认领回收对齐：恢复执行资格，不动预算计数。
+    const node = makeNode({ status: NodeStatus.Cancelled, attempts: 2 });
     const result = transition(node, NodeStatus.Pending);
     expect(result.status).toBe(NodeStatus.Pending);
-    expect(result.attempts).toBe(0);
+    expect(result.attempts).toBe(2);
   });
 
   it("running → pending 回收时 attempts 不变", () => {
@@ -191,5 +194,103 @@ describe("StateMachine", () => {
     expect(getAllowedTransitions(NodeStatus.Cancelled)).toEqual([
       NodeStatus.Pending,
     ]);
+  });
+});
+
+// ── S1-5：cancelled→pending 两跳绕过封堵 ──
+describe("S1-5 cancelled→pending 重开的上限拦截", () => {
+  it("attempts ≥ max_attempts 时 cancelled→pending 被拒（两跳绕过封堵）", () => {
+    const node = makeNode({ status: NodeStatus.Cancelled, attempts: 3, max_attempts: 3 });
+    expect(() => transition(node, NodeStatus.Pending)).toThrow(/最大重试次数/);
+  });
+
+  it("预算内重开合法且 attempts 保留（N5：与回收语义对齐）", () => {
+    const node = makeNode({ status: NodeStatus.Cancelled, attempts: 1, max_attempts: 3 });
+    const r = transition(node, NodeStatus.Pending);
+    expect(r.status).toBe(NodeStatus.Pending);
+    expect(r.attempts).toBe(1);
+  });
+
+  it("max_attempts=0（不限）不受拦截且 attempts 保留", () => {
+    const node = makeNode({ status: NodeStatus.Cancelled, attempts: 99, max_attempts: 0 });
+    const r = transition(node, NodeStatus.Pending);
+    expect(r.status).toBe(NodeStatus.Pending);
+    expect(r.attempts).toBe(99);
+  });
+
+  it("force 可越界重开（人类运维通道，node.ts 侧留 force_override 审计）", () => {
+    const node = makeNode({ status: NodeStatus.Cancelled, attempts: 3, max_attempts: 3 });
+    const r = transition(node, NodeStatus.Pending, { force: true });
+    expect(r.status).toBe(NodeStatus.Pending);
+    expect(r.attempts).toBe(3); // N5：force 重开同样不重置预算（人为决策只留痕、不清账）
+  });
+
+  it("完整两跳链路演示：failed→cancelled 放行、cancelled→pending 被拦（绕过死路）", () => {
+    const failed = makeNode({ status: NodeStatus.Failed, attempts: 3, max_attempts: 3 });
+    const cancelled = transition(failed, NodeStatus.Cancelled); // 第一跳不拦（取消是合法动作）
+    expect(cancelled.status).toBe(NodeStatus.Cancelled);
+    expect(() => transition(cancelled, NodeStatus.Pending)).toThrow(/上限约束/); // 第二跳拦截
+  });
+});
+
+// ── N5（f19）：fail→cancel→reopen 续命循环封堵（reopen 保留 attempts）──
+describe("N5 cancelled→pending 保留 attempts（续命循环封堵）", () => {
+  const run = (n: NodeSchema): NodeSchema =>
+    transition(transition(n, NodeStatus.Ready), NodeStatus.Running);
+
+  it("max_attempts=2 完整续命循环：预算耗尽后 reopen 被拒，force 语义不受影响", () => {
+    // 第一轮失败后（attempts=1）走 cancel→reopen：attempts 保留 1，因 1<2 允许重开
+    let node = makeNode({ status: NodeStatus.Failed, attempts: 1, max_attempts: 2 });
+    node = transition(node, NodeStatus.Cancelled);
+    expect(node.attempts).toBe(1);
+    node = transition(node, NodeStatus.Pending); // 预算内重开放行
+    expect(node.attempts).toBe(1);
+
+    // 重开后再执行、再失败、重试（failed→pending attempts++ → 2）
+    node = transition(run(node), NodeStatus.Failed);
+    node = transition(node, NodeStatus.Pending);
+    expect(node.attempts).toBe(2);
+
+    // 预算耗尽：正常重试被拦；两跳绕过（fail→cancel→reopen）同样被拦
+    node = transition(run(node), NodeStatus.Failed);
+    expect(() => transition(node, NodeStatus.Pending)).toThrow(/最大重试次数/);
+    const cancelled = transition(node, NodeStatus.Cancelled);
+    expect(cancelled.attempts).toBe(2); // 取消不清预算
+    expect(() => transition(cancelled, NodeStatus.Pending)).toThrow(/上限约束/);
+
+    // force 语义不受影响：越界重开走人类运维通道（node.ts 侧留 force_override 审计）
+    const forced = transition(cancelled, NodeStatus.Pending, { force: true });
+    expect(forced.status).toBe(NodeStatus.Pending);
+    expect(forced.attempts).toBe(2);
+  });
+
+  it("max_attempts=0（不限重试）边界：reopen 恒允许且 attempts 保留", () => {
+    const node = makeNode({ status: NodeStatus.Cancelled, attempts: 42, max_attempts: 0 });
+    const r = transition(node, NodeStatus.Pending);
+    expect(r.status).toBe(NodeStatus.Pending);
+    expect(r.attempts).toBe(42);
+  });
+});
+
+// ── S2-4：聚合判定与 assertPassedEligible 对齐 ──
+describe("S2-4 checkpoint 聚合：skipped 视为已完结", () => {
+  const cp = (status: "pending" | "running" | "passed" | "failed" | "skipped") =>
+    ({ id: "c", label: "c", status, verifier: "auto" }) as never;
+
+  it("[passed, skipped] 混合 → passed（曾误报 pending）", () => {
+    expect(aggregateCheckpointStatus([cp("passed"), cp("skipped")])).toBe("passed");
+  });
+
+  it("[skipped] 全跳过 → passed", () => {
+    expect(aggregateCheckpointStatus([cp("skipped"), cp("skipped")])).toBe("passed");
+  });
+
+  it("[passed, skipped, pending] → pending；[passed, running] → running", () => {
+    expect(aggregateCheckpointStatus([cp("passed"), cp("skipped"), cp("pending")])).toBe("pending");
+    expect(aggregateCheckpointStatus([cp("passed"), cp("running")])).toBe("running");
+  });
+
+  it("failed 优先级不变", () => {
+    expect(aggregateCheckpointStatus([cp("passed"), cp("failed"), cp("skipped")])).toBe("failed");
   });
 });

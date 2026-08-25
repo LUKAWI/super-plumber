@@ -50,8 +50,13 @@ export function topologicalSort(
   }
 
   const result: string[] = [];
-  while (queue.length > 0) {
-    const node = queue.shift()!;
+  // S3-8（f16）：头指针出队代替 queue.shift()——shift() 头删需整体搬移 O(n)，
+  // 整个排序退化为 O(n²)，10k 节点（尤其链式图）达秒级以上；头指针只前进
+  // 不搬移，出队 O(1)，总复杂度回到 O(V+E)。数组本身留给 GC，无需截断。
+  let head = 0;
+  while (head < queue.length) {
+    const node = queue[head]!;
+    head++;
     result.push(node);
     for (const neighbor of outEdges.get(node) ?? []) {
       const newDeg = (inDegree.get(neighbor) ?? 1) - 1;
@@ -61,7 +66,10 @@ export function topologicalSort(
   }
 
   if (result.length !== nodeIds.length) {
-    const unprocessed = nodeIds.filter((id) => !result.includes(id));
+    // S3-8（f16）：环上节点收集用 Set——此前 filter×result.includes 是 O(n²)，
+    // 10k 节点环图的报错路径本身就要跑秒级
+    const processed = new Set(result);
+    const unprocessed = nodeIds.filter((id) => !processed.has(id));
     throw new Error(`Cycle detected among nodes: [${unprocessed.join(", ")}].`);
   }
 

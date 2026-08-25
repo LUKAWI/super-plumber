@@ -1,7 +1,7 @@
 // src/core/edge.ts
 import { type EdgeSchema, type EdgeType } from "./types.js";
 import { writeEdge, readEdge, edgeFilePath, nodeFilePath, addGraphRef } from "./parser.js";
-import { listEdgeFileNames } from "./schema.js";
+import { listEdgeFileNames, assertValidEntityId } from "./schema.js";
 import { withLockSync } from "./lock.js";
 import { appendEvent } from "./eventlog.js";
 import * as fs from "node:fs";
@@ -21,6 +21,10 @@ export function createEdge(
   params: CreateEdgeParams,
   opts: { syncRef?: boolean; actor?: string } = {},
 ): EdgeSchema {
+  // S0-3：入口断言（进锁之前），id 与两端点一并校验（理由同 createNode）
+  assertValidEntityId("边", params.id);
+  assertValidEntityId("边 source", params.source);
+  assertValidEntityId("边 target", params.target);
   return withLockSync(rootDir, params.id, () => {
     // 重复 id 检查（锁内）：不静默覆盖已有边，并发创建也只有一个成功
     if (fs.existsSync(edgeFilePath(rootDir, params.id))) {

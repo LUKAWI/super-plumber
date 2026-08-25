@@ -5,6 +5,17 @@ import { buildGraphIndex } from "../core/graph.js";
 import { allowedTransitionsFor, aggregateCheckpointStatus } from "../core/state-machine.js";
 import { isKnowledgeType } from "../core/types.js";
 
+// S3-9（f16）：错误分类双通道——结构化 code 优先（核心层落 NODE_NOT_FOUND 后即纯 code 判定），
+// message 兜底保持现状行为。核心层 node.ts 的 getNode 目前把 ENOENT 转成无 code 的
+// 普通 Error（`Node <id> not found`），node.ts 不在 f16 文件边界内，根治需主线跟进。
+// 注意：不认 ENOENT——getNode 已吞掉 ENOENT，若此处误认会把无关 fs 错误归类为"节点不存在"。
+function isNodeNotFound(err: any): boolean {
+  return (
+    err?.code === "NODE_NOT_FOUND" ||
+    (typeof err?.message === "string" && err.message.includes("not found"))
+  );
+}
+
 export const getNodeCommand = new Command("get-node").alias("gn")
   .description("读取单个节点全部内容（解压压缩包）+ 合法转换 + 门禁状态")
   .requiredOption("-i, --id <id>", "节点 ID")
@@ -108,7 +119,7 @@ export const getNodeCommand = new Command("get-node").alias("gn")
         }
       }
     } catch (err: any) {
-      if (err?.message?.includes("not found")) {
+      if (isNodeNotFound(err)) {
         console.error(`❌ 节点不存在: ${options.id}`);
       } else {
         console.error(`❌ ${err.message}`);

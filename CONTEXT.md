@@ -97,13 +97,13 @@ UI 保持纯只读。
 
 | 状态 | 含义 | 可转换到 |
 |------|------|----------|
-| pending | 创建完成，待调度 | ready |
-| ready | 前置依赖全部完成，可以执行 | running |
+| pending | 创建完成，待调度 | ready, cancelled |
+| ready | 前置依赖全部完成，可以执行 | running, cancelled |
 | running | 正在执行 | passed, failed, pending（回收）, cancelled |
-| passed | 所有 checkpoints 通过 | blocked |
-| failed | 执行失败 | pending（重试） |
+| passed | 所有 checkpoints 通过 | blocked, cancelled |
+| failed | 执行失败 | pending（重试）, cancelled |
 | blocked | 下游等待中（前置已完成但系统尚未调度） | ready, failed, cancelled |
-| cancelled | 被用户或系统取消 | pending（重开，attempts 归零）|
+| cancelled | 被用户或系统取消 | pending（重开，attempts 保留——重开≠重置预算，耗尽预算的重开走 force 通道；N5/f19）|
 
 **三条硬规则（核心层强制）**：
 - **ready 门禁**：进入 `ready` 与认领（`ready → running`）前，所有门控入边
@@ -172,7 +172,11 @@ MCP `reset_attempts`），且无论何种通道都写入 attempts_reset 审计�
 
 ### .graph/ 目录
 
-拓扑图工具的工作目录。包含图根文件、节点、边、快照索引和派生索引。
+拓扑图工具的工作目录（v0.5.2 起为多图工作区）。工作区级放 `active`（默认图名）、
+`schema.yaml`、`workspace-events.jsonl`（init/switch/migrate/rename/delete 审计）与
+`.trash/`（delete-graph 回收站）；每图一个一级目录，图内包含图根文件、节点、边、
+快照、事件日志和派生索引。旧仓库 graph.yaml 直接在 .graph/ 根的布局原地识别为
+`default` 图，建第二张图时一次性迁移进 `.graph/default/`。
 
 - **图根文件（graph.yaml）**：入口、出口、根上下文、节点列表、边列表
 - **节点文件（nodes/*.yaml）**：单个节点的完整压缩包内容
@@ -264,4 +268,4 @@ force_override/checkpoint/裁决/attempts_reset/reclaim/快照/回滚）与明�
 | CodeGraph | 互补：本工具管理将要执行的工作流拓扑，CodeGraph 索引已有代码的拓扑 |
 | Workflow DAG | 可选执行后端：本工具生成的拓扑可由 workflow 调度器执行 |
 | 执行引擎 | 后续阶段建造，不在轮子范围内 |
-| Mario 验证 agent | 后续阶段建造，不在轮子范围内 |
+| Mario 验证 agent | 已由仓库内置 subagent（`.pi/agents/super-mario`）承担，不属于 npm 包（轮子）范围 |

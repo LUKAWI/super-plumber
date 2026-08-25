@@ -229,7 +229,10 @@ export function buildGraphIndex(
  * 落盘后必须调用本函数：确定性失效，不与文件系统时钟赌运气。
  */
 export function invalidateIndex(rootDir: string): void {
-  memCache.delete(path.resolve(rootDir));
+  // S1-7：失效键必须与 buildGraphIndex 的归一缓存键一致
+  //（path.resolve(toGraphDir(rootDir))）——此前误用 path.resolve(rootDir)，
+  // 工作区根/图目录两种传法混用时删错键，缓存失效落空 → 写后读陈旧
+  memCache.delete(path.resolve(toGraphDir(rootDir)));
   try {
     fs.rmSync(path.join(toGraphDir(rootDir), INDEX_DIR, "graph.json"), { force: true });
   } catch {

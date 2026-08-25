@@ -70,7 +70,8 @@ describe("MCP v0.5.2 多图", () => {
     });
     const body = text(sw);
     expect(body.graph).toBe("beta");
-    expect(body.switched).toEqual({ from: "alpha", to: "beta", persistent: false });
+    // f11（S2-2）：switched 增 effective 字段（env 压制时为 false——此处无 env，真切换）
+    expect(body.switched).toEqual({ from: "alpha", to: "beta", persistent: false, effective: true });
     expect(body.summary.label).toBe("乙");
 
     // 切换后：当前=beta（进程内）

@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { cliGraphCtx } from "./graph-ctx.js";
 import { computeNextActions } from "../core/graph.js";
+import { coerceInt } from "./coerce.js";
 
 export const nextCommand = new Command("next").alias("n")
   .description("调度决策：列出可认领 / 等依赖 / 执行中 / 疑似卡住的节点")
@@ -15,7 +16,7 @@ export const nextCommand = new Command("next").alias("n")
     const rootDir = gctx.dir;
     try {
       const result = computeNextActions(rootDir, {
-        staleMs: parseInt(options.staleMs, 10),
+        staleMs: coerceInt("--stale-ms", options.staleMs, { def: 1800000, min: 0 }),
       });
 
       if (options.json) {

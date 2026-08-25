@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { cliGraphDir } from "./graph-ctx.js";
 import { createNode } from "../core/node.js";
 import { NodeType } from "../core/types.js";
+import { coerceInt } from "./coerce.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -44,9 +45,9 @@ export const createNodeCommand = new Command("create-node").alias("cn")
         id: options.id,
         type,
         label: options.label,
-        level: parseInt(options.level, 10),
+        level: coerceInt("--level", options.level, { def: 1, min: 0 }),
         ...(options.priority !== undefined
-          ? { priority: parseInt(options.priority, 10) }
+          ? { priority: coerceInt("--priority", options.priority, { min: 0 }) }
           : {}),
         ...(options.context !== undefined ? { context: options.context } : {}),
         assigned_to: options.assignedTo,

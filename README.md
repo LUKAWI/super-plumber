@@ -5,7 +5,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@lukawi/super-plumber)](https://www.npmjs.com/package/@lukawi/super-plumber)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-373%2F373-green)](https://github.com/LUKAWI/super-plumber/actions)
+[![Tests](https://img.shields.io/badge/tests-504%2F504-green)](https://github.com/LUKAWI/super-plumber/actions)
 [![GitHub](https://img.shields.io/badge/GitHub-LUKAWI%2Fsuper--plumber-black)](https://github.com/LUKAWI/super-plumber)
 
 **English:** [README.en.md](README.en.md) · **npm:** [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)
@@ -41,7 +41,7 @@ todo: "做个注册模块"            →     entry → l1_register → l1_login
 | 🛡️ **Schema 校验** | 读入层逐文件校验 YAML（枚举/类型/必填），手改拼错即时报可读错误，`graph validate` 逐文件定位 + 六条领域规则（悬空归属=error、同 context 术语重复=warning、跨 context 缺契约=warning、relates 端点=error、孤儿 ADR=warning、decides 来源=error） |
 | 🗂️ **版本控制** | `snapshot` / `diff` / `rollback` 三原语（回滚自动备份、必须确认；**design-only 回滚**保留执行进度只回卷设计），Branch/Merge 由 Git 承担 |
 | 🧾 **事件日志** | `.graph/events.jsonl` append-only 审计：谁在何时创建/删除/流转/claim/越权/重置/回滚/ADR 生命周期（adr_created/accepted/superseded），`graph events` 一键追查 |
-| 🤖 **MCP 原生接入** | 20 个 `graph_*` 工具：设计期（批量建图/建边/编辑 entry-exit/**graph_create_adr**）、执行期（原子 claim 附管辖 ADR 指针/checkpoint/report/**reclaim 回收死认领**）、裁决（verdict）、版本（snapshot/diff/rollback）全流程覆盖，zod 参数校验 |
+| 🤖 **MCP 原生接入** | 24 个 `graph_*` 工具：设计期（批量建图/建边/编辑 entry-exit/**graph_create_adr**）、执行期（原子 claim 附管辖 ADR 指针/checkpoint/report/**reclaim 回收死认领**）、裁决（verdict）、版本（snapshot/diff/rollback）、自检（**graph_validate** 结构+领域规则+引用漂移）、审计（**graph_events** 事件回溯）全流程覆盖，zod 参数校验 |
 | 🎯 **调度决策** | `graph next` / `graph_get_next_actions` 一屏返回可认领 / **可转 ready（ready_eligible，冷启动入口）** / 等依赖 / 执行中 / 疑似卡住，每桶分页 + truncated 标记，ready/ready_eligible 按节点 `priority` 排序，stale 判据=最后活动时间（上报即心跳），条目可含 `adr_flags`（决策依据已过时 ⚠️），知识顶点永不进调度桶，agent 规划循环首选 |
 | 📉 **上下文经济** | MCP 读接口全面分页：`graph_get_graph` 默认 summary 模式（紧凑字段）+ full 分页、`graph_search` limit、`graph_traverse` max_nodes、`graph_get_node` 可附拓扑邻居——大图不再 token 爆炸；ADR 只注入标题级指针，永不全文推送 |
 | ⚡ **大图热路径** | 索引两级缓存（内存 + 磁盘 graph.json）：门禁/调度从"每次全图扫描"（10k 图 ~9s）降为查表 + 单文件读；调度 O(N+M)；**写路径主动失效缓存**（不赌文件系统 mtime，长驻进程写后读一致） |
@@ -78,8 +78,8 @@ npm install -g @lukawi/super-plumber
 ### 2. 验证安装
 
 ```bash
-graph --version     # 输出 0.5.0 即成功
-graph --help        # 查看全部 28 个命令
+graph --version     # 输出 0.6.0-beta.1 即成功
+graph --help        # 查看全部 27 个命令
 which graph         # 确认命令位置（Windows: where graph）
 ```
 
@@ -87,18 +87,18 @@ which graph         # 确认命令位置（Windows: where graph）
 
 ```bash
 mkdir ~/my-first-graph && cd ~/my-first-graph
-graph init -l "我的第一个拓扑图"
+graph init my-first-graph -l "我的第一个拓扑图"
 ```
 
-看到 `✅ 已初始化 .graph/ 目录` 就成功了。此时目录里多了一个 `.graph/` 文件夹——这就是你的图。
+看到 `✅ 已创建图 "my-first-graph" 并设为工作区默认` 就成功了。此时目录里多了一个 `.graph/` 文件夹，你的图数据在 `.graph/my-first-graph/` 里。
 
 ---
 
 ## 快速开始（2 分钟建一张图）
 
 ```bash
-# 1. 初始化
-graph init -l "用户注册模块"
+# 1. 初始化（v0.5.2 起新仓库必须带图名，内容命名）
+graph init user-registration -l "用户注册模块"
 
 # 2. 创建节点（-i id、-l 标签、--level 层级、--plan-desc 计划、--dod 完成标准可重复）
 graph create-node -i l1_register -l "注册功能" -t task --level 1 \
@@ -129,23 +129,16 @@ graph serve    # 启动服务并自动打开浏览器（无头环境用 graph se
 ### 第 1 步：初始化并设计入口/出口
 
 ```bash
-graph init -l "用户注册模块"
+graph init user-registration -l "用户注册模块"
 ```
 
-一张图有且仅有一个**入口**（entry，表达需求）和一个**出口**（exit，表达验收标准），都在 level 0。CLI 目前没有专门的 entry/exit 命令，直接用编辑器打开 `.graph/graph.yaml` 填写：
+一张图有且仅有一个**入口**（entry，表达需求）和一个**出口**（exit，表达验收标准），都在 level 0。用 `graph update-graph` 填写（不再手写 graph.yaml）：
 
-```yaml
-entry:
-  description: "开发用户注册模块，支持邮箱+密码注册与登录"
-  defined_by: human
-  level: 0
-exit:
-  description: "可用的注册/登录功能，全部测试通过"
-  acceptance_criteria:
-    - "注册接口可用"
-    - "登录后能保持会话"
-  defined_by: human
-  level: 0
+```bash
+graph update-graph \
+  --entry-desc "开发用户注册模块，支持邮箱+密码注册与登录" \
+  --exit-desc "可用的注册/登录功能，全部测试通过" \
+  --add-criteria "注册接口可用" --add-criteria "登录后能保持会话"
 ```
 
 > `graph validate` 会提醒 entry/exit 为空——这是提示，不是错误；填上后警告消失。
@@ -181,7 +174,7 @@ graph update-node -i l1_register \
 graph update-node -i l1_register --show
 ```
 
-### 第 3 步：连接边（7 种类型任选）
+### 第 3 步：连接边（7 种工作流边 + 2 种知识边）
 
 ```bash
 graph add-edge -i e1 -s l1_register -t l1_login --type depends_on
@@ -199,8 +192,10 @@ graph add-edge -i e4 -s l1_register -t l1_login --type shares_context # 共享�
 | `fan_in` | 多个上游都完成后 C 才可执行 | ❌ |
 | `fallback` | B 失败时回退到 A 重试 | ❌ |
 | `iterates` | A ⇄ B 反复迭代优化 | ❌ |
+| `decides` | ADR → 任意顶点：决策管辖，ADR 废弃时沿此传播 adr_flags（v0.5 知识边） | ❌ |
+| `relates` | context ↔ context：领域关系，`--rel-kind` 自由标注（v0.5 知识边） | ❌ |
 
-> `depends_on` / `validates` 参与拓扑排序；其余边表达运行时控制流，排序自动忽略（如 `fallback` 的逆向引用不会误报成环）。
+> `depends_on` / `validates` 参与拓扑排序；其余工作流边表达运行时控制流，排序自动忽略（如 `fallback` 的逆向引用不会误报成环）；知识边（`decides` / `relates`）不参与排序与门禁。
 
 ### 第 4 步：校验
 
@@ -215,7 +210,7 @@ graph validate
 ✅ 边: 4 条
 ✅ 拓扑排序: 3 节点通过
 ✅ 循环检测: 无环路
-📊 校验结果: 0 错误, 0 警告
+📊 结果: 0 错误, 0 警告
 ```
 
 > **故意制造一个环试试**：`graph add-edge -i e_cycle -s l1_login -t l1_register --type depends_on`
@@ -226,7 +221,7 @@ graph validate
 ```bash
 # 状态机：pending → ready → running → passed
 graph update-status -i l1_register -s ready      # 前置完成，进入待执行
-graph update-status -i l1_register -s running    # 认领（claim）：记录开始时间（记录执行者需 MCP 传 claim_by）
+graph update-status -i l1_register -s running    # 认领（claim）：记录开始时间（`--claim-by <agent>` 记录执行者）
 graph update-status -i l1_register -s passed     # 完成
 
 # 试试非法跳步——会被状态机拦住：
@@ -269,18 +264,23 @@ graph serve                           # 打开 http://localhost:8934 看力导�
 
 ---
 
-## CLI 命令参考（11 个）
+## CLI 命令参考（27 个）
 
 | 命令 | 功能 | 常用参数 |
 |------|------|----------|
-| `graph init` | 初始化 `.graph/` 骨架（含 schema.yaml） | `-l <label>` 图名称；`--force` 已初始化时强制重置 |
-| `graph create-node` | 创建节点（一次可带完整压缩包） | `-i <id>` `-l <label>` `-t <type>`（task/checkpoint/decision/gate）`--level <n>` `--plan-desc <text>` `--dod <item>`（可多次）`--assigned-to <agent>` `--max-attempts <n>` |
+| `graph init` | 初始化：新仓库必须带图名建图（v0.5.2）；旧仓库带名 init = 迁移 + 建图 | `<名>` 图名（新仓库必填，如 refactor-auth）；`-l <label>` 显示名；`--force` 同名图软删重建 / 旧式单图强制重置 |
+| `graph switch` | 切换工作区默认图（写 `.graph/active`）；无参显示当前图（含来源） | `[<名>]`；切换时提示原图 running 在途 |
+| `graph list` | 列举工作区全部图（或查指定图详情） | `[<名>]`；`--json` |
+| `graph rename-graph` | 重命名图（目录随迁 + active 修正 + 审计）；仅 CLI 人类通道 | `-o <旧名>` `-n <新名>` |
+| `graph delete-graph` | 删除图（软删除至 `.trash/`，可手工救回；拒删最后一张/默认图）；仅 CLI 人类通道 | `-i <名>` `--confirm` |
+| `graph create-node` | 创建节点（可带计划与完成标准；checkpoint 用 `update-node` 补） | `-i <id>` `-l <label>` `-t <type>`（task/checkpoint/decision/gate/context/adr）`--level <n>` `--priority <n>`（越小越先）`--context <ctx_id>`（v0.5 归属）`--plan-desc <text>` `--dod <item>`（可多次）`--assigned-to <agent>` |
 | `graph get-node` | 读取节点 + 合法转换 + 门禁状态（可附拓扑邻居） | `-i <id>`；`--json` 稳定输出；`--neighbors up\|down\|none` |
-| `graph add-edge` | 添加边（核心层校验端点存在） | `-i <id>` `-s <source>` `-t <target>` `--type <7种之一>` |
+| `graph add-edge` | 添加边（核心层校验端点存在） | `-i <id>` `-s <source>` `-t <target>` `--type <9种之一>`；`--contract '<json>'` 跨 context 契约边；`--rel-kind <text>` relates 标注 |
 | `graph update-status` | 状态流转（状态机 + ready 门禁 + max_attempts + passed 硬门禁） | `-i <id>` `-s <status>`；`--claim-by <agent>` 认领；`--force` 仅人类运维 |
 | `graph reclaim` | 回收死认领：running → pending（清空执行者 + 回收记录） | `-i <id>`；`--by <actor>` |
-| `graph update-node` | 更新节点详情 | `-i <id>` `--plan-desc` `--add-dod <item>`（可多次）`--clear-dod` `--add-checkpoint '<JSON>'`（可多次）`--set-assigned <agent>` `--label <text>` `--max-attempts <n>` `--show` |
+| `graph update-node` | 更新节点详情 | `-i <id>` `--plan-desc` `--add-dod <item>`（可多次）`--clear-dod` `--add-checkpoint '<JSON>'`（可多次）`--set-assigned <agent>` `--label <text>` `--max-attempts <n>` `--set-priority <n>` `--set-context <ctx_id>` `--boundary <text>` `--glossary-add '<JSON>'`（可多次）`--reset-attempts`（显式归零，写审计事件）`--show` |
 | `graph update-graph` | 编辑 entry/exit/验收标准/图名（不再手写 graph.yaml） | `--entry-desc` `--exit-desc` `--add-criteria <item>`（可多次）`--clear-criteria` `--label` `--set-context '<json>'` |
+| `graph adr` | ADR 生命周期命令组（v0.5）：create 即落 proposed，accept/supersede 归裁决方 | `create -t <标题> -d <决策>`；`accept -i <id>`；`supersede -i <id> --by <id>`；`list [-s <状态>]` |
 | `graph delete-node` | 软删除节点；有引用边默认拒绝 | `-i <id>`；`--cascade` 连同引用边一起删 |
 | `graph delete-edge` | 软删除边 | `-i <id>` |
 | `graph status` | 状态概览 + 拓扑检查 | `--json` |
@@ -293,7 +293,7 @@ graph serve                           # 打开 http://localhost:8934 看力导�
 | `graph rollback` | 回滚（自动备份当前状态） | `<snapshot-id>` `--confirm`；`--design-only` 保留执行进度只回卷设计 |
 | `graph events` | 查看事件日志（审计追溯） | `--node <id>` `--kind <k>` `--last <n>`；`--json` |
 | `graph rebuild` | 重建 `index/` 派生索引（graph.json + topology.dot） | — |
-| `graph export --mermaid` | 导出 Mermaid 图 | `-o <file>` |
+| `graph export` | 导出 Mermaid 流程图；`--docs` 导出领域文档视图（图为真相源，md 是视图） | `--mermaid -o <file>`；`--docs`（ADR→docs/adr/，context→CONTEXT-MAP.md + docs/contexts/，可 `--adr-dir`/`--ctx-dir`） |
 | `graph serve` | 启动 Web UI（自动打开浏览器） | `-p <port>`（默认 8934）；`--no-open` 不自动打开 |
 
 > 参数拿不准？每个命令都有 `--help`：`graph create-node --help`。
@@ -314,6 +314,9 @@ graph serve                           # 打开 http://localhost:8934 看力导�
 | `graph rollback` | `graph rol` | `graph status` | `graph s` |
 | `graph validate` | `graph v` | `graph export --mermaid` | `graph x --mermaid` |
 | `graph rebuild` | `graph rb` | `graph serve` | `graph sv` |
+| `graph reclaim` | `graph rc` | `graph switch` | `graph sw` |
+| `graph list` | `graph ls` | `graph rename-graph` | `graph rg` |
+| `graph delete-graph` | `graph dg` | | |
 
 例如：`graph cn -i t1 -l "任务1"` ≡ `graph create-node -i t1 -l "任务1"`。
 
@@ -403,16 +406,18 @@ npm install -g @lukawi/super-plumber
 
 1. `--root <dir>` 启动参数 / `SUPER_PLUMBER_ROOT` 环境变量——**仅在**你想把服务固定到某个图时才需要；
 2. **MCP workspace roots**：客户端通过 MCP 协议上报当前打开的项目根，取第一个含 `.graph/` 的；
-3. 服务进程工作目录**向上逐级查找** `.graph/graph.yaml`（agent 在项目子目录里也能命中）；
+3. 服务进程工作目录**向上逐级查找** `.graph/` 目录（agent 在项目子目录里也能命中）；
 4. 以上都失败 → 报可读错误（"图目录未初始化…请 graph init 或 --root 指定"），**绝不静默返回空图**。
 
+> 定位到工作区后，多图再按链解析当前图（v0.5.2）：`SUPER_PLUMBER_GRAPH` 环境变量 > 进程内 active（`graph_switch` 设置，仅 MCP）> `.graph/active` 工作区默认 > default 兜底；MCP 进程内用 `graph_switch` 切图，不改写工作区默认（CLI 数据命令另有最前置的 `--graph` 参数）。
+>
 > 单一固定图/测试场景才需要显式指定：`"command": "graph-mcp", "args": ["--root", "/path/to/graph"]`。
 
-### 22 个工具
+### 24 个工具
 
 **调度**：`graph_get_next_actions` — 一次返回可认领（ready）/ **可转 ready（ready_eligible，门禁已满足的 pending/failed——冷启动入口）** / 等依赖（blocked，附未满足前驱）/ 执行中（running，附时长）/ 疑似卡住（stale_running），每桶分页（`limit` + `truncated`），条目可含 `adr_flags`（决策依据已过时 ⚠️），是 agent 规划循环的首选。
 
-**多图（v0.5.2）**：`graph_switch`（进程内切换当前图：带名切换+摘要 / 无参查当前，重启回落工作区默认）、`graph_list_graphs`（列全部图含 is_current / 查单图详情）；**全部 22 个工具响应统一附 graph 名回显**；跨图智能纠错（当前图缺失的节点/边 id → 报错附『它存在于图 X，请先 graph_switch』，提示绝不代切）。
+**多图（v0.5.2）**：`graph_switch`（进程内切换当前图：带名切换+摘要 / 无参查当前，重启回落工作区默认）、`graph_list_graphs`（列全部图含 is_current / 查单图详情）；**全部 24 个工具响应统一附 graph 名回显**；跨图智能纠错（当前图缺失的节点/边 id → 报错附『它存在于图 X，请先 graph_switch』，提示绝不代切）。
 
 **读取**：`graph_get_node`（节点 + 合法转换 + checkpoint 聚合 + 门禁状态 + **governing_adrs 管辖 ADR 指针**，可附拓扑邻居）、`graph_get_graph`（默认 summary 紧凑模式，`mode=full` + `offset/limit` 分页）、`graph_traverse`（`max_nodes` 上限）、`graph_search`（`limit` 上限 + 紧凑结果，可按 `--type adr/context` 查知识顶点）。
 
@@ -421,6 +426,8 @@ npm install -g @lukawi/super-plumber
 **执行期写入**：`graph_update_node_status`（`status=running` 传 `claim_by` 完成**原子认领**，并发只有第一个成功，**响应附 governing_adrs 指针**；**force 在 MCP 通道被协议级拒绝**——人类运维走 CLI `--force`，留 force_override 审计事件；ADR 三态机经此工具流转，superseded 两步法=先 `graph_update_node {superseded_by}` 再置状态）、`graph_update_checkpoint`（checkpoint 状态机 + 幂等）、`graph_update_execution_report`（交接单 + `verification` 裁决结论）、`graph_reclaim_node`（回收死认领：running → pending）。`graph_update_node` 的 attempts 重置必须显式 `reset_attempts: true`（改 plan 不再隐式重置，重置必留审计事件）。
 
 **版本**：`graph_snapshot` / `graph_diff` / `graph_rollback`（必须 `confirm: true`；`design_only: true` 只回卷设计、保留执行进度）。
+
+**自检与审计（v0.6.0-beta.1）**：`graph_validate`（环/幽灵边/schema/六条领域规则/引用列表双向漂移汇总，ok/errors/warnings 结构化返回，批量创建与 crash recovery 后的自检手段）、`graph_events`（事件日志回溯，`node`/`kind` 过滤 + `last` 截尾，claim/force_override/attempts_reset 可追查）。
 
 **可靠性设计**：所有参数经 zod schema 校验——缺参、非法枚举返回 `-32602` 协议错误；不存在的节点/边返回 `isError=true` 和可读的错误消息；非法状态转换/门禁/次数上限/passed 硬门禁明确报错。**工具永远不静默失败**。
 
@@ -448,15 +455,21 @@ graph serve
 ## 存储结构（Git 友好，人类可读）
 
 ```text
-.graph/                    # 运行时目录（graph init 生成，已在 .gitignore）
-├── graph.yaml             # 图定义：入口/出口/根上下文 + 节点/边引用列表
+.graph/                    # 工作区目录（graph init 生成，已在 .gitignore）
+├── active                 # 工作区默认图名（graph switch 改写）
 ├── schema.yaml            # 人类可读的 schema 说明（运行时校验在 core/schema.ts）
-├── nodes/*.yaml           # 节点文件：plan / checkpoints / expected_outcome / execution_report
-├── edges/*.yaml           # 边文件：source / target / type / contract
-├── snapshots/<id>/        # 版本快照：manifest + 完整文件副本（graph snapshot）
-├── events.jsonl           # append-only 事件日志（graph events 读取；可 gitignore 亦可入库审计）
-└── index/                 # 派生索引（graph.json / meta.json / topology.dot，可删可重建）
+├── workspace-events.jsonl # 工作区级审计（init/switch/migrate/rename/delete）
+├── <图名>/                # 每图一个一级目录（v0.5.2；每图独立锁/索引/事件/快照）
+│   ├── graph.yaml         # 图定义：入口/出口/根上下文 + 节点/边引用列表
+│   ├── nodes/*.yaml       # 节点文件：plan / checkpoints / expected_outcome / execution_report
+│   ├── edges/*.yaml       # 边文件：source / target / type / contract
+│   ├── snapshots/<id>/    # 版本快照：manifest + 完整文件副本（graph snapshot）
+│   ├── events.jsonl       # 图内 append-only 事件日志（graph events 读取；可 gitignore 亦可入库审计）
+│   └── index/             # 派生索引（graph.json / meta.json / topology.dot，可删可重建）
+└── .trash/                # delete-graph 软删除回收站（可手工救回）
 ```
+
+> 旧仓库零迁移兼容：`.graph/graph.yaml` 直接在根的老布局原地识别为 `default` 图；建第二张图时在工作区级锁内一次性迁入 `.graph/default/`。
 
 **设计理念：**
 
@@ -492,7 +505,7 @@ cd super-plumber
 npm install
 npm run build && npm --prefix web-ui run build
 
-# 测试（97 个用例：状态机/拓扑/CLI/MCP 协议）
+# 测试（504 个用例：状态机/拓扑/CLI/MCP 协议/多图迁移与性能/并发加固/转义）
 npm test
 
 # 本地链接全局（开发调试用）
@@ -506,8 +519,8 @@ graph --version
 
 | 问题 | 原因与解决 |
 |------|-----------|
-| `❌ 未找到 .../.graph/graph.yaml，请先运行 graph init` | 当前目录还没有图。先 `graph init`，或 `cd` 到图所在目录 |
-| MCP 报"图目录未初始化：定位到 X，但不存在 .graph/graph.yaml" | MCP server 没定位到你的项目：确认项目里跑过 `graph init`；客户端支持 workspace roots 时会自动跟随项目，否则在该项目目录重启客户端（server 以项目为 cwd 拉起），或设 `SUPER_PLUMBER_ROOT` |
+| `❌ 未找到图（.../.graph 无 graph.yaml），请先运行 graph init <内容名>` | 当前目录还没有图。先 `graph init <内容名>`，或 `cd` 到图所在目录 |
+| MCP 报"图目录未初始化：定位到 X，但 .graph/ 下没有任何图" | MCP server 没定位到你的项目：确认项目里跑过 `graph init <内容名>`；客户端支持 workspace roots 时会自动跟随项目，否则在该项目目录重启客户端（server 以项目为 cwd 拉起），或设 `SUPER_PLUMBER_ROOT` |
 | **升级包之后 MCP 工具表现还是旧版本**（如对 context/adr 顶点报 schema 错误） | 已连接的 MCP server 进程内存里还是旧代码。**重启 MCP server**（重连客户端或 `npm i -g @lukawi/super-plumber` 后重启客户端）即可加载新构建——升级不会热替换已运行的进程 |
 | `❌ 端口 8934 已被占用` | 已有 serve 在跑。`graph serve -p 8935` 换端口 |
 | `❌ Node x already exists` / `Edge x already exists` | id 重复。工具拒绝覆盖，换一个新 id |
@@ -517,8 +530,8 @@ graph --version
 | `❌ Node x 前置未满足，不能进入 ready/running` | ready 门禁拦截（前驱未全部 passed）。先完成前驱，**不要用 --force**（仅人类运维） |
 | `❌ force 仅人类运维通道（CLI…），MCP 拒绝执行` | 设计如此：agent 无法越权。人类运维请走 CLI `graph update-status --force`（写 force_override 审计事件） |
 | `❌ Node x already claimed by y` | 并发认领竞争失败（原子保护）。换一个 ready 节点 |
-| `❌ Node x 已达最大重试次数` | attempts 用尽。人工介入，或 `graph update-node --plan-desc` 改计划（attempts 自动归零） |
-| `❌ Node x 无执行报告，不能标记 passed` | passed 硬门禁：先 `graph update-execution-report` 填交接单（summary 非空）；checkpoint 未聚合或 failed 裁决也会被拒 |
+| `❌ Node x 已达最大重试次数` | attempts 用尽。人工介入，或 `graph update-node --reset-attempts` 显式归零（写审计事件；改 plan 不再自动重置） |
+| `❌ Node x 无执行报告，不能标记 passed` | passed 硬门禁：先填交接单（MCP `graph_update_execution_report` 或 skill 脚本 `sp-report.mjs`，summary 非空）；checkpoint 未聚合或 failed 裁决也会被拒 |
 | `❌ Node x 被 N 条边引用` | 删除会留悬挂引用。`--cascade` 或先 `delete-edge` |
 | `❌ 节点长时间 running 无进展` | 死认领：`graph reclaim -i <id>` 收回 pending 重新调度（执行 agent 已崩溃时） |
 | `❌ schema 校验失败: ...` | 手改 YAML 拼错字段。`graph validate` 逐文件定位修正 |
@@ -531,7 +544,7 @@ graph --version
 ## 项目状态
 
 ```text
-Tests: 373（后端）+ 49（前端）✅ | CLI: 28 命令 | MCP: 22 工具 | 状态机: 7 态 + ready 门禁 + max_attempts + passed 硬门禁 + 事件日志审计 + ADR 三态机（知识顶点豁免） | 边类型: 9 种 | 版本控制: snapshot/diff/rollback（含 design-only）| Web UI: Svelte 5 + D3.js（map 透镜）
+Tests: 504（后端）+ 54（前端）✅ | CLI: 27 命令 | MCP: 24 工具 | 状态机: 7 态 + ready 门禁 + max_attempts + passed 硬门禁 + 事件日志审计 + ADR 三态机（知识顶点豁免） | 边类型: 9 种 | 版本控制: snapshot/diff/rollback（含 design-only）| Web UI: Svelte 5 + D3.js（map 透镜）
 ```
 
 - **npm**: [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)

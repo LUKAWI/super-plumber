@@ -4,6 +4,7 @@
 import { Command } from "commander";
 import { cliGraphDir } from "./graph-ctx.js";
 import { readEvents } from "../core/eventlog.js";
+import { coerceInt } from "./coerce.js";
 
 export const eventsCommand = new Command("events")
   .description("查看事件日志（创建/删除/状态流转/裁决/快照/回滚/force 越权/attempts 重置）")
@@ -12,12 +13,12 @@ export const eventsCommand = new Command("events")
   .option("--last <n>", "只显示最近 N 条", "50")
   .option("--json", "JSON 输出")
   .action((options) => {
-    const last = parseInt(options.last, 10);
+    const last = coerceInt("--last", options.last, { def: 50, min: 0 });
     const all = readEvents(cliGraphDir(process.cwd()), {
       ...(options.node ? { node: options.node } : {}),
       ...(options.kind ? { kind: options.kind } : {}),
     });
-    const events = Number.isInteger(last) && last >= 0 ? all.slice(-last) : all;
+    const events = all.slice(-last);
 
     if (options.json) {
       console.log(JSON.stringify(events, null, 2));

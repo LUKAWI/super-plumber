@@ -10,6 +10,7 @@ import {
   resetIndexCache,
 } from "../../src/core/graph.js";
 import { createNode, checkReadyGate, getNode } from "../../src/core/node.js";
+import { NodeType } from "../../src/core/types.js";
 import { createEdge } from "../../src/core/edge.js";
 import { rebuildGraphRefs, writeGraph } from "../../src/core/parser.js";
 import { EdgeType } from "../../src/core/types.js";
@@ -28,7 +29,7 @@ function buildChainGraph(): string {
     edges: [],
   });
   for (let i = 0; i < N; i++) {
-    createNode(tmpDir, { id: "n" + i, label: "n" + i, level: 1 }, { syncRef: false });
+    createNode(tmpDir, { id: "n" + i, type: NodeType.Task, label: "n" + i, level: 1 }, { syncRef: false });
   }
   for (let i = 0; i < N - 1; i++) {
     createEdge(

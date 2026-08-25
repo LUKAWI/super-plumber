@@ -55,10 +55,32 @@ describe("snapshot", () => {
     const snap = createSnapshot(tmpDir, "基线");
     expect(snap.message).toBe("基线");
     expect(snap.files.length).toBeGreaterThanOrEqual(3); // graph.yaml + 2 nodes + 1 edge
-    expect(fs.existsSync(path.join(tmpDir, ".graph/snapshots", snap.id, "manifest.yaml"))).toBe(true);
+    // S3-10（f16）：manifest 内容是 JSON，文件名同步为 manifest.json
+    expect(fs.existsSync(path.join(tmpDir, ".graph/snapshots", snap.id, "manifest.json"))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, ".graph/snapshots", snap.id, "manifest.yaml"))).toBe(false);
     expect(fs.existsSync(path.join(tmpDir, ".graph/snapshots", snap.id, "nodes/a.yaml"))).toBe(true);
     const list = listSnapshots(tmpDir);
     expect(list.map((s) => s.id)).toContain(snap.id);
+  });
+
+  it("S3-10 向后兼容：旧名 manifest.yaml 的历史快照仍被 listSnapshots 识别", () => {
+    buildGraph();
+    const snap = createSnapshot(tmpDir, "旧格式");
+    // 模拟 S3-10 之前的历史快照：manifest 落在旧名 manifest.yaml（内容同为 JSON）
+    const snapDir = path.join(tmpDir, ".graph/snapshots", snap.id);
+    fs.renameSync(
+      path.join(snapDir, "manifest.json"),
+      path.join(snapDir, "manifest.yaml"),
+    );
+    // listSnapshots 不瞎：兼容读取旧名
+    const list = listSnapshots(tmpDir);
+    expect(list.map((s) => s.id)).toContain(snap.id);
+    // diff/rollback 走同一 readManifest，历史快照同样可用
+    const diff = diffSnapshot(tmpDir, snap.id, null);
+    expect(diff.from).toBe(snap.id);
+    expect(() =>
+      rollbackToSnapshot(tmpDir, snap.id, { confirm: true }),
+    ).not.toThrow();
   });
 
   it("diff：新增/删除/修改 + 状态变化", () => {
@@ -111,10 +133,11 @@ describe("snapshot", () => {
     expect(diff.removed).toEqual([]);
   });
 
-  it("FIX-E1 快照持全局锁：锁被占用时 createSnapshot 超时报错，释放后成功", () => {
+  it("FIX-E1+S1-11 快照持图级锁：锁被占用时 createSnapshot 超时报错，释放后成功", () => {
     buildGraph();
-    // 模拟另一个进程正在做快照/回滚（持 __snapshot__ 锁不放）
-    const lock = withLockSync(tmpDir, "__snapshot__", () => {
+    // 模拟另一进程持图级锁不放（f7 起快照/回滚与写路径共持 GRAPH_LOCK，
+    // 不再是 FIX-E1 的专用 __snapshot__ 锁）
+    const lock = withLockSync(tmpDir, "__graph__", () => {
       // 锁内尝试再快照 → 互斥，3s 默认超时后 LockTimeoutError
       expect(() => createSnapshot(tmpDir, "concurrent")).toThrow("Lock timeout");
     });

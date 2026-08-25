@@ -4,6 +4,7 @@ import { cliGraphDir } from "./graph-ctx.js";
 import { createEdge } from "../core/edge.js";
 import { listNodes } from "../core/node.js";
 import { EdgeType } from "../core/types.js";
+import { assertValidEntityId } from "../core/schema.js";
 
 export const addEdgeCommand = new Command("add-edge").alias("ae")
   .description("在节点之间添加边")
@@ -34,6 +35,11 @@ export const addEdgeCommand = new Command("add-edge").alias("ae")
         process.exit(1);
       }
     }
+    // N1（r0 增补）：ID 格式断言先于存在性预检——穿越形端点应报「非法 ID」
+    // 而非误导性的「节点不存在」（核心层 createEdge 也会再断言一次，此处为消息正确性）
+    assertValidEntityId("边", options.id);
+    assertValidEntityId("边 source", options.source);
+    assertValidEntityId("边 target", options.target);
     const nodeIds = new Set(listNodes(rootDir).map((n) => n.id));
     if (!nodeIds.has(options.source)) {
       console.error(`❌ 源节点不存在: ${options.source}`);

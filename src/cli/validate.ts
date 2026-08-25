@@ -103,7 +103,8 @@ export const validateCommand = new Command("validate").alias("v")
       if (!node.id || !node.label) {
         err("节点缺少 id 或 label");
       }
-      if (node.attempts > node.max_attempts) {
+      // S2-5：max_attempts=0 表示不限重试，不参与超限判定
+      if (node.max_attempts > 0 && node.attempts > node.max_attempts) {
         warn(`节点 ${node.id} 已超出最大重试次数 (${node.attempts}/${node.max_attempts})`);
       }
       // checkpoint 聚合态（供裁决 agent 快速判断节点是否可进入完成裁决）
@@ -207,7 +208,7 @@ export const validateCommand = new Command("validate").alias("v")
       }
     }
 
-    // 5. 引用完整性
+    // 5. 引用完整性（双向）
     for (const n of graph.nodes) {
       const nid = n.file.replace(/^nodes\//, "").replace(/\.yaml$/, "");
       if (!nodeIds.has(nid)) {
@@ -219,6 +220,22 @@ export const validateCommand = new Command("validate").alias("v")
       const eid = e.file.replace(/^edges\//, "").replace(/\.yaml$/, "");
       if (!edgeFileSet.has(eid)) {
         warn(`graph.yaml 引用了不存在的边文件: ${e.file}`);
+      }
+    }
+    // S2-6：反方向——文件存在但 graph.yaml 未引用（丢引用竞态 S1-4、
+    // 半重置 S1-10 产生的正是这个方向的漂移，此前完全不可见）
+    const refNodeIds = new Set(graph.nodes.map((n) => n.file.replace(/^nodes\//, "").replace(/\.yaml$/, "")));
+    for (const f of nodeFiles) {
+      const id = f.replace(/\.yaml$/, "");
+      if (!refNodeIds.has(id)) {
+        warn(`graph.yaml 未引用已存在的节点文件: nodes/${f}（引用列表与目录漂移，请检查 graph.yaml）`);
+      }
+    }
+    const refEdgeIds = new Set(graph.edges.map((e) => e.file.replace(/^edges\//, "").replace(/\.yaml$/, "")));
+    for (const f of edgeFiles) {
+      const id = f.replace(/\.yaml$/, "");
+      if (!refEdgeIds.has(id)) {
+        warn(`graph.yaml 未引用已存在的边文件: edges/${f}（引用列表与目录漂移，请检查 graph.yaml）`);
       }
     }
 

@@ -6,7 +6,7 @@ import * as os from "node:os";
 import { appendEvent, readEvents, eventsFilePath } from "../../src/core/eventlog.js";
 import { createNode, updateNodeStatus } from "../../src/core/node.js";
 import { createEdge } from "../../src/core/edge.js";
-import { EdgeType } from "../../src/core/types.js";
+import { EdgeType, NodeType } from "../../src/core/types.js";
 import { writeGraph } from "../../src/core/parser.js";
 
 let tmpDir: string;
@@ -65,7 +65,7 @@ describe("eventlog", () => {
   });
 
   it("集成：createNode / updateNodeStatus 自动落事件（actor 透传）", () => {
-    createNode(tmpDir, { id: "t1", label: "T1" }, { actor: "cli" });
+    createNode(tmpDir, { id: "t1", type: NodeType.Task, label: "T1" }, { actor: "cli" });
     updateNodeStatus(tmpDir, "t1", "ready", undefined, { actor: "cli" });
     updateNodeStatus(tmpDir, "t1", "running", "agent-x", { actor: "cli" });
     const events = readEvents(tmpDir, { node: "t1" });
@@ -81,8 +81,8 @@ describe("eventlog", () => {
   });
 
   it("集成：force 越权单独留痕 force_override", () => {
-    createNode(tmpDir, { id: "t1", label: "T1" }, { actor: "cli" });
-    createNode(tmpDir, { id: "t2", label: "T2" }, { actor: "cli" });
+    createNode(tmpDir, { id: "t1", type: NodeType.Task, label: "T1" }, { actor: "cli" });
+    createNode(tmpDir, { id: "t2", type: NodeType.Task, label: "T2" }, { actor: "cli" });
     createEdge(tmpDir, { id: "e1", source: "t2", target: "t1", type: EdgeType.DependsOn }, { actor: "cli" });
     // t1 的门控前驱 t2 未 passed，进 ready 应被门禁拦截——force 绕过（状态转换表本身合法）
     updateNodeStatus(tmpDir, "t1", "ready", undefined, { force: true, actor: "cli" });

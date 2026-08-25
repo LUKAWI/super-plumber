@@ -12,11 +12,11 @@ export const reclaimCommand = new Command("reclaim").alias("rc")
       const node = reclaimNode(rootDir, options.id, options.by);
       console.log(`✅ ${node.id}: running → pending（已回收死认领，可重新调度）`);
     } catch (err: any) {
-      if (err?.code === "ENOENT") {
-        console.error(`❌ 节点不存在: ${options.id}`);
-      } else {
-        console.error(`❌ ${err.message}`);
-      }
+      // S3-9（f16）：删除原 err?.code === "ENOENT" 死分支——getNode（node.ts）
+      // 已把文件层 ENOENT 转成无 code 的普通 Error（`Node <id> not found`），
+      // 该分支自转化引入起不可达；删除后缺失节点仍走通用分支输出
+      // "❌ Node <id> not found"、退出码 1，输出与删除前完全一致。
+      console.error(`❌ ${err.message}`);
       process.exit(1);
     }
   });

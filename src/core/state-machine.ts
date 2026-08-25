@@ -3,7 +3,7 @@ import { NodeStatus, AdrStatus, NodeType, type NodeSchema, type Checkpoint } fro
 // 允许的转换表：每个状态 → 可以转换到的状态列表
 // v0.3 新增：
 // - running → pending：死认领回收（agent 崩溃后由主控/人类收回节点）
-// - cancelled → pending：重开（attempts 归零；修复"取消即永久作废"的毒节点问题）
+// - cancelled → pending：重开（attempts 保留；修复"取消即永久作废"的毒节点问题）
 const TRANSITIONS: Record<NodeStatus, NodeStatus[]> = {
   [NodeStatus.Pending]:   [NodeStatus.Ready, NodeStatus.Cancelled],
   [NodeStatus.Ready]:     [NodeStatus.Running, NodeStatus.Cancelled],
@@ -131,6 +131,25 @@ export function transition(
         `请人工介入。确需强制重试请使用 --force（仅人类运维）`
     );
   }
+  // S1-5：cancelled → pending 重开同样受上限拦截——否则 failed→cancelled→pending
+  // 两跳即可绕过上面的硬门禁（MCP 通道无需 force 就能走通）。
+  // N5（f19）：重开保留 attempts（与 running→pending 死认领回收对齐——回收也不动
+  // attempts）。重开=恢复执行资格≠重置预算；归零会让 fail→cancel→reopen 循环每轮
+  // 清空计数、永远到不了上限，令此门禁形同虚设。预算耗尽确需重开走 force 通道留痕。
+  // 审计：正常流转经 node_status 事件，越界走 force_override 事件
+  // （node.ts 在 force 时单独留痕）。
+  if (
+    node.status === NodeStatus.Cancelled &&
+    to === NodeStatus.Pending &&
+    !opts.force &&
+    node.max_attempts > 0 &&
+    node.attempts >= node.max_attempts
+  ) {
+    throw new Error(
+      `Node ${node.id} 已达最大重试次数 (${node.attempts}/${node.max_attempts})，` +
+        `cancelled 重开同样受上限约束，请人工介入。确需强制重开请使用 --force（仅人类运维）`
+    );
+  }
   // passed 硬门禁：无执行报告 / failed 裁决 / checkpoint 未聚合时拒绝
   if (to === NodeStatus.Passed && !opts.force) {
     assertPassedEligible(node);
@@ -143,20 +162,25 @@ export function transition(
     ...(node.status === NodeStatus.Failed && to === NodeStatus.Pending
       ? { attempts: node.attempts + 1 }
       : {}),
-    // cancelled → pending 重开时 attempts 归零（全新开始）
+    // cancelled → pending 重开：attempts 保留原值（N5：重开≠重置预算，
+    // 与 running→pending 回收语义对齐；预算耗尽的重开走 force 通道留痕）
     ...(node.status === NodeStatus.Cancelled && to === NodeStatus.Pending
-      ? { attempts: 0 }
+      ? { attempts: node.attempts }
       : {}),
   };
 }
 
-// ponytail: 检查点聚合状态——全部 passed 才返回 'passed'
+// ponytail: 检查点聚合状态——全部完结（passed 或 skipped）才返回 'passed'
 export function aggregateCheckpointStatus(
   checkpoints: Checkpoint[]
 ): "passed" | "running" | "pending" | "failed" {
   if (checkpoints.length === 0) return "pending";
   if (checkpoints.some((c) => c.status === "failed")) return "failed";
-  if (checkpoints.every((c) => c.status === "passed")) return "passed";
+  // S2-4：与 assertPassedEligible 对齐——skipped 视为已完结，
+  // [passed, skipped] 混合不再误报 pending（曾误导裁决 agent）
+  if (checkpoints.every((c) => c.status === "passed" || c.status === "skipped")) {
+    return "passed";
+  }
   if (checkpoints.some((c) => c.status === "running")) return "running";
   return "pending";
 }

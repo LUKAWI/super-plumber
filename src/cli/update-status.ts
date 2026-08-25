@@ -16,7 +16,8 @@ export const updateStatusCommand = new Command("update-status").alias("us")
   )
   .option(
     "--force",
-    "跳过 ready 前置门禁 / max_attempts 拦截（仅人类运维使用，agent 禁用）",
+    "跳过 ready 前置门禁 / max_attempts 拦截（仅人类运维使用，agent 禁用）。" +
+      "预算耗尽的 cancelled→pending 重开也走此通道（重开≠重置预算，attempts 保留），留 force_override 审计",
   )
   .action((options) => {
     const gctx = cliGraphCtx(process.cwd());
@@ -45,11 +46,11 @@ export const updateStatusCommand = new Command("update-status").alias("us")
         }
       }
     } catch (err: any) {
-      if (err?.code === "ENOENT") {
-        console.error(`❌ 节点不存在: ${options.id}`);
-      } else {
-        console.error(`❌ ${err.message}`);
-      }
+      // S3-9（f16）：删除原 err?.code === "ENOENT" 死分支——getNode（node.ts）
+      // 已把文件层 ENOENT 转成无 code 的普通 Error（`Node <id> not found`），
+      // 该分支自转化引入起不可达；删除后缺失节点仍走通用分支输出
+      // "❌ Node <id> not found"、退出码 1，输出与删除前完全一致。
+      console.error(`❌ ${err.message}`);
       process.exit(1);
     }
   });
