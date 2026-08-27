@@ -496,6 +496,38 @@ graph serve
 
 ---
 
+## 多工具接入（v0.6.1）
+
+同一套工作流资产（角色提示词 / 阶段 skill / 执行脚本 / Operations 手册）提供两种接入形态，按你使用的 agent 工具任选：
+
+| 接入路径 | 接入方法 |
+|----------|----------|
+| **pi**（仓库直用） | 仓库内直接使用根目录 `.pi/`；带到其他项目：把 `.pi/` 整个目录拷贝到项目根 |
+| **Claude Code**（插件 `super-plumber`） | `/plugin marketplace add lukawi/super-plumber` 添加市场，然后安装 `super-plumber`；本地路径预览在仓库根执行 `claude plugin marketplace add ./` |
+| **ZCode**（同一插件） | 设置 → 插件管理 → 发现 → 添加市场源 `lukawi/super-plumber`（或本地目录），然后安装 `super-plumber` |
+
+> Claude Code 与 ZCode 安装的是**同一个插件包**（`integrations/plugin/`，以 `.claude-plugin` 清单承载；zcode 经 `.claude-plugin` 兼容回退装载，agents 走包内约定目录自动发现）——一次封装，两工具通用。
+
+装好后你会得到：
+
+- **2 个斜杠命令**：`/plumber-design`——设计期编排（需求拆解 → 拓扑建图 → validate/doctor 双绿 → 浏览器预览 → 请求用户审核）；`/plumber-execute`——执行期编排（claim → 逐 checkpoint 上报 → 交接单 → 三层验收）。pi 无斜杠命令，由 `.pi/skills/` 的两阶段 skill 直接驱动同一流程。
+- **2 个 subagent**：`sp-designer`（拓扑设计师）与 `super-mario`（裁决主控），由 skill 按派单模板调度；检测不到 subagent 时走 skill 内 solo 分支。
+- **Operations 手册**：操作语法唯一正本。pi 侧读仓库根 `integrations/shared/manual.md`，插件用户读插件包内 `manual.md`（构建期同步的正本拷贝）；提示词/skill 写「Read 手册 §N」时按此寻址（约定见手册 §11）。
+
+### solo 模式（单人单会话，无独立裁决方）
+
+主线程原地扮演设计与执行角色时，裁决边界有成文规则（手册 §10）：**机械核算可自裁**——checkpoint 聚合、artifact 存在性、状态层/结构层验收，读数说话，核对后在 notes 留证据；**裁量与裁决必须留人**——DoD 主观质量、ADR accept/supersede、用户审核 gate、force 类动作，停下列单呈报，不得代签。
+
+### npm 兜底（访问不了市场源时）
+
+npm 包随包分发集成资产（`package.json` 的 `files` 含 `integrations/` 与 `.pi/`）。安装后从 `node_modules/@lukawi/super-plumber/` 把 `integrations/plugin/` 拷出（Claude Code / ZCode 指向该目录安装即可），或把 `.pi/` 拷到项目根——无需访问 GitHub。
+
+### ZCode 免装插件路径
+
+亦可不装插件，仅把 agents 定义 md 复制到 `~/.zcode/agents/`（用户级），即被 ZCode 发现。若放在项目级 `<repo>/.zcode/agents/`：frontmatter 的 `permissionMode` 会被强制剥离（权限字段仅用户级定义生效），且保留名 `general-purpose`、`Explore` 不可占用。
+
+---
+
 ## 开发与测试
 
 ```bash

@@ -1,0 +1,14 @@
+{
+  "name": "lukawi-super-plumber",
+  "owner": {
+    "name": "lukawi"
+  },
+  "plugins": [
+    {
+      "name": "super-plumber",
+      "source": "./integrations/plugin",
+      "version": "0.6.1",
+      "description": "Super Plumber workflow orchestration (design graphs, execute nodes) for Claude Code & ZCode"
+    }
+  ]
+}

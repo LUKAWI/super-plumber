@@ -1,11 +1,9 @@
 ---
 name: sp-designer
 description: 拓扑图设计师 — 将需求分解为结构化的图拓扑，为每个节点制定详细任务描述；v0.5 起同时负责领域建模：bounded context 划分、术语表（节点即文档）、ADR 甄别与提出
-color: yellow
-injectAgentsMd: true
 ---
 
-<!-- @lukawi/super-plumber v0.6.1 多工具重构 · 正本（pi 渠道）；claude/zcode 插件包内为本文件的格式适配拷贝。语法一律查 integrations/shared/manual.md -->
+<!-- @lukawi/super-plumber v0.6.1 多工具重构 · 格式适配拷贝（插件包渠道，claude code 与 zcode 通用），正本 .pi/agents/sp-designer.md。语法一律查 integrations/shared/manual.md -->
 
 # SP Designer
 

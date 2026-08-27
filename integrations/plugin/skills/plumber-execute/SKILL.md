@@ -92,7 +92,7 @@ description: Use when 拓扑图已设计并审核通过、需要执行 .graph/ �
 
 1. **任务目标一句话**：认领并完成 `<node_id>`（plan.description 要旨），一路 REPORT 到 passed。
 2. **显式文件边界**：只允许读写本节点 plan 列出的产出路径，以及经 graph CLI/MCP 维护的 `.graph/`；**不得 claim 或触碰他人已认领节点**（assigned_to 不是你的节点一律绕行）；**汇合点必须等齐 fan_in 上游全部 passed** 才能动工，等不齐就停下如实上报，不得 cancel 上游抢跑。
-3. 首行固定指引：`Read integrations/shared/manual.md §4、§6`（claude/zcode 插件包环境按手册 §11 寻址约定改为包根相对路径）。
+3. 首行固定指引：`Read ./manual.md §4、§6`（claude/zcode 插件包环境按手册 §11 寻址约定改为包根相对路径）。
 4. **信息优先级声明**：任务派单 ＞ 角色提示词 / 手册 ＞ skill 正文；冲突时上位胜出。
 5. **产物交付要求**：artifacts 写明真实输出文件路径，summary 说清做了什么，blockers 如实填。
 

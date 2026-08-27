@@ -1,11 +1,12 @@
 # Context Map
 
-> 本仓库有 4 个 bounded context（由 `graph export` 从图生成）。
+> 本仓库有 5 个 bounded context（由 `graph export` 从图生成）。
 > 术语表详情见各 context 文件；图为真相源，本文件是视图。
 
 | Context | 边界 | 术语数 | 文档 |
 |---------|------|--------|------|
-| ctx_cmds（CLI 命令层） | 人类运维通道：init/switch/list/rename-graph/delete-graph 五命令 + --graph 参数注入；无业务规则（全部下沉  | 2 | docs/contexts/ctx_cmds.md |
-| ctx_mgmt（多图存储与解析） | 工作区级多图状态：图目录解析（五级链）、扁平布局、一次性迁移、active 指针、workspace-events 审计、.trash 软删除；不负责任何命令面 | 4 | docs/contexts/ctx_mgmt.md |
-| ctx_proto（MCP 协议通道） | agent 协议通道：22 工具 zod schema 与响应；graph_switch 进程内 active；全响应回显 graph 字段；跨图纠错提示（提示 | 2 | docs/contexts/ctx_proto.md |
-| ctx_viz（Web 可视化） | 多图并行渲染：递归监听全部图目录、ws 消息按图路由、折叠任务栏选图器；纯只读观察窗，切图不影响 CLI/MCP 状态 | 2 | docs/contexts/ctx_viz.md |
+| ctx_claude（claude-code 集成上下文） | 面向 Claude Code 的 .claude-plugin 插件包（plugin.json + agents/skills/commands/.mcp.js | 2 | docs/contexts/ctx_claude.md |
+| ctx_dist（分发与发布上下文） | 分发双通道与本机收口：npm files 随包接线、marketplace 市场接入、三工具装载冒烟、~/.zcode 迁移切换与发布文档。不改任何工作流内容的 | 2 | docs/contexts/ctx_dist.md |
+| ctx_pi（pi 集成上下文） | pi 工具的原生集成文本资产：.pi/agents 两份角色提示词与 .pi/skills 双 skill 的编排化重写。不含 claude/zcode 的适配 | 2 | docs/contexts/ctx_pi.md |
+| ctx_shared（共享工件上下文） | 跨工具复用的机械共享件：Operations 手册唯一正本、斜杠命令文案正本、构建期同步脚本。不承载任何工具特有格式，也不做任何工具的流程裁决。 | 6 | docs/contexts/ctx_shared.md |
+| ctx_zcode（zcode 集成上下文） | 面向 zcode 的 .zcode-plugin 插件包组装，与 claude 包同构。agents 文件的落位策略以 l2_zcode_probe 实测结论为 | 2 | docs/contexts/ctx_zcode.md |

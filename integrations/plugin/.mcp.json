@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "graph-mcp": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@lukawi/super-plumber",
+        "graph-mcp"
+      ],
+      "enabled": true,
+      "timeoutMs": 30000
+    }
+  }
+}

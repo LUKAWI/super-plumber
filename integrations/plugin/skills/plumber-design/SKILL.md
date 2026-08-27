@@ -21,7 +21,7 @@ description: Use when 接到新需求/任务需要拆解成任务拓扑图、设
 
 ## 衔接关系（subagent 与 skill 已解耦，不再是 REQUIRED SUB-SKILL）
 
-- 设计专业协议的唯一载体是 `.pi/agents/sp-designer.md`（建图序列纪律、九边选型判断力、领域建模细则、ADR 三判据、节点三要素）——本 skill 引用它，绝不复述。
+- 设计专业协议的唯一载体是角色提示词：本插件包内 `./agents/sp-designer.md`（pi 渠道为 `.pi/agents/sp-designer.md`；建图序列纪律、九边选型判断力、领域建模细则、ADR 三判据、节点三要素）——本 skill 引用它，绝不复述。
 - 需要专职设计 → 按下节「派单模板」派 `sp-designer` subagent；检测不到可用 subagent → 走「solo 分支」主线程扮演。
 - 用户审核通过 → 进入 `plumber-execute`（建议用户明确说"开始执行"）；节点状态裁决 / checkpoint 聚合 / 重试管理 → `super-mario` agent。
 
@@ -62,10 +62,10 @@ description: Use when 接到新需求/任务需要拆解成任务拓扑图、设
 
 1. **任务目标一句话**：把"<需求>"设计成可执行的 `.graph/` 任务拓扑图，含领域结构（bounded context 与 ADR）。
 2. **显式文件边界**：只允许读写 `<仓库根>/.graph/` 下经 graph CLI/MCP 维护的图文件；禁止改动源代码、`.pi/agents/`、`.pi/skills/`、`integrations/`、`docs/` 及一切未列举路径。
-3. 首行固定指引：`Read integrations/shared/manual.md §2、§6`（claude/zcode 插件包环境按手册 §11 寻址约定改为包根相对路径）。
+3. 首行固定指引：`Read ./manual.md §2、§6`（claude/zcode 插件包环境按手册 §11 寻址约定改为包根相对路径）。
 4. **信息优先级声明**：任务派单 ＞ 角色提示词（sp-designer.md）/ 手册 ＞ skill 正文；冲突时上位胜出。
 5. **产物交付要求**：交付物 = `<仓库根>/.graph/` 中可通过 validate 的图，附设计报告（L1 清单、context 与 ADR 计数、体检结果）；报告只作陈述，图本身是真相源。
 
 ## solo 分支（检测不到可用 subagent 时）
 
-主线程 `Read .pi/agents/sp-designer.md` **原地扮演设计师**走完全程（从需求分析到设计报告，等用户 serve 审核的环节不变，必做项不减配）。收尾裁定权按手册切分：**机械核对项**（validate/doctor 0 error、三要素计数、可达性读数）按手册 §10.1 自裁并在 notes 留证据；**主观项**（DoD 质量裁量、ADR accept/supersede、用户审核 gate）按手册 §10.2 汇总成清单呈人拍板——自批即违规。
+主线程 `Read ./agents/sp-designer.md`（pi 渠道读 `.pi/agents/sp-designer.md`）**原地扮演设计师**走完全程（从需求分析到设计报告，等用户 serve 审核的环节不变，必做项不减配）。收尾裁定权按手册切分：**机械核对项**（validate/doctor 0 error、三要素计数、可达性读数）按手册 §10.1 自裁并在 notes 留证据；**主观项**（DoD 质量裁量、ADR accept/supersede、用户审核 gate）按手册 §10.2 汇总成清单呈人拍板——自批即违规。

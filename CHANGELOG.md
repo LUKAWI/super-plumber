@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.6.1] — 2026-08-27（多工具集成重构：一套工作流资产——pi 直用＋单插件包双工具通用）
+
+> 本版本把工作流资产（角色提示词 / 阶段 skill / 执行脚本 / Operations 手册）重组为可分发集成：
+> pi 维持仓库 `.pi/` 原地演进；Claude Code 与 ZCode 经仓库根 `.claude-plugin/marketplace.json`
+> 安装同一个插件 `super-plumber`（zcode 走 `.claude-plugin` 兼容回退装载）。全程 multitool-refactor
+> 图驱动交付，溯源见文末。
+
+- **多工具集成重构**：`.pi` 双 skill 编排化收缩重写——skill 退为编排剧本（阶段推进 + 硬 gate + 派单模板 + solo 分支），subagent 与 skill 解耦；新增单插件包 `integrations/plugin/`（agents / skills / commands / manual / scripts + 根级 `.mcp.json` 自动接线 graph-mcp），marketplace 收敛单条目 `super-plumber`（source 必带 `./` 前缀——冒烟实证，缺前缀报 `source: Invalid input`）；`package.json` files 增补 `integrations/` 与 `.pi/` 随包分发；新增 `scripts/sync-integrations.mjs` 一致性门禁——手册 / 命令文案 / sp 脚本一份正本构建期同步进插件包（sha256 一致断言，`--check` 模式入 prepublishOnly，漂移即发布失败）。
+- **Operations 手册唯一正本**（`integrations/shared/manual.md`，§1–§12）：三访问层（CLI / MCP / 脚本）操作语法、状态机全文、错误处理大表、solo 裁决边界的唯一权威；角色提示词与 skill 的语法引用一律改为「Read 手册 §N」指针（寻址约定 §11：pi 相对仓库根，插件包内相对包根），插件包内 manual 为构建期同步拷贝，杜绝第二正本。
+- **sp-designer / super-mario 提示词瘦身**：命令语法表、体检项明细等机械知识迁入手册，提示词只留角色判断力与流程纪律（designer 首步指令即「读手册 §2 与 §6」）；九边选型表判定为设计判断力而非语法，整表迁入 sp-designer 提示词（手册不存第二份，防漂移）；两份 reference.md 退役（头部留迁移指针，发布包不再随带）。
+- **solo 裁决规则成文**（手册 §10）：单人单会话、主线程原地扮演角色时，机械核算可自裁——checkpoint 聚合、artifact 存在性、状态层/结构层验收，读数说话并在 notes 留证据；裁量与裁决必须留人——DoD 主观质量、ADR accept/supersede、用户审核 gate、force 类动作，停下列单呈报、不得代签。
+- **集成形态裁决（ADR 两步走）**：adr_0001 先定「三套集成分别手写维护、否决单源生成器」——三家 frontmatter 互不通用，手工分别润色的质量优先于模板化机械一致，机械共享件用同步脚本兜一致性；双包组装冒烟经评审证实字节级同构后，用户以 adr_0002 接替——**插件包合二为一**：单包 `integrations/plugin/` 以 `.claude-plugin/plugin.json` 承载、命名 `super-plumber`（不带渠道后缀），zcode 经 `.claude-plugin` 兼容回退装载（example-plugin 官方样板明文背书），marketplace 两条目收敛为一条，`integrations/zcode-plugin/` 删除（内容与单包同构，无信息丢失）。
+- **doctor（sp-check-design.mjs）语义修复**：E4 三要素检查豁免知识顶点（context/adr 不要求 plan/checkpoints/DoD）；可达性判定改根汇锚定（唯一无入边根 → 唯一无出边汇，E6/E7 沿此判定，多根多汇 W6 提示收敛）；W2/W3 判据纠偏——W2=无出边、W3=无入边，旧参考文档恰好写反，手册 §12 以代码为准常记防回潮。
+
+### 溯源
+
+- 全程 multitool-refactor 图驱动交付（15 节点全 passed + 5 context + 2 ADR；执行记录与各节点 execution report 见仓库 `.graph/`）；关键决策 adr_0001（分别手写维护、否决生成器）与其接替者 adr_0002（单包合二为一、双工具通用）；zcode 项目级 agents 扫描结论出自静态探针（docs/multitool-v061/zcode-agents-probe.md）。
+
 ## [0.6.0] — 2026-08-25（minor：S0-6 web 黑屏修复 + v0.5.2 代码评审 46+5 项全量修复 + web-ui 文案板块 Markdown 渲染）
 
 - 版本决策：原计划 0.5.3 补丁，因含三处行为语义变更升 minor——①cancelled→pending 重开保留 attempts（重开≠重置预算，N5）；②写前校验架构收紧（此前可落盘的残缺数据现被拒，A2）；③快照 manifest 改名 manifest.json（读旧写新兼容，S3-10）。先以 0.6.0-beta.1 预发布（tag=beta）验证，2026-08-25 转正 0.6.0 发布为 latest。

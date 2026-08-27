@@ -494,6 +494,38 @@ The repo includes 2 dedicated subagents (`.pi/agents/`) and 2 phased skills (`.p
 
 ---
 
+## Multi-Tool Integration (v0.6.1)
+
+The same workflow assets (role prompts / phase skills / execution scripts / the Operations manual) ship in two integration forms — pick the one that matches your agent tool:
+
+| Integration path | How to install |
+|------------------|----------------|
+| **pi** (in-repo, native) | Use the repo-root `.pi/` in place; to carry it into other projects, copy the whole `.pi/` directory to the project root |
+| **Claude Code** (plugin `super-plumber`) | `/plugin marketplace add lukawi/super-plumber`, then install `super-plumber`; to preview a local checkout, run `claude plugin marketplace add ./` at the repo root |
+| **ZCode** (same plugin) | Settings → Plugin management → Discover → add the marketplace source `lukawi/super-plumber` (or a local directory), then install `super-plumber` |
+
+> Claude Code and ZCode install **the same plugin package** (`integrations/plugin/`, carried by the `.claude-plugin` manifest; ZCode loads it through the `.claude-plugin` compatibility fallback, with agents auto-discovered from the conventional in-package directory) — one package, two tools.
+
+What you get:
+
+- **2 slash commands**: `/plumber-design` — design-phase orchestration (decompose the requirement → build the topology → validate/doctor both green → browser preview → request user approval); `/plumber-execute` — execution-phase orchestration (claim → report checkpoints as you go → handoff report → three-layer acceptance). pi has no slash commands; the two `.pi/skills/` phases drive the same flow directly.
+- **2 subagents**: `sp-designer` (topology designer) and `super-mario` (adjudication controller), dispatched by the skills via dispatch templates; when no subagent is available, the skills' solo branch runs on the main thread.
+- **The Operations manual** — the single source of truth for operational syntax. pi users read `integrations/shared/manual.md` from the repo root; plugin users read `manual.md` inside the plugin package (a build-time-synced copy). Whenever a prompt or skill says "Read manual §N", resolve it this way (conventions in manual §11).
+
+### Solo mode (one person, one session, no separate adjudicator)
+
+When the main thread plays the designer and executor roles itself, the adjudication boundaries are codified (manual §10): **mechanical checks you may settle yourself** — checkpoint aggregation, artifact existence, the status and structure acceptance layers; let the numbers speak and keep evidence in your notes. **Judgment calls must go to a human** — subjective DoD quality, ADR accept/supersede, the user approval gate, and any force-type action: stop, itemize, and present; never sign on anyone's behalf.
+
+### npm fallback (when marketplace sources are unreachable)
+
+The npm package ships the integration assets (`files` in `package.json` includes `integrations/` and `.pi/`). After installing, copy `integrations/plugin/` out of `node_modules/@lukawi/super-plumber/` (point Claude Code / ZCode at that directory to install), or copy `.pi/` to your project root — no GitHub access required.
+
+### Using ZCode without the plugin
+
+You can also skip the plugin entirely: copy the agent definition md files into `~/.zcode/agents/` (user level) and ZCode will pick them up. If you place them at the project level (`<repo>/.zcode/agents/`) instead, note that a `permissionMode` frontmatter field is stripped from project-level agents (permission fields only take effect at user level), and the reserved names `general-purpose` and `Explore` cannot be used.
+
+---
+
 ## Development & Testing
 
 ```bash

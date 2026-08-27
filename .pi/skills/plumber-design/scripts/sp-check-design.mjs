@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // sp-check-design.mjs — 拓扑设计质量体检（plumber-design skill 配套）
 // 在 graph validate（结构）之上补语义层检查：entry/exit、节点三要素、孤立节点、
-// entry→exit 双向可达、topo 环、边引用完整性。
+// 根→汇双向可达、topo 环、边引用完整性。
+// v0.5+ 语义：context/adr 知识顶点与 decides/relates 知识边不参与调度类检查；
+// 可达性以「无入边根/无出边汇」锚定，不需要 entry/exit 虚拟边文件。
 // Usage: node sp-check-design.mjs [--json]   （从含 .graph/ 的目录运行）
 // 退出码：0 = 无 error；1 = 有 error（warning 不影响退出码）
 import { execSync } from "node:child_process";
@@ -43,7 +45,11 @@ const EDGE_TYPES = new Set([
   "fan_in",
   "fallback",
   "iterates",
+  "decides", // v0.5 知识边：ADR → 管辖对象
+  "relates", // v0.5 知识边：仅 context↔context
 ]);
+// v0.5 知识顶点：无执行语义，不参与三要素/孤立/可达/id 前缀检查
+const KNOWLEDGE_TYPES = new Set(["context", "adr"]);
 
 /** 节点三要素检查 */
 function checkTriad(node, issues) {
@@ -119,6 +125,13 @@ function main() {
   if (graph.entry) nodeIds.add("entry"); // entry 是 graph.yaml 里的虚拟节点，无文件
   if (graph.exit) nodeIds.add("exit"); // exit 同（有文件最好，无文件也算合法）
   const nodeByLevel = new Map(nodes.map((n) => [n.id, n.level]));
+  const nodeType = new Map(nodes.map((n) => [n.id, n.type]));
+  // 工作流节点视图：entry/exit 虚拟点 + 非知识顶点（v0.5 起 context/adr 不进调度）
+  const wfIds = new Set(
+    nodes.filter((n) => !KNOWLEDGE_TYPES.has(n.type)).map((n) => n.id),
+  );
+  if (graph.entry) wfIds.add("entry");
+  if (graph.exit) wfIds.add("exit");
 
   // --- E1/E2/E3: entry / exit / 验收标准 ---
   if (!graph.entry?.description?.trim()) {
@@ -131,13 +144,14 @@ function main() {
     issues.push({ level: "error", code: "E3", msg: "exit.acceptance_criteria 缺失（需 ≥1 条可验证标准）" });
   }
 
-  // --- E4: 节点三要素（entry/exit 是图级定义节点，无 plan/checkpoints，跳过）---
+  // --- E4: 节点三要素（entry/exit 是图级定义节点，无 plan/checkpoints；知识顶点同跳过）---
   for (const n of nodes) {
     if (n.id === "exit" || n.id === "entry") continue;
+    if (KNOWLEDGE_TYPES.has(n.type)) continue;
     checkTriad(n, issues);
   }
 
-  // --- E5: 孤立节点（entry 可无入边、exit 可无出边）---
+  // --- E5/W2/W3: 孤立/游离节点（预计算根汇集合，唯一根=主干起点、唯一汇=收口）---
   const inDegree = new Map();
   const outDegree = new Map();
   for (const id of nodeIds) {
@@ -148,29 +162,65 @@ function main() {
     if (inDegree.has(e.target)) inDegree.set(e.target, inDegree.get(e.target) + 1);
     if (outDegree.has(e.source)) outDegree.set(e.source, outDegree.get(e.source) + 1);
   }
-  for (const id of nodeIds) {
-    const isEntry = id === "entry";
-    const isExit = id === "exit";
+  const topoEdgesAll = edges.filter((e) => TOPO_TYPES.has(e.type));
+  const realWf = [...wfIds].filter((id) => id !== "entry" && id !== "exit");
+  const roots = realWf.filter((id) => !topoEdgesAll.some((e) => e.target === id));
+  const sinks = realWf.filter((id) => !topoEdgesAll.some((e) => e.source === id));
+  const isSoleRoot = (id) => roots.length === 1 && roots[0] === id;
+  const isSoleSink = (id) => sinks.length === 1 && sinks[0] === id;
+  for (const id of realWf) {
     if (inDegree.get(id) === 0 && outDegree.get(id) === 0) {
       issues.push({ level: "error", code: "E5", msg: `${id}: 孤立节点（无入边无出边）` });
-    } else if (!isEntry && !isExit && inDegree.get(id) === 0) {
-      issues.push({ level: "warning", code: "W3", msg: `${id}: 无入边（游离节点，谁触发它？）` });
-    } else if (!isExit && outDegree.get(id) === 0) {
-      issues.push({ level: "warning", code: "W2", msg: `${id}: 无出边（不通向任何下游）` });
+    } else if (inDegree.get(id) === 0) {
+      if (!isSoleRoot(id)) {
+        issues.push({ level: "warning", code: "W3", msg: `${id}: 无入边（游离节点，谁触发它？）` });
+      }
+    } else if (outDegree.get(id) === 0) {
+      if (!isSoleSink(id)) {
+        issues.push({ level: "warning", code: "W2", msg: `${id}: 无出边（不通向任何下游）` });
+      }
     }
   }
 
-  // --- E6/E7: 双向可达（仅 topo 边）---
+  // --- E6/E7: 双向可达（仅 topo 边；v0.5.2 起不依赖手写 entry/exit 虚拟边：
+  //     根 = 无入边的工作流节点，汇 = 无出边的工作流节点 —— 与引擎 ready_gate
+  //     冷启动语义一致。检查内容：①每个工作流节点从某根可达 ②可到达某汇；
+  //     多根/多汇降级为 warning（提示收敛为单入口单出口） ---
   const topo = edges.filter((e) => TOPO_TYPES.has(e.type));
-  const fromEntry = reachable("entry", topo, "down");
-  const toExit = reachable("exit", topo, "up");
-  for (const id of nodeIds) {
-    if (!fromEntry.has(id)) {
-      issues.push({ level: "error", code: "E6", msg: `${id}: 从 entry 不可达（沿 topo 边）` });
+  const wfTopo = topo.filter((e) => wfIds.has(e.source) && wfIds.has(e.target));
+  let coveredDown = new Set(["entry", "exit"]);
+  for (const r of roots) {
+    for (const id of reachable(r, wfTopo, "down")) coveredDown.add(id);
+  }
+  let coveredUp = new Set(["entry", "exit"]);
+  for (const s of sinks) {
+    for (const id of reachable(s, wfTopo, "up")) coveredUp.add(id);
+  }
+  if (wfIds.size > 2 && roots.length === 0) {
+    issues.push({ level: "error", code: "E6", msg: "无可达根：全部工作流节点都有入边（疑似全环拓扑）" });
+  }
+  for (const id of wfIds) {
+    if (id === "entry" || id === "exit") continue;
+    if (!coveredDown.has(id)) {
+      issues.push({ level: "error", code: "E6", msg: `${id}: 从任何根都不可达（沿 topo 边；断头图？）` });
     }
-    if (!toExit.has(id)) {
-      issues.push({ level: "error", code: "E7", msg: `${id}: 无法到达 exit（沿 topo 边）` });
+    if (!coveredUp.has(id)) {
+      issues.push({ level: "error", code: "E7", msg: `${id}: 无法到达任何汇（沿 topo 边）` });
     }
+  }
+  if (roots.length > 1) {
+    issues.push({
+      level: "warning",
+      code: "W6",
+      msg: `多个入口根（${roots.join(", ")}）：建议收敛为单一主干起点`,
+    });
+  }
+  if (sinks.length > 1) {
+    issues.push({
+      level: "warning",
+      code: "W6",
+      msg: `多个出口汇（${sinks.join(", ")}）：建议收敛为单一收口节点`,
+    });
   }
 
   // --- E8: topo 环（DFS 三色标记）---
@@ -206,9 +256,10 @@ function main() {
     }
   }
 
-  // --- W1: id 前缀 vs level（支持 L1-L5 分层）---
+  // --- W1: id 前缀 vs level（支持 L1-L5 分层；知识顶点无工作流层级语义，跳过）---
   const prefixOf = (level) => `l${level}_`;
   for (const [id, level] of nodeByLevel) {
+    if (KNOWLEDGE_TYPES.has(nodeType.get(id))) continue;
     if (level >= 1 && level <= 5 && !id.startsWith(prefixOf(level))) {
       issues.push({
         level: "warning",

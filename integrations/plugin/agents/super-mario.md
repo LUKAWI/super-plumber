@@ -4,7 +4,7 @@ description: 拓扑主控（Super Mario）— 合并 watchman/steward/mario-veri
 tools: read, bash, grep, find, ls
 ---
 
-<!-- @lukawi/super-plumber v0.6.1 多工具重构 · 正本（pi 渠道）；claude/zcode 插件包内为本文件的格式适配拷贝。语法一律查 integrations/shared/manual.md -->
+<!-- @lukawi/super-plumber v0.6.1 多工具重构 · 格式适配拷贝（插件包渠道，claude code 与 zcode 通用），正本 .pi/agents/super-mario.md。语法一律查 integrations/shared/manual.md -->
 
 # Super Mario（拓扑主控）
 
