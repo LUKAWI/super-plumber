@@ -46,10 +46,9 @@
     return m[status] ?? "cp-pending";
   }
 
-  // v0.5：知识顶点（context/adr）以文档形态呈现
+  // v0.5：context 顶点以文档形态呈现；adr 一律走 AdrDocument 抽屉（根卫语句拦截）
   const isContext = $derived(graphState.selectedNode?.type === "context");
-  const isAdr = $derived(graphState.selectedNode?.type === "adr");
-  const isKnowledge = $derived(isContext || isAdr);
+  const isKnowledge = $derived(isContext);
 
   // adr_flags：superseded ADR 沿 decides 边传播的"决策依据已过时"警告（客户端预计算，纯只读展示）
   const adrFlags = $derived.by(() => {
@@ -68,7 +67,7 @@
   });
 </script>
 
-{#if graphState.selectedNode}
+{#if graphState.selectedNode && graphState.selectedNode.type !== "adr"}
   <div class="detail-panel" class:visible>
     <div class="panel-header">
       <span class="panel-title">NODE DETAIL</span>
@@ -147,44 +146,7 @@
         </section>
       {/if}
 
-      <!-- adr 顶点：决策文档（decision/background/options/why/consequences） -->
-      {#if isAdr}
-        {#if graphState.selectedNode.status === "superseded" && graphState.selectedNode.superseded_by}
-          <div class="adr-superseded" role="note">
-            ⊘ 已被 <code>{graphState.selectedNode.superseded_by}</code> 接替——本决策不再生效
-          </div>
-        {/if}
-        {#if graphState.selectedNode.decision}
-          <section class="section">
-            <h3 class="section-title"><span class="section-icon">▸</span>DECISION</h3>
-            <p class="plan-desc">{graphState.selectedNode.decision}</p>
-          </section>
-        {/if}
-        {#if graphState.selectedNode.background}
-          <section class="section">
-            <h3 class="section-title"><span class="section-icon">▸</span>BACKGROUND</h3>
-            <p class="plan-desc">{graphState.selectedNode.background}</p>
-          </section>
-        {/if}
-        {#if graphState.selectedNode.considered_options}
-          <section class="section">
-            <h3 class="section-title"><span class="section-icon">▸</span>CONSIDERED OPTIONS</h3>
-            <p class="plan-desc">{graphState.selectedNode.considered_options}</p>
-          </section>
-        {/if}
-        {#if graphState.selectedNode.why}
-          <section class="section">
-            <h3 class="section-title"><span class="section-icon">▸</span>WHY</h3>
-            <p class="plan-desc">{graphState.selectedNode.why}</p>
-          </section>
-        {/if}
-        {#if graphState.selectedNode.consequences}
-          <section class="section">
-            <h3 class="section-title"><span class="section-icon">▸</span>CONSEQUENCES</h3>
-            <p class="plan-desc">{graphState.selectedNode.consequences}</p>
-          </section>
-        {/if}
-      {/if}
+      <!-- adr 顶点不在此呈现：选中即路由到 AdrDocument 决策文档抽屉 -->
 
       <!-- Build plan -->
       {#if graphState.selectedNode.plan?.description}
@@ -793,26 +755,6 @@
     line-height: 1.6;
     color: var(--status-failed);
     margin: 0;
-  }
-
-  /* ADR superseded 横幅 */
-  .adr-superseded {
-    font-family: var(--font-sans);
-    font-size: var(--text-xs);
-    line-height: 1.6;
-    color: var(--status-failed);
-    background: rgba(229, 80, 79, 0.1);
-    border: 1px dashed rgba(229, 80, 79, 0.5);
-    border-radius: var(--r-sm);
-    padding: var(--sp-2) var(--sp-3);
-    margin-bottom: var(--sp-4);
-  }
-
-  .adr-superseded code {
-    font-family: var(--font-mono);
-    background: var(--surface-3);
-    padding: 1px var(--sp-1);
-    border-radius: var(--r-sm);
   }
 
   /* context glossary（节点即文档） */

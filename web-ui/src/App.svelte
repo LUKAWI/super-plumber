@@ -2,6 +2,8 @@
   import { onMount, onDestroy } from "svelte";
   import GraphCanvas from "./components/GraphCanvas.svelte";
   import NodeDetail from "./components/NodeDetail.svelte";
+  import AdrDocument from "./components/AdrDocument.svelte";
+  import AdrDock from "./components/AdrDock.svelte";
   import EdgeDetail from "./components/EdgeDetail.svelte";
   import DiffPanel from "./components/DiffPanel.svelte";
   import { createGraphConnection } from "./lib/api";
@@ -243,10 +245,12 @@
         </label>
       </aside>
       <DiffPanel />
+      <AdrDock />
     {/if}
   </main>
 
   <NodeDetail />
+  <AdrDocument />
   <EdgeDetail />
 </div>
 

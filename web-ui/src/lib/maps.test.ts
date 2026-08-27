@@ -10,6 +10,9 @@ import {
 	isContractEdge,
 	adrBadgesFor,
 	adrFlagsFor,
+	governsOf,
+	adrDockItems,
+	ADR_STATUS_META,
 	type ActiveMaps,
 } from "./maps";
 import type { NodeSchema, EdgeSchema, NodeType, EdgeType, NodeStatus } from "./types";
@@ -252,5 +255,71 @@ describe("adrFlagsFor（superseded 传播）", () => {
 		const nodes = [node("t1", "task"), node("a1", "adr", { status: "accepted" })];
 		const edges = [edge("e1", "a1", "t1", "decides")];
 		expect(adrFlagsFor(nodes, edges).size).toBe(0);
+	});
+});
+
+describe("governsOf（decides 出边 → 管辖清单）", () => {
+	it("节点锚与 context 锚都收进清单，按目标 id 排序", () => {
+		const nodes = [
+			node("a1", "adr"),
+			node("t2", "task"),
+			node("t1", "task"),
+			node("c1", "context"),
+		];
+		const edges = [
+			edge("e1", "a1", "t2", "decides"),
+			edge("e2", "a1", "c1", "decides"),
+			edge("e3", "a1", "t1", "decides"),
+			edge("e4", "t1", "t2", "depends_on"), // 非 decides 不计入
+		];
+		const gov = governsOf(nodes, edges);
+		expect(gov.get("a1")).toEqual([
+			{ nodeId: "c1", label: "c1", isContext: true },
+			{ nodeId: "t1", label: "t1", isContext: false },
+			{ nodeId: "t2", label: "t2", isContext: false },
+		]);
+	});
+
+	it("孤儿 ADR（无 decides 出边）不在结果表中", () => {
+		const nodes = [node("a1", "adr"), node("t1", "task")];
+		expect(governsOf(nodes, []).size).toBe(0);
+	});
+
+	it("幽灵端点 / 非 adr 源头的 decides 边被忽略", () => {
+		const nodes = [node("a1", "adr")];
+		const edges = [
+			edge("e1", "a1", "ghost", "decides"),
+			edge("e2", "t9", "a1", "decides"),
+		];
+		expect(governsOf(nodes, edges).size).toBe(0);
+	});
+});
+
+describe("adrDockItems（角落座条目）", () => {
+	it("全图 ADR 按编号排序，管辖清单预取，superseded 带接替者", () => {
+		const nodes = [
+			node("adr_0002", "adr", { status: "accepted" as NodeStatus }),
+			node("adr_0001", "adr", { status: "superseded" as NodeStatus, superseded_by: "adr_0002" }),
+			node("t1", "task"),
+		];
+		const edges = [edge("e1", "adr_0001", "t1", "decides")];
+		const items = adrDockItems(nodes, edges);
+		expect(items.map((i) => i.id)).toEqual(["adr_0001", "adr_0002"]);
+		expect(items[0].status).toBe("superseded");
+		expect(items[0].supersededBy).toBe("adr_0002");
+		expect(items[0].governs).toEqual([{ nodeId: "t1", label: "t1", isContext: false }]);
+		expect(items[1].governs).toEqual([]);
+	});
+
+	it("无 ADR 的图 → 空数组（座整体隐藏）", () => {
+		expect(adrDockItems([node("t1", "task")], [])).toEqual([]);
+	});
+});
+
+describe("ADR_STATUS_META 展示元数据", () => {
+	it("三态文案齐全，marks 与叠加视图徽章同语义（○/●/⊘）", () => {
+		expect(ADR_STATUS_META.proposed).toMatchObject({ en: "PROPOSED", zh: "待裁决", mark: "○" });
+		expect(ADR_STATUS_META.accepted).toMatchObject({ en: "ACCEPTED", zh: "已生效", mark: "●" });
+		expect(ADR_STATUS_META.superseded).toMatchObject({ en: "SUPERSEDED", zh: "已废弃", mark: "⊘" });
 	});
 });
