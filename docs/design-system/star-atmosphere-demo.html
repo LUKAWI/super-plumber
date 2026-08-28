@@ -131,13 +131,13 @@
     <defs>
       <!-- 炽心微尘：状态色紧贴核心（r≈3.4×core），无外溢光场 -->
       <!-- 状态色 halo 七档（V4 正本，同 star-node-demo）：中心 0.55-0.65，45% 处 0.12-0.16 -->
-      <radialGradient id="halo-pending"><stop offset="0%" stop-color="#8a8f98" stop-opacity="0.55"/><stop offset="45%" stop-color="#8a8f98" stop-opacity="0.12"/><stop offset="100%" stop-color="#8a8f98" stop-opacity="0"/></radialGradient>
-      <radialGradient id="halo-ready"><stop offset="0%" stop-color="#4a93e8" stop-opacity="0.6"/><stop offset="45%" stop-color="#4a93e8" stop-opacity="0.14"/><stop offset="100%" stop-color="#4a93e8" stop-opacity="0"/></radialGradient>
-      <radialGradient id="halo-running"><stop offset="0%" stop-color="#f0a73a" stop-opacity="0.65"/><stop offset="45%" stop-color="#f0a73a" stop-opacity="0.16"/><stop offset="100%" stop-color="#f0a73a" stop-opacity="0"/></radialGradient>
-      <radialGradient id="halo-passed"><stop offset="0%" stop-color="#34c964" stop-opacity="0.55"/><stop offset="45%" stop-color="#34c964" stop-opacity="0.13"/><stop offset="100%" stop-color="#34c964" stop-opacity="0"/></radialGradient>
-      <radialGradient id="halo-failed"><stop offset="0%" stop-color="#e5504f" stop-opacity="0.62"/><stop offset="45%" stop-color="#e5504f" stop-opacity="0.15"/><stop offset="100%" stop-color="#e5504f" stop-opacity="0"/></radialGradient>
-      <radialGradient id="halo-blocked"><stop offset="0%" stop-color="#a574e6" stop-opacity="0.58"/><stop offset="45%" stop-color="#a574e6" stop-opacity="0.14"/><stop offset="100%" stop-color="#a574e6" stop-opacity="0"/></radialGradient>
-      <radialGradient id="halo-cancelled"><stop offset="0%" stop-color="#7e848d" stop-opacity="0.45"/><stop offset="45%" stop-color="#7e848d" stop-opacity="0.1"/><stop offset="100%" stop-color="#7e848d" stop-opacity="0"/></radialGradient>
+      <radialGradient id="halo-pending"><stop offset="0%" stop-color="#8a8f98" stop-opacity="0.5"/><stop offset="45%" stop-color="#8a8f98" stop-opacity="0.11"/><stop offset="100%" stop-color="#8a8f98" stop-opacity="0"/></radialGradient>
+      <radialGradient id="halo-ready"><stop offset="0%" stop-color="#4a93e8" stop-opacity="0.5"/><stop offset="45%" stop-color="#4a93e8" stop-opacity="0.11"/><stop offset="100%" stop-color="#4a93e8" stop-opacity="0"/></radialGradient>
+      <radialGradient id="halo-running"><stop offset="0%" stop-color="#f0a73a" stop-opacity="0.55"/><stop offset="45%" stop-color="#f0a73a" stop-opacity="0.13"/><stop offset="100%" stop-color="#f0a73a" stop-opacity="0"/></radialGradient>
+      <radialGradient id="halo-passed"><stop offset="0%" stop-color="#34c964" stop-opacity="0.5"/><stop offset="45%" stop-color="#34c964" stop-opacity="0.11"/><stop offset="100%" stop-color="#34c964" stop-opacity="0"/></radialGradient>
+      <radialGradient id="halo-failed"><stop offset="0%" stop-color="#e5504f" stop-opacity="0.52"/><stop offset="45%" stop-color="#e5504f" stop-opacity="0.12"/><stop offset="100%" stop-color="#e5504f" stop-opacity="0"/></radialGradient>
+      <radialGradient id="halo-blocked"><stop offset="0%" stop-color="#a574e6" stop-opacity="0.5"/><stop offset="45%" stop-color="#a574e6" stop-opacity="0.11"/><stop offset="100%" stop-color="#a574e6" stop-opacity="0"/></radialGradient>
+      <radialGradient id="halo-cancelled"><stop offset="0%" stop-color="#7e848d" stop-opacity="0.4"/><stop offset="45%" stop-color="#7e848d" stop-opacity="0.09"/><stop offset="100%" stop-color="#7e848d" stop-opacity="0"/></radialGradient>
       <linearGradient id="spike-v" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#fff" stop-opacity="0"/><stop offset="50%" stop-color="#fff" stop-opacity="0.85"/><stop offset="100%" stop-color="#fff" stop-opacity="0"/></linearGradient>
       <linearGradient id="spike-h" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#fff" stop-opacity="0"/><stop offset="50%" stop-color="#fff" stop-opacity="0.85"/><stop offset="100%" stop-color="#fff" stop-opacity="0"/></linearGradient>
       <radialGradient id="flash-grad"><stop offset="0%" stop-color="#fff" stop-opacity="0.85"/><stop offset="45%" stop-color="#fff" stop-opacity="0.18"/><stop offset="100%" stop-color="#fff" stop-opacity="0"/></radialGradient>
@@ -308,7 +308,7 @@
     if (opts.flash) svgEl("circle", { class: "hover-flash", r: L * 1.1, fill: "url(#flash-grad)" }, sky);
     if (opts.ring) svgEl("circle", { class: "hover-ring", r: L * 0.95, fill: "none", stroke: "#fff", "stroke-width": 1, "stroke-opacity": 0.9 }, sky);
     // status halo（贴芒：r ≈ 1.04×芒长，同 V4 正本）
-    svgEl("circle", { class: "star-halo", r: L * 1.04, fill: `url(#halo-${status})` }, sky);
+    svgEl("circle", { class: "star-halo", r: L * 0.88, fill: `url(#halo-${status})` }, sky);
     // 色差残像（V4 正本：±0.8 错位）
     const pg1 = svgEl("g", { class: "prism-r", fill: "#e5504f", opacity: 0.5 }, sky);
     svgEl("path", { d: `M0,${-L} L${w1},0 L0,${L} L${-w1},0 Z`, transform: "translate(0.8,0)" }, pg1);
@@ -369,8 +369,8 @@
         svgEl("stop", { offset: "100%", "stop-color": STATUS.running, "stop-opacity": 0 }, grad);
       } else {
         svgEl("stop", { offset: "0%", "stop-color": "#fff", "stop-opacity": 0 }, grad);
-        svgEl("stop", { offset: "22%", "stop-color": "#fff", "stop-opacity": 0.5 }, grad);
-        svgEl("stop", { offset: "78%", "stop-color": "#fff", "stop-opacity": 0.5 }, grad);
+        svgEl("stop", { offset: "10%", "stop-color": "#fff", "stop-opacity": 0.7 }, grad);
+        svgEl("stop", { offset: "90%", "stop-color": "#fff", "stop-opacity": 0.7 }, grad);
         svgEl("stop", { offset: "100%", "stop-color": "#fff", "stop-opacity": 0 }, grad);
       }
       svgEl("line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: `url(#${gid})`, "stroke-width": energy ? 1.6 : 1.2 }, layer);
@@ -458,8 +458,8 @@
         svgEl("stop", { offset: "100%", "stop-color": STATUS.running, "stop-opacity": 0 }, grad);
       } else {
         svgEl("stop", { offset: "0%", "stop-color": "#fff", "stop-opacity": 0 }, grad);
-        svgEl("stop", { offset: "22%", "stop-color": "#fff", "stop-opacity": 0.5 }, grad);
-        svgEl("stop", { offset: "78%", "stop-color": "#fff", "stop-opacity": 0.5 }, grad);
+        svgEl("stop", { offset: "10%", "stop-color": "#fff", "stop-opacity": 0.7 }, grad);
+        svgEl("stop", { offset: "90%", "stop-color": "#fff", "stop-opacity": 0.7 }, grad);
         svgEl("stop", { offset: "100%", "stop-color": "#fff", "stop-opacity": 0 }, grad);
       }
       svgEl("line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: `url(#${gid})`, "stroke-width": energy ? 1.7 : 1.3 }, layer);
@@ -536,6 +536,7 @@
       svgEl("circle", {
         cx: c.cx, cy: c.cy, r: c.r,
         fill: `url(#${c.neb})`, class: "nebula-cloud",
+        stroke: c.color, "stroke-opacity": 0.35, "stroke-width": 1, "stroke-dasharray": "4 4",
       }, newLayer);
       svgEl("text", {
         x: c.cx, y: c.cy - c.r - 4, "text-anchor": "middle",

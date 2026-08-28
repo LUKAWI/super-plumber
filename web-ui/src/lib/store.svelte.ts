@@ -80,8 +80,7 @@ let _graphsList = $state<GraphsListData | null>(null);
 /** 全局 UI 态（不随图切换）：专注模式（瞬态，不持久化）/ 布局钉住 / 画布缩放与定位请求 */
 let _focusMode = $state(false);
 let _layoutPinned = $state(false);
-// ADR 目录默认展开：它是 ADR 在画布上的常驻目录形态（延续角落锚定的可发现性）
-let _adrDockOpen = $state(true);
+// 2026-08-28：ADR 决策目录随「图中不设 ADR 文档入口」删除
 let _diffOpen = $state(false);
 let _lensOpen = $state(false);
 /** GraphCanvas 消费的命令令牌：缩放 / 定位节点 */
@@ -246,7 +245,6 @@ export const graphState = {
 		_graphsList = null;
 		_focusMode = false;
 		_layoutPinned = false;
-		_adrDockOpen = true;
 		_diffOpen = false;
 		_lensOpen = false;
 		_zoomRequest = null;
@@ -313,7 +311,6 @@ export const graphState = {
 		_focusMode = v;
 		if (v) {
 			// 专注模式 = 画布即一切：入口先收掉所有浮层，Esc 才能干净退出
-			_adrDockOpen = false;
 			_diffOpen = false;
 			_lensOpen = false;
 		}
@@ -323,13 +320,6 @@ export const graphState = {
 	},
 	setLayoutPinned(v: boolean) {
 		_layoutPinned = v;
-	},
-	get adrDockOpen() {
-		return _adrDockOpen;
-	},
-	toggleAdrDock() {
-		_adrDockOpen = !_adrDockOpen;
-		if (_adrDockOpen) _lensOpen = false;
 	},
 	get diffOpen() {
 		return _diffOpen;
@@ -350,7 +340,6 @@ export const graphState = {
 	toggleLens() {
 		_lensOpen = !_lensOpen;
 		if (_lensOpen) {
-			_adrDockOpen = false;
 			_diffOpen = false;
 		}
 	},

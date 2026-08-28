@@ -2,8 +2,6 @@
   import { onMount, onDestroy } from "svelte";
   import GraphCanvas from "./components/GraphCanvas.svelte";
   import NodeDetail from "./components/NodeDetail.svelte";
-  import AdrDocument from "./components/AdrDocument.svelte";
-  import AdrDock from "./components/AdrDock.svelte";
   import EdgeDetail from "./components/EdgeDetail.svelte";
   import DiffPanel from "./components/DiffPanel.svelte";
   import { createGraphConnection } from "./lib/api";
@@ -70,10 +68,6 @@
   });
 
   // ADR 计数（工具轨「决策」按钮徽标）
-  const adrCount = $derived(
-    graphState.graph?.nodes.filter((n) => n.type === "adr").length ?? 0,
-  );
-
   /** 搜索 Enter：选中并居中首个命中节点 */
   function searchKeydown(e: KeyboardEvent) {
     if (e.key !== "Enter") return;
@@ -98,8 +92,7 @@
       graphState.clearDiff();
     } else if (graphState.focusMode) {
       graphState.setFocusMode(false);
-    } else if (graphState.adrDockOpen || graphState.diffOpen || graphState.lensOpen) {
-      if (graphState.adrDockOpen) graphState.toggleAdrDock();
+    } else if (graphState.diffOpen || graphState.lensOpen) {
       if (graphState.diffOpen) graphState.toggleDiff();
       if (graphState.lensOpen) graphState.toggleLens();
     }
@@ -274,7 +267,6 @@
     {:else}
       <GraphCanvas />
       <DiffPanel />
-      <AdrDock />
     {/if}
 
     <!-- ── 统一工具轨（画布存在时；专注模式下隐藏）── -->
@@ -292,21 +284,6 @@
             <circle cx="6" cy="6" r="4"/>
             <circle cx="10" cy="10" r="4"/>
           </svg>
-        </button>
-        <button
-          class="rail-btn"
-          class:active={graphState.adrDockOpen}
-          onclick={() => graphState.toggleAdrDock()}
-          title="ADR 决策目录"
-          aria-label="ADR 决策目录"
-          aria-expanded={graphState.adrDockOpen}
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-            <path d="M8 2 14 8 8 14 2 8Z"/>
-          </svg>
-          {#if adrCount > 0}
-            <span class="rail-badge">{adrCount}</span>
-          {/if}
         </button>
         <button
           class="rail-btn"
@@ -403,7 +380,6 @@
   </main>
 
   <NodeDetail />
-  <AdrDocument />
   <EdgeDetail />
 </div>
 
@@ -772,22 +748,6 @@
     outline-offset: 1px;
   }
 
-  .rail-badge {
-    position: absolute;
-    top: 0;
-    right: 0;
-    min-width: 15px;
-    height: 15px;
-    border-radius: 8px;
-    background: var(--surface-3);
-    color: var(--ink);
-    font-family: var(--font-mono);
-    font-size: var(--text-2xs);
-    line-height: 15px;
-    text-align: center;
-    padding: 0 3px;
-    font-variant-numeric: tabular-nums;
-  }
 
   .rail-sep {
     width: 20px;
@@ -880,7 +840,6 @@
   }
 
   /* 工具轨的浮层面板一并退场（跨组件：global 穿透） */
-  .focus-mode :global(.adr-dock),
   .focus-mode :global(.rail-flyout),
   .focus-mode :global(.diff-panel) {
     display: none;

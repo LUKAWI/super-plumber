@@ -14,13 +14,11 @@
     type EdgeType,
   } from "../lib/types";
   import {
-    adrBadgesFor,
     contextColors,
     contextHullGroups,
     isContractEdge,
     isEdgeVisibleInMaps,
     isNodeVisibleInMaps,
-    type AdrBadge,
   } from "../lib/maps";
 
   // Extend NodeSchema with D3 simulation properties
@@ -73,11 +71,6 @@
     ctxNode?: SimNode;
   }
   let currentHulls: HullRender[] = [];
-
-  interface BadgeRender extends AdrBadge {
-    stack: number;
-  }
-  let currentBadges: BadgeRender[] = [];
 
   const prefersReducedMotion = typeof window !== "undefined"
     ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
@@ -241,16 +234,15 @@
       const g = d3.select(this);
       g.selectAll("stop").remove();
       if (edgeEnergy(d)) {
-        g.append("stop").attr("offset", "0%").attr("stop-color", STATUS_COLORS.running).attr("stop-opacity", 0.85);
-        g.append("stop").attr("offset", "65%").attr("stop-color", STATUS_COLORS.running).attr("stop-opacity", 0.25);
+        g.append("stop").attr("offset", "0%").attr("stop-color", STATUS_COLORS.running).attr("stop-opacity", 0.7);
+        g.append("stop").attr("offset", "65%").attr("stop-color", STATUS_COLORS.running).attr("stop-opacity", 0.2);
         g.append("stop").attr("offset", "100%").attr("stop-color", STATUS_COLORS.running).attr("stop-opacity", 0);
       } else {
-        // 中段 0.85 + 8%-92% 平台：结构清晰可读，仍向星晕两端溶解
-        //（0.5/22-78 实测不可见；0.75/10-90 像素采样仅 ~98 亮像素，感知过弱）
-        const mid = edgeIsContract(d) ? 0.9 : 0.85;
+        // 中段 0.7 + 10%-90% 平台：结构可读、两端仍向星晕溶解（0.85/8-92 用户实测过重）
+        const mid = edgeIsContract(d) ? 0.78 : 0.7;
         g.append("stop").attr("offset", "0%").attr("stop-color", "#ffffff").attr("stop-opacity", 0);
-        g.append("stop").attr("offset", "8%").attr("stop-color", "#ffffff").attr("stop-opacity", mid);
-        g.append("stop").attr("offset", "92%").attr("stop-color", "#ffffff").attr("stop-opacity", mid);
+        g.append("stop").attr("offset", "10%").attr("stop-color", "#ffffff").attr("stop-opacity", mid);
+        g.append("stop").attr("offset", "90%").attr("stop-color", "#ffffff").attr("stop-opacity", mid);
         g.append("stop").attr("offset", "100%").attr("stop-color", "#ffffff").attr("stop-opacity", 0);
       }
       // 初始坐标（tick 逐帧接管）：端点未就绪时 0,0 退化一帧可接受
@@ -301,15 +293,14 @@
       .attr("stroke-dasharray", (d: SimEdge) => (edgeIsContract(d) ? "7 4" : null));
   }
 
-  // ── 叠加视图装饰：hull 簇壳 + ADR 徽章 ──
+  // ── 叠加视图装饰：领域星云（ADR 徽章 2026-08-28 退役——图中不再设 ADR 文档入口）──
 
-  /** 从模拟节点重建 hull 分组与徽章（渲染/数据变化时调用） */
+  /** 从模拟节点重建 hull 分组（渲染/数据变化时调用） */
   function refreshOverlayDecorations() {
     if (!zoomGroup) return;
     if (!isOverlay) {
-      zoomGroup.selectAll(".hulls,.adr-badges").remove();
+      zoomGroup.selectAll(".hulls").remove();
       currentHulls = [];
-      currentBadges = [];
       return;
     }
     // hull：context id → 成员工作流节点
@@ -322,17 +313,7 @@
         ...(currentNodes.find((n) => n.id === contextId) ? { ctxNode: currentNodes.find((n) => n.id === contextId) } : {}),
       }));
 
-    // 徽章：decides 边 → ADR 附着（同锚点堆叠）
-    const badges = currentGraph ? adrBadgesFor(currentGraph.nodes, currentGraph.edges) : [];
-    const stackCount = new Map<string, number>();
-    currentBadges = badges.map((b) => {
-      const stack = stackCount.get(b.anchorNodeId) ?? 0;
-      stackCount.set(b.anchorNodeId, stack + 1);
-      return { ...b, stack };
-    });
-
     renderHullLayer();
-    renderBadgeLayer();
     updateHullsAndBadges();
   }
 
@@ -388,6 +369,11 @@
     const all = enter.merge(sel);
     all.select(".hull-cloud")
       .attr("fill", (h) => `url(#neb-${h.contextId.replace(/[^a-zA-Z0-9_-]/g, "_")})`)
+      // 淡虚线云缘：颜色之外需要轮廓区分领域（2026-08-28 用户拍板）
+      .attr("stroke", (h) => h.color)
+      .attr("stroke-opacity", 0.35)
+      .attr("stroke-width", 1)
+      .attr("stroke-dasharray", "4 4")
       .style("cursor", "pointer")
       .on("click", (_event: MouseEvent, h: HullRender) => {
         const full = currentGraph?.nodes.find((n) => n.id === h.contextId);
@@ -415,77 +401,11 @@
       .style("user-select", "none");
   }
 
-  function renderBadgeLayer() {
-    if (!zoomGroup) return;
-    let badgeG = zoomGroup.select<SVGGElement>("g.adr-badges");
-    if (badgeG.empty()) badgeG = zoomGroup.append("g").attr("class", "adr-badges");
-    const sel = badgeG
-      .selectAll<SVGGElement, BadgeRender>("g.adr-badge")
-      .data(currentBadges, (b) => `${b.adrId}:${b.anchorNodeId}`);
-    sel.exit().remove();
-    const enter = sel.enter().append("g").attr("class", "adr-badge");
-    enter.append("rect").attr("class", "adr-badge-box");
-    enter.append("text").attr("class", "adr-badge-text");
-    const all = enter.merge(sel);
-    all.select(".adr-badge-box")
-      .attr("rx", 3)
-      .attr("height", 15)
-      .attr("fill", "#141414")
-      .attr("fill-opacity", 0.92)
-      .attr("stroke", (b) => statusColorOf(b.status))
-      .attr("stroke-width", (b) => (b.status === "superseded" ? 1.5 : 1))
-      .attr("stroke-dasharray", (b) => (b.status === "proposed" ? "3 2" : null));
-    all.select(".adr-badge-text")
-      .attr("font-family", "var(--font-mono)")
-      .attr("font-size", "10px")
-      .attr("font-weight", "600")
-      .attr("dominant-baseline", "central")
-      .attr("fill", (b) => statusColorOf(b.status))
-      .attr("paint-order", "stroke")
-      .attr("stroke", "#000000")
-      .attr("stroke-width", "2.5px")
-      .attr("stroke-linejoin", "round")
-      .style("user-select", "none")
-      // 状态由盒线型表达（proposed 虚线 / accepted 实线 / superseded 加粗+划线），
-      // 不再使用 ⊘●○ Unicode 字形
-      .text((b) => {
-        const t = b.title.length > 12 ? `${b.title.slice(0, 11)}…` : b.title;
-        return t;
-      });
-    // superseded 划线（替代 Unicode ⊘）
-    all.select(".adr-badge-strike").remove();
-    all.filter((b) => b.status === "superseded").append("line")
-      .attr("class", "adr-badge-strike")
-      .attr("y1", -7).attr("y2", -7)
-      .attr("stroke", statusColorOf("superseded"))
-      .attr("stroke-width", 1);
-    all
-      .attr("cursor", "pointer")
-      .on("click", (event: MouseEvent, b: BadgeRender) => {
-        event.stopPropagation();
-        const full = currentGraph?.nodes.find((n) => n.id === b.adrId);
-        if (full) graphState.selectNode(full);
-      });
-    all.select<SVGRectElement>(".adr-badge-box").each(function (this: SVGRectElement, b: BadgeRender) {
-      const text = this.parentElement?.querySelector(".adr-badge-text") as SVGTextElement | null;
-      const w = 12 + (text?.getComputedTextLength?.() ?? b.title.length * 5);
-      d3.select(this)
-        .attr("width", Math.max(30, w))
-        .attr("x", -2)
-        .attr("y", -15);
-      const strike = this.parentElement?.querySelector(".adr-badge-strike") as SVGLineElement | null;
-      if (strike) d3.select(strike).attr("x1", 2).attr("x2", Math.max(30, w) - 4);
-    });
-    all.select(".adr-badge-text").attr("x", 4).attr("y", -7);
-  }
-
-  /** 每 tick 更新星云云体 / 云心 / 标签 / 徽章锚点 */
+  /** 每 tick 更新星云云体 / 云心 / 标签 */
   function updateHullsAndBadges() {
     if (!zoomGroup || !isOverlay) return;
-    const cloudGeom = new Map<string, { cx: number; cy: number; r: number } | null>();
     zoomGroup.selectAll<SVGGElement, HullRender>(".hulls g.hull").each(function (this: SVGGElement, h: HullRender) {
       const geom = cloudGeometry(h.members, HULL_PAD);
-      cloudGeom.set(h.contextId, geom);
       const g = d3.select(this);
       if (!geom) {
         g.attr("display", "none");
@@ -496,29 +416,6 @@
       g.select(".hull-core").attr("cx", geom.cx).attr("cy", geom.cy);
       g.select(".hull-core-ring").attr("cx", geom.cx).attr("cy", geom.cy);
       g.select(".hull-label").attr("x", geom.cx).attr("y", geom.cy - geom.r - 6);
-    });
-    zoomGroup.selectAll<SVGGElement, BadgeRender>(".adr-badges g.adr-badge").each(function (this: SVGGElement, b: BadgeRender) {
-      const g = d3.select(this);
-      let x: number | null = null;
-      let y: number | null = null;
-      if (b.anchorIsContext) {
-        const geom = cloudGeom.get(b.anchorNodeId);
-        if (geom) {
-          x = geom.cx;
-          y = geom.cy - geom.r - 12 - b.stack * 17;
-        }
-      } else {
-        const node = currentNodes.find((n) => n.id === b.anchorNodeId);
-        if (node && Number.isFinite(node.x) && Number.isFinite(node.y)) {
-          x = (node.x as number) + nodeR(node) + 6;
-          y = (node.y as number) - nodeR(node) - 6 - b.stack * 17;
-        }
-      }
-      if (x === null || y === null) {
-        g.attr("display", "none");
-        return;
-      }
-      g.attr("display", null).attr("transform", `translate(${x},${y})`);
     });
   }
 
@@ -664,7 +561,7 @@
     sel.select(".star-scale").attr("transform", (d: SimNode) => `scale(${starSpecOf(d).s})`);
     const L = (d: SimNode) => starSpecOf(d).spike * starSpecOf(d).s;
     sel.select(".star-halo")
-      .attr("r", (d: SimNode) => L(d) * 1.04)
+      .attr("r", (d: SimNode) => L(d) * 0.88)
       .attr("fill", (d: SimNode) => `url(#halo-${d.status})`)
       .style("animation-delay", (d: SimNode) => `${-(starTwinklePhase(d.id) % 3600)}ms`);
     sel.select(".star-spikes")
@@ -918,14 +815,14 @@
     feMerge.append("feMergeNode").attr("in", "coloredBlur");
     feMerge.append("feMergeNode").attr("in", "SourceGraphic");
 
-    // 星体 defs：每状态一个 halo 径向渐变（V4 正本：中心 0.55-0.65，45% 处 0.12-0.16，
-    // 贴芒 1.04×——光球脱芒才是光污染）+ 星芒方向渐隐 + hover 白炽闪光
+    // 星体 defs：每状态一个 halo 径向渐变（V4 正本浓度，2026-08-28 再降档：
+    // 光晕收至 0.88×芒长以内，中心 0.5-0.55——"减光晕"意味着星已足够亮）
     for (const [st, color] of Object.entries(STATUS_COLORS) as [NodeStatus, string][]) {
       const grad = defs.append("radialGradient").attr("id", `halo-${st}`);
       grad.append("stop").attr("offset", "0%").attr("stop-color", color)
-        .attr("stop-opacity", st === "running" ? 0.65 : 0.57);
+        .attr("stop-opacity", st === "running" ? 0.55 : 0.5);
       grad.append("stop").attr("offset", "45%").attr("stop-color", color)
-        .attr("stop-opacity", st === "running" ? 0.16 : 0.13);
+        .attr("stop-opacity", st === "running" ? 0.13 : 0.11);
       grad.append("stop").attr("offset", "100%").attr("stop-color", color).attr("stop-opacity", 0);
     }
     const flashGrad = defs.append("radialGradient").attr("id", "flash-grad");
@@ -1613,9 +1510,7 @@
   }
 
   /* 叠加视图：ADR 徽章 */
-  :global(.adr-badges g.adr-badge) {
-    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
-  }
+  /* 2026-08-28：ADR 徽章层随「图中不设 ADR 文档入口」删除 */
 
   /* diff 着色（v0.7：纯形状编码——加粗/虚线/点线，不再劫持状态色相）
      节点侧已无圆形图标：编码落在 star-sky 的 diff-ring 上 */

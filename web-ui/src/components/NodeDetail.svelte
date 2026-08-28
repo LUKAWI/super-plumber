@@ -47,7 +47,7 @@
     return m[status] ?? "cp-pending";
   }
 
-  // v0.5：context 顶点以文档形态呈现；adr 一律走 AdrDocument 抽屉（根卫语句拦截）
+  // v0.5：context 顶点以文档形态呈现；adr 顶点不进模拟（无入口，2026-08-28）
   const isContext = $derived(graphState.selectedNode?.type === "context");
 
   // adr_flags：superseded ADR 沿 decides 边传播的"决策依据已过时"警告（客户端预计算，纯只读展示）
@@ -152,7 +152,7 @@
         </section>
       {/if}
 
-      <!-- adr 顶点不在此呈现：选中即路由到 AdrDocument 决策文档抽屉 -->
+      <!-- adr 顶点不在此呈现（图中不再设 ADR 文档入口） -->
 
       <!-- Build plan -->
       {#if graphState.selectedNode.plan?.description}
