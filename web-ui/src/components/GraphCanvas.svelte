@@ -109,6 +109,22 @@
         .attr("class", twinkle ? "dust dust-tw" : "dust");
       if (twinkle) c.style("animation-delay", `${(-Math.random() * 4.5).toFixed(2)}s`);
     }
+    // 银河带星尘航线：沿带轴（162° CSS ≈ SVG rotate(-18)，与 .sky-band 一致）聚拢的亮微尘。
+    // 渐变带本身 α≤0.05，肉眼几乎不可见——星尘航线才是银河带的视觉主体（demo drawBackground 同款）。
+    const rad = (-18 * Math.PI) / 180;
+    const cdx = Math.cos(rad);
+    const cdy = Math.sin(rad);
+    const lane = Math.min(60, Math.max(20, Math.round(Math.hypot(w, h) / 32)));
+    for (let i = 0; i < lane; i++) {
+      const t = (Math.random() - 0.5) * Math.hypot(w, h) * 1.3;
+      const off = (Math.random() + Math.random() - 1) * 34;
+      layer.append("circle")
+        .attr("cx", (w / 2 + cdx * t - cdy * off).toFixed(1))
+        .attr("cy", (h / 2 + cdy * t + cdx * off).toFixed(1))
+        .attr("r", (0.4 + Math.random() * 0.6).toFixed(2))
+        .attr("class", "dust")
+        .attr("opacity", 0.75);
+    }
   }
 
   const isOverlay = $derived(graphState.activeMaps.workflow && graphState.activeMaps.domain);
@@ -1435,11 +1451,11 @@
     position: absolute;
     inset: -20%;
     background: linear-gradient(
-      115deg,
-      transparent 32%,
-      rgba(207, 216, 255, 0.05) 45%,
+      162deg,
+      transparent 40%,
+      rgba(207, 216, 255, 0.05) 49%,
       rgba(232, 236, 255, 0.032) 52%,
-      transparent 68%
+      transparent 60%
     );
   }
 
@@ -1448,10 +1464,10 @@
     position: absolute;
     inset: 0;
     background: linear-gradient(
-      115deg,
-      transparent 42%,
+      162deg,
+      transparent 46%,
       rgba(232, 236, 255, 0.03) 50%,
-      transparent 58%
+      transparent 54%
     );
   }
 
