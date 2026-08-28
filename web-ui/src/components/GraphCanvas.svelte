@@ -210,7 +210,7 @@
     return `eg-${e.id.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
   }
   function edgeBaseWidth(e: SimEdge): number {
-    return edgeEnergy(e) ? 1.7 : edgeIsContract(e) ? 1.6 : 1.3;
+    return edgeEnergy(e) ? 1.9 : edgeIsContract(e) ? 1.8 : 1.5;
   }
 
   /** 渐变 stops（energy 切档）+ 初始端点坐标；渐变元素内嵌在 g.edge-group 里，随组生死 */
@@ -219,14 +219,15 @@
       const g = d3.select(this);
       g.selectAll("stop").remove();
       if (edgeEnergy(d)) {
-        g.append("stop").attr("offset", "0%").attr("stop-color", STATUS_COLORS.running).attr("stop-opacity", 0.7);
-        g.append("stop").attr("offset", "70%").attr("stop-color", STATUS_COLORS.running).attr("stop-opacity", 0.15);
+        g.append("stop").attr("offset", "0%").attr("stop-color", STATUS_COLORS.running).attr("stop-opacity", 0.75);
+        g.append("stop").attr("offset", "70%").attr("stop-color", STATUS_COLORS.running).attr("stop-opacity", 0.2);
         g.append("stop").attr("offset", "100%").attr("stop-color", STATUS_COLORS.running).attr("stop-opacity", 0);
       } else {
-        const mid = edgeIsContract(d) ? 0.62 : 0.5;
+        // 中段 0.75 + 10%-90% 平台：结构可读，仍向星晕两端溶解（0.5/22-78 实测不可见）
+        const mid = edgeIsContract(d) ? 0.8 : 0.75;
         g.append("stop").attr("offset", "0%").attr("stop-color", "#ffffff").attr("stop-opacity", 0);
-        g.append("stop").attr("offset", "22%").attr("stop-color", "#ffffff").attr("stop-opacity", mid);
-        g.append("stop").attr("offset", "78%").attr("stop-color", "#ffffff").attr("stop-opacity", mid);
+        g.append("stop").attr("offset", "10%").attr("stop-color", "#ffffff").attr("stop-opacity", mid);
+        g.append("stop").attr("offset", "90%").attr("stop-color", "#ffffff").attr("stop-opacity", mid);
         g.append("stop").attr("offset", "100%").attr("stop-color", "#ffffff").attr("stop-opacity", 0);
       }
       // 初始坐标（tick 逐帧接管）：端点未就绪时 0,0 退化一帧可接受
