@@ -84,10 +84,10 @@ describe("edgeMapsOf / isEdgeVisibleInMaps（边可见性规则）", () => {
 		expect(isEdgeVisibleInMaps(e, byId, OVERLAY)).toBe(true);
 	});
 
-	it("relates 边（context↔context）只属 domain map，领域视图可见", () => {
+	it("relates 边（context↔context）只属 domain map；领域图单独勾选不画线（领域视图 = 星体+星云）", () => {
 		const e = edge("e3", "c1", "c2", "relates", { rel_kind: "upstream" });
 		expect(edgeMapsOf(e, byId)).toEqual(["domain"]);
-		expect(isEdgeVisibleInMaps(e, byId, DOMAIN_ONLY)).toBe(true);
+		expect(isEdgeVisibleInMaps(e, byId, DOMAIN_ONLY)).toBe(false);
 		expect(isEdgeVisibleInMaps(e, byId, WORKFLOW_ONLY)).toBe(false);
 	});
 

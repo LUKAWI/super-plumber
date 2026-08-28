@@ -203,7 +203,7 @@
       <thead><tr><th>层</th><th>状态</th><th>视觉</th><th>参数</th></tr></thead>
       <tbody>
         <tr><td>E1 星座线</td><td>✅ 采纳</td><td>白线两端渐隐，中段 0.5</td><td>每边一条 userSpaceOnUse 线性渐变；0% / 22% / 78% / 100% = 0 / 0.5 / 0.5 / 0</td></tr>
-        <tr><td>E3 能量流</td><td>✅ 采纳</td><td>running 出边琥珀渐变（近端亮 0.7 → 远端 0.15）+ 光点</td><td>仅 running 源的出边；与现行 flow dots 合并</td></tr>
+        <tr><td>E3 能量流</td><td>✅ 采纳</td><td>running 出边琥珀渐变（近端亮 0.35 → 远端 0.1）+ 光点</td><td>仅 running 源的出边；与现行 flow dots 合并</td></tr>
         <tr><td>E2 流光</td><td>退役</td><td>—</td><td>方向语义不入 hover 级动效（信息密度平衡）</td></tr>
       </tbody>
     </table>
@@ -364,13 +364,13 @@
       const gid = `eg-${uid}-${i}`;
       const grad = svgEl("linearGradient", { id: gid, gradientUnits: "userSpaceOnUse", x1: a.x, y1: a.y, x2: b.x, y2: b.y }, defs);
       if (energy) {
-        svgEl("stop", { offset: "0%", "stop-color": STATUS.running, "stop-opacity": 0.7 }, grad);
-        svgEl("stop", { offset: "70%", "stop-color": STATUS.running, "stop-opacity": 0.15 }, grad);
+        svgEl("stop", { offset: "0%", "stop-color": STATUS.running, "stop-opacity": 0.35 }, grad);
+        svgEl("stop", { offset: "70%", "stop-color": STATUS.running, "stop-opacity": 0.1 }, grad);
         svgEl("stop", { offset: "100%", "stop-color": STATUS.running, "stop-opacity": 0 }, grad);
       } else {
         svgEl("stop", { offset: "0%", "stop-color": "#fff", "stop-opacity": 0 }, grad);
-        svgEl("stop", { offset: "10%", "stop-color": "#fff", "stop-opacity": 0.7 }, grad);
-        svgEl("stop", { offset: "90%", "stop-color": "#fff", "stop-opacity": 0.7 }, grad);
+        svgEl("stop", { offset: "10%", "stop-color": "#fff", "stop-opacity": 0.35 }, grad);
+        svgEl("stop", { offset: "90%", "stop-color": "#fff", "stop-opacity": 0.35 }, grad);
         svgEl("stop", { offset: "100%", "stop-color": "#fff", "stop-opacity": 0 }, grad);
       }
       svgEl("line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: `url(#${gid})`, "stroke-width": energy ? 1.6 : 1.2 }, layer);
@@ -453,13 +453,13 @@
       const gid = `eg-pano-${i}`;
       const grad = svgEl("linearGradient", { id: gid, gradientUnits: "userSpaceOnUse", x1: a.x, y1: a.y, x2: b.x, y2: b.y }, defs);
       if (energy) {
-        svgEl("stop", { offset: "0%", "stop-color": STATUS.running, "stop-opacity": 0.7 }, grad);
-        svgEl("stop", { offset: "70%", "stop-color": STATUS.running, "stop-opacity": 0.15 }, grad);
+        svgEl("stop", { offset: "0%", "stop-color": STATUS.running, "stop-opacity": 0.35 }, grad);
+        svgEl("stop", { offset: "70%", "stop-color": STATUS.running, "stop-opacity": 0.1 }, grad);
         svgEl("stop", { offset: "100%", "stop-color": STATUS.running, "stop-opacity": 0 }, grad);
       } else {
         svgEl("stop", { offset: "0%", "stop-color": "#fff", "stop-opacity": 0 }, grad);
-        svgEl("stop", { offset: "10%", "stop-color": "#fff", "stop-opacity": 0.7 }, grad);
-        svgEl("stop", { offset: "90%", "stop-color": "#fff", "stop-opacity": 0.7 }, grad);
+        svgEl("stop", { offset: "10%", "stop-color": "#fff", "stop-opacity": 0.35 }, grad);
+        svgEl("stop", { offset: "90%", "stop-color": "#fff", "stop-opacity": 0.35 }, grad);
         svgEl("stop", { offset: "100%", "stop-color": "#fff", "stop-opacity": 0 }, grad);
       }
       svgEl("line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: `url(#${gid})`, "stroke-width": energy ? 1.7 : 1.3 }, layer);

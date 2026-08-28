@@ -358,7 +358,7 @@
             <span class="lens-name">工作流图</span>
             <span class="lens-count">{mapCounts.workflow}</span>
           </label>
-          <label class="lens-item" title="context 边界与 ADR（叠加视图显示簇壳/徽章/契约边）">
+          <label class="lens-item" title="context 边界（领域图勾选以星云显示簇壳；单独勾选 = 星体保留、无连线）">
             <input
               type="checkbox"
               class="lens-checkbox"

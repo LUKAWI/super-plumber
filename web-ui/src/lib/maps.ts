@@ -41,8 +41,9 @@ export function edgeMapsOf(edge: EdgeSchema, byId: Map<string, NodeSchema>): Map
 }
 
 /**
- * 边可见性规则（map 过滤架构核心约束）：
- * 一条边可见 ⇔ 它两端顶点所属的 map 全部被勾选。
+ * 边可见性规则（map 过滤架构核心约束；2026-08-28 修订）：
+ * 一条边可见 ⇔ 工作流图已勾选，且它两端顶点所属的 map 全部被勾选。
+ * 领域图单独勾选是"领域视图"（星体 + 星云，无连线），任何边都不画；
  * decides 边需要 workflow+domain 同时激活，天然只在叠加视图出现。
  */
 export function isEdgeVisibleInMaps(
@@ -50,6 +51,7 @@ export function isEdgeVisibleInMaps(
 	byId: Map<string, NodeSchema>,
 	active: ActiveMaps,
 ): boolean {
+	if (!active.workflow) return false;
 	return edgeMapsOf(edge, byId).every((k) => active[k]);
 }
 

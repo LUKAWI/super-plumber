@@ -18,7 +18,7 @@
     contextHullGroups,
     isContractEdge,
     isEdgeVisibleInMaps,
-    isNodeVisibleInMaps,
+    nodeMapOf,
   } from "../lib/maps";
 
   // Extend NodeSchema with D3 simulation properties
@@ -113,23 +113,21 @@
 
   const isOverlay = $derived(graphState.activeMaps.workflow && graphState.activeMaps.domain);
 
-  /** 当前透镜下可见顶点数（两个 map 都关 = 0 → 空视图提示） */
+  /** 当前透镜下可见星体数（两个 map 都关 = 0 → 空视图提示） */
   const lensVisibleCount = $derived.by(() => {
     const g = graphState.graph;
-    const m = graphState.activeMaps;
     if (!g) return 0;
-    return g.nodes.filter((n) => isNodeVisibleInMaps(n, m)).length;
+    return g.nodes.filter((n) => nodeRendered(n)).length;
   });
 
   // ── 过滤（map 透镜 + 层级 + 搜索）与 diff 着色的命中判断 ──
 
-  /** 顶点在当前透镜下是否以节点圆呈现：
-   *  workflow/domain 单独视图 → 所属 map 勾选即可见；
-   *  叠加视图 → context 由 hull 簇壳替代，节点圆隐藏（模拟仍参与以锚定 relates） */
+  /** 顶点在当前透镜下是否以星体呈现：
+   *  工作流星体：工作流图勾选即可见；领域图单独勾选时保留星体（领域视图 = 星体 + 星云，无连线）；
+   *  领域顶点（context/adr）：领域图勾选时由星云簇承载（云心/标签/虚线缘），不画星体 */
   function nodeRendered(n: NodeSchema): boolean {
-    if (!isNodeVisibleInMaps(n, graphState.activeMaps)) return false;
-    if (isOverlay && n.type === "context") return false;
-    return true;
+    if (nodeMapOf(n) === "domain") return false;
+    return graphState.activeMaps.workflow || graphState.activeMaps.domain;
   }
 
   function nodeMatchesFilters(n: NodeSchema): boolean {
@@ -195,10 +193,8 @@
   // 边视觉基线（2026-08-28 拍板：E1 渐隐星座线 + E3 running 能量流）
   // 两端渐隐由每边的 userSpaceOnUse 线性渐变承担（线本体 stroke-opacity 恒 1）；
   // 契约边虚线 + 中段略亮；running 源的出边走琥珀能量档（E3，与 flow dots 同源）
-  // 2026-08-28 排查（.edge-debug 像素采样实证）：fit 后 k≈0.6-0.9，1.5px 线缩到
-  // 0.9-1.35px 亚像素 + 渐变中段 0.75，整条 96px 边仅 ~98 个亮像素（峰值 61%）
-  // ——感知"隐约可见"；叠加 f8389b4 旧版参数（0.5/22-78）则峰值再打 68% 折即
-  // "完全不可见"。修复 = 渐变增亮（0.85/8-92）+ 线宽随缩放补偿（屏幕宽 base×√k）。
+  // 曾有"看不见线"的坑（渐变缺 id + fit 后亚像素摊薄）：修复 = 补 id + 线宽随缩放
+  // 补偿（屏幕宽 base×√k）；感官强度用户拍板 0.7 → 0.35（2026-08-28 再减半）。
   function edgeEnergy(e: SimEdge): boolean {
     const sid = edgeEndId(e.source);
     return currentNodes.find((n) => n.id === sid)?.status === "running";
@@ -234,12 +230,12 @@
       const g = d3.select(this);
       g.selectAll("stop").remove();
       if (edgeEnergy(d)) {
-        g.append("stop").attr("offset", "0%").attr("stop-color", STATUS_COLORS.running).attr("stop-opacity", 0.7);
-        g.append("stop").attr("offset", "65%").attr("stop-color", STATUS_COLORS.running).attr("stop-opacity", 0.2);
+        g.append("stop").attr("offset", "0%").attr("stop-color", STATUS_COLORS.running).attr("stop-opacity", 0.35);
+        g.append("stop").attr("offset", "65%").attr("stop-color", STATUS_COLORS.running).attr("stop-opacity", 0.1);
         g.append("stop").attr("offset", "100%").attr("stop-color", STATUS_COLORS.running).attr("stop-opacity", 0);
       } else {
-        // 中段 0.7 + 10%-90% 平台：结构可读、两端仍向星晕溶解（0.85/8-92 用户实测过重）
-        const mid = edgeIsContract(d) ? 0.78 : 0.7;
+        // 中段 0.35 + 10%-90% 平台：用户拍板再减半——线仅作结构提示，融于星空
+        const mid = edgeIsContract(d) ? 0.39 : 0.35;
         g.append("stop").attr("offset", "0%").attr("stop-color", "#ffffff").attr("stop-opacity", 0);
         g.append("stop").attr("offset", "10%").attr("stop-color", "#ffffff").attr("stop-opacity", mid);
         g.append("stop").attr("offset", "90%").attr("stop-color", "#ffffff").attr("stop-opacity", mid);
@@ -293,12 +289,12 @@
       .attr("stroke-dasharray", (d: SimEdge) => (edgeIsContract(d) ? "7 4" : null));
   }
 
-  // ── 叠加视图装饰：领域星云（ADR 徽章 2026-08-28 退役——图中不再设 ADR 文档入口）──
+  // ── 领域星云装饰（领域图勾选即渲染；叠加 = 星体+边+云，领域图单独 = 星体+云、无连线）──
 
-  /** 从模拟节点重建 hull 分组（渲染/数据变化时调用） */
+  /** 从模拟节点重建 hull 分组（渲染/数据变化时调用；ADR 徽章层 2026-08-28 退役） */
   function refreshOverlayDecorations() {
     if (!zoomGroup) return;
-    if (!isOverlay) {
+    if (!graphState.activeMaps.domain) {
       zoomGroup.selectAll(".hulls").remove();
       currentHulls = [];
       return;
@@ -403,7 +399,7 @@
 
   /** 每 tick 更新星云云体 / 云心 / 标签 */
   function updateHullsAndBadges() {
-    if (!zoomGroup || !isOverlay) return;
+    if (!zoomGroup || !graphState.activeMaps.domain) return;
     zoomGroup.selectAll<SVGGElement, HullRender>(".hulls g.hull").each(function (this: SVGGElement, h: HullRender) {
       const geom = cloudGeometry(h.members, HULL_PAD);
       const g = d3.select(this);
@@ -907,7 +903,7 @@
       .force("charge", d3.forceManyBody().strength(chargeStrength))
       .force("center", d3.forceCenter(w / 2, h / 2))
       .force("collision", d3.forceCollide<SimNode>().radius((d) => nodeR(d) + 8))
-      .force("ctxCluster", overlay ? contextClusterForce : null)
+      .force("ctxCluster", graphState.activeMaps.domain ? contextClusterForce : null)
       .alphaDecay(0.02);
 
     renderEdgeLayer(zoomGroup, edges);
@@ -1086,7 +1082,7 @@
     const { w, h } = getContainerSize();
     const t = computeFitTransform(
       currentNodes.filter(
-        (n) => isNodeVisibleInMaps(n, graphState.activeMaps) && n.x !== undefined && n.y !== undefined,
+        (n) => nodeRendered(n) && n.x !== undefined && n.y !== undefined,
       ) as { x: number; y: number }[],
       w,
       h,
@@ -1338,9 +1334,9 @@
       .transition().duration(prefersReducedMotion ? 0 : 450).ease(d3.easeCubicOut)
       .call(zoomBehavior.transform, d3.zoomIdentity.translate(w / 2, h / 2).scale(k).translate(-(node.x as number), -(node.y as number)));
   });
-  /** 叠加视图簇色图例（颜色必须有图例——v0.7 评审 P1：簇色不再无解释） */
+  /** 领域图簇色图例（颜色必须有图例——v0.7 评审 P1：簇色不再无解释；领域图勾选即展示） */
   const overlayLegend = $derived.by(() => {
-    if (!isOverlay) return [] as { id: string; color: string; label: string }[];
+    if (!graphState.activeMaps.domain) return [] as { id: string; color: string; label: string }[];
     const g = graphState.graph;
     if (!g) return [];
     const ids = g.nodes.filter((n) => n.type === "context").map((n) => n.id);
