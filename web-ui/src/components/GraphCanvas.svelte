@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import * as d3 from "d3";
+  import type { BaseType } from "d3";
   import { graphState } from "../lib/store.svelte";
   import { computeFitTransform } from "../lib/layout";
   import {
@@ -268,6 +269,11 @@
       .attr("stroke", (d: SimEdge) => `url(#${edgeGradId(d)})`)
       .attr("stroke-width", (d: SimEdge) => edgeWidthOf(d))
       .attr("stroke-opacity", 1);
+    sel.select<SVGLineElement>(".edge-hit")
+      .attr("stroke", "transparent")
+      .attr("stroke-width", 12)
+      .attr("stroke-opacity", 1)
+      .style("pointer-events", "stroke");
   }
 
   function edgeLabelOf(e: EdgeSchema): string {
@@ -373,12 +379,23 @@
     sel.exit().remove();
     const enter = sel.enter().append("g").attr("class", "hull");
     enter.append("circle").attr("class", "hull-cloud");
-    // 云心微尘点（context 顶点化身：云由谁而生可寻）
-    enter.append("circle").attr("class", "hull-core").attr("r", 2.6);
+    // 云缘透明命中环：星云云体放行空白点击（产品原则：空白点击=清除选中），
+    // context 的可点域收敛到云缘/云心/标签（2026-08-28 交互评审 F4）
+    enter.append("circle").attr("class", "hull-hit");
+    enter.append("circle").attr("class", "hull-core-hit");
+    // 云心微尘点（context 顶点化身：云由谁而生可寻）；2026-08-28 用户反馈
+    // 原点过小难认难点——放大云心，并补 hover/选中动效（core-hot/core-selected）
+    enter.append("circle").attr("class", "hull-core").attr("r", 4);
     enter.append("circle").attr("class", "hull-core-ring")
-      .attr("r", 5.2).attr("fill", "none").attr("stroke-width", 1).attr("stroke-opacity", 0.5);
+      .attr("r", 7.5).attr("fill", "none").attr("stroke-width", 1.2).attr("stroke-opacity", 0.55);
+    enter.append("circle").attr("class", "hull-core-sel")
+      .attr("r", 11).attr("fill", "none").attr("stroke", "#ffffff").attr("stroke-width", 1.5);
     enter.append("text").attr("class", "hull-label");
     const all = enter.merge(sel);
+    const selectContext = (_event: MouseEvent, h: HullRender) => {
+      const full = currentGraph?.nodes.find((n) => n.id === h.contextId);
+      if (full) graphState.selectNode(full);
+    };
     all.select(".hull-cloud")
       .attr("fill", (h) => `url(#neb-${h.contextId.replace(/[^a-zA-Z0-9_-]/g, "_")})`)
       // 淡虚线云缘：颜色之外需要轮廓区分领域（2026-08-28 用户拍板）
@@ -386,11 +403,36 @@
       .attr("stroke-opacity", 0.35)
       .attr("stroke-width", 1)
       .attr("stroke-dasharray", "4 4")
+      .style("pointer-events", "none");
+    all.select(".hull-hit")
+      .attr("fill", "none")
+      .attr("stroke", "transparent")
+      .attr("stroke-width", 14)
       .style("cursor", "pointer")
-      .on("click", (_event: MouseEvent, h: HullRender) => {
-        const full = currentGraph?.nodes.find((n) => n.id === h.contextId);
-        if (full) graphState.selectNode(full);
-      });
+      .style("pointer-events", "stroke")
+      .on("click", selectContext);
+    all.select(".hull-core-hit")
+      .attr("r", 12)
+      .attr("fill", "transparent")
+      .style("cursor", "pointer")
+      .style("pointer-events", "all")
+      // 键盘可达：Tab 分组循环中的 context 组（焦点视觉走 core-hot，与 hover 同语言）
+      .attr("tabindex", 0)
+      .attr("role", "button")
+      .attr("aria-label", (h) => `${h.label}（context）`)
+      .on("focus", function (this: BaseType) {
+        d3.select((this as Element).parentNode as SVGGElement).classed("core-hot", true);
+      })
+      .on("blur", function (this: BaseType) {
+        d3.select((this as Element).parentNode as SVGGElement).classed("core-hot", false);
+      })
+      .on("mouseenter", function (this: BaseType) {
+        d3.select((this as Element).parentNode as SVGGElement).classed("core-hot", true);
+      })
+      .on("mouseleave", function (this: BaseType) {
+        d3.select((this as Element).parentNode as SVGGElement).classed("core-hot", false);
+      })
+      .on("click", selectContext);
     all.select(".hull-core")
       .attr("fill", (h) => h.color)
       .attr("fill-opacity", 0.95)
@@ -398,6 +440,9 @@
     all.select(".hull-core-ring")
       .attr("stroke", (h) => h.color)
       .style("pointer-events", "none");
+    all.select(".hull-core-sel").style("pointer-events", "none");
+    // 选中态随渲染落位（选择变化由下方 $effect 增量切换）
+    all.classed("core-selected", (h) => graphState.selectedNode?.id === h.contextId);
     all.select(".hull-label")
       .text((h) => `${h.label} · ${h.members.length}`)
       .attr("text-anchor", "middle")
@@ -409,8 +454,44 @@
       .attr("stroke", "#000000")
       .attr("stroke-width", "3px")
       .attr("stroke-linejoin", "round")
-      .style("pointer-events", "none")
-      .style("user-select", "none");
+      .style("cursor", "pointer")
+      .style("user-select", "none")
+      .on("click", selectContext);
+  }
+
+  // 选中 context = 云心亮白环（与节点选中白描边同语言）；渲染后选择变化走这里
+  $effect(() => {
+    const selId = graphState.selectedNode?.id;
+    zoomGroup?.selectAll<SVGGElement, HullRender>("g.hull")
+      .classed("core-selected", (h) => h.contextId === selId);
+  });
+
+  /** Tab 分组循环（2026-08-28 用户反馈）：星体只在星体间循环、context 云心只在云心间循环，
+   *  不再落到页面其它控件/浏览器 UI；Shift+Tab 逆序。Enter/Space 选中聚焦的云心。 */
+  function canvasKeydown(e: KeyboardEvent) {
+    const active = document.activeElement as HTMLElement | null;
+    if (!active) return;
+    if (e.key === "Enter" || e.key === " ") {
+      if (active?.classList.contains("hull-core-hit")) {
+        e.preventDefault();
+        const h = d3.select(active.parentNode as SVGGElement).datum() as HullRender;
+        const full = currentGraph?.nodes.find((n) => n.id === h.contextId);
+        if (full) graphState.selectNode(full);
+      }
+      return;
+    }
+    if (e.key !== "Tab") return;
+    const isNode = active?.classList.contains("node");
+    const isCore = active?.classList.contains("hull-core-hit");
+    if (!isNode && !isCore) return; // 焦点不在画布交互元素上：走原生
+    e.preventDefault();
+    const group = isNode
+      ? Array.from(wrapperEl?.querySelectorAll<HTMLElement>("g.node:not(.map-hidden):not(.dimmed)") ?? [])
+      : Array.from(wrapperEl?.querySelectorAll<HTMLElement>(".hull-core-hit") ?? []);
+    if (group.length === 0) return;
+    const idx = group.indexOf(active);
+    const next = group[(idx + (e.shiftKey ? -1 : 1) + group.length) % group.length];
+    next?.focus();
   }
 
   /** 每 tick 更新星云云体 / 云心 / 标签 */
@@ -425,8 +506,11 @@
       }
       g.attr("display", null);
       g.select(".hull-cloud").attr("cx", geom.cx).attr("cy", geom.cy).attr("r", geom.r);
+      g.select(".hull-hit").attr("cx", geom.cx).attr("cy", geom.cy).attr("r", geom.r);
+      g.select(".hull-core-hit").attr("cx", geom.cx).attr("cy", geom.cy);
       g.select(".hull-core").attr("cx", geom.cx).attr("cy", geom.cy);
       g.select(".hull-core-ring").attr("cx", geom.cx).attr("cy", geom.cy);
+      g.select(".hull-core-sel").attr("cx", geom.cx).attr("cy", geom.cy);
       g.select(".hull-label").attr("x", geom.cx).attr("y", geom.cy - geom.r - 6);
     });
   }
@@ -462,6 +546,8 @@
       .attr("gradientUnits", "userSpaceOnUse")
       .attr("x1", 0).attr("y1", 0).attr("x2", 0).attr("y2", 0);
     enter.append("line").attr("class", "edge-line");
+    // 透明加宽命中线：可见线仅 1.5px 极难点中（评审 F5），命中域扩到 12 个图形单位
+    enter.append("line").attr("class", "edge-hit");
     enter.append("text").attr("class", "edge-label");
 
     const all = enter.merge(link);
@@ -948,6 +1034,8 @@
         const ty = (typeof d.target === "object" ? (d.target as SimNode).y : 0) ?? 0;
         d3.select(this).select(".edge-line")
           .attr("x1", sx).attr("y1", sy).attr("x2", tx).attr("y2", ty);
+        d3.select(this).select(".edge-hit")
+          .attr("x1", sx).attr("y1", sy).attr("x2", tx).attr("y2", ty);
         // E1：渐隐方向必须随端点逐帧同步（userSpaceOnUse 坐标）
         d3.select(this).select("linearGradient.edge-grad")
           .attr("x1", sx).attr("y1", sy).attr("x2", tx).attr("y2", ty);
@@ -1365,7 +1453,9 @@
   });
 </script>
 
-<div bind:this={wrapperEl} class="canvas-wrapper">
+<!-- 键盘分组循环的冒泡容器（可交互焦点都在内部 SVG/子弹层上，容器自身不可聚焦） -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div bind:this={wrapperEl} class="canvas-wrapper" onkeydown={canvasKeydown}>
   <!-- 银河带 + 微尘：屏幕固定层（不随缩放平移，缩放 4× 不穿帮；氛围预算 ≤0.05 alpha） -->
   <div class="sky-bg" aria-hidden="true">
     <div class="sky-band"></div>
@@ -1494,7 +1584,7 @@
     letter-spacing: var(--track-label);
   }
 
-  /* 空透镜提示（字体/字距由后方 .lens-empty 块统一为 sans） */
+  /* 画布空态提示：玻璃面板，z 高于画布 SVG（z1）——否则点击全被缩放层截走 */
   .lens-empty {
     position: absolute;
     left: 50%;
@@ -1502,11 +1592,15 @@
     transform: translate(-50%, -50%);
     font-size: var(--text-sm);
     color: var(--ink-muted);
-    background: var(--surface-2);
-    border: 1px solid var(--line);
-    border-radius: var(--r);
-    padding: var(--sp-3) var(--sp-4);
+    background: var(--glass-strong);
+    -webkit-backdrop-filter: var(--blur-panel);
+    backdrop-filter: var(--blur-panel);
+    border: 1px solid var(--glass-line);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-float);
+    padding: var(--sp-4) var(--sp-5);
     pointer-events: none;
+    z-index: 5;
   }
 
   /* map 过滤：非本透镜顶点/边整体隐藏（display，而非淡化） */
@@ -1682,23 +1776,31 @@
       .nodes g.node .star-spikes {
         transition: none;
       }
+      .graph-canvas :global(g.hull .hull-core),
+      .graph-canvas :global(g.hull .hull-core-ring),
+      .graph-canvas :global(g.hull .hull-core-sel) {
+        transition: none;
+      }
       .sky-dust .dust-tw {
         animation: none;
       }
     }
   }
 
-  /* 簇色图例（叠加视图，工具轨右侧：轨是不透明 z=10，图例必须让位） */
+  /* 簇色图例（叠加视图，浮动 dock 右侧：玻璃胶囊，永不与右缘抽屉重叠） */
   .ctx-legend {
     position: absolute;
-    left: calc(var(--rail-w) + var(--sp-3));
-    bottom: var(--sp-3);
+    left: calc(var(--rail-w) + 20px);
+    bottom: var(--sp-4);
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    background: color-mix(in srgb, var(--bg-chrome) 82%, transparent);
-    border: 1px solid var(--line);
+    gap: 3px;
+    background: var(--glass);
+    -webkit-backdrop-filter: var(--blur-panel);
+    backdrop-filter: var(--blur-panel);
+    border: 1px solid var(--glass-line);
     border-radius: var(--r);
+    box-shadow: var(--shadow-float);
     padding: var(--sp-2) var(--sp-3);
     max-width: 220px;
     pointer-events: none;
@@ -1732,9 +1834,12 @@
     display: flex;
     align-items: center;
     gap: var(--sp-2);
-    background: var(--surface-1);
-    border: 1px solid var(--line-strong);
+    background: var(--glass);
+    -webkit-backdrop-filter: var(--blur-panel);
+    backdrop-filter: var(--blur-panel);
+    border: 1px solid var(--glass-line);
     border-radius: 999px;
+    box-shadow: var(--shadow-float);
     padding: var(--sp-1) var(--sp-3);
     font-size: var(--text-2xs);
     color: var(--ink);
@@ -1772,29 +1877,32 @@
 
   /* 空态里的清除按钮 */
   .lens-empty-clear {
-    background: transparent;
+    background: var(--wash-2);
     border: 1px solid var(--line-strong);
-    border-radius: var(--r-sm);
-    color: var(--ink-muted);
+    border-radius: 999px;
+    color: var(--ink);
     font-family: var(--font-sans);
     font-size: var(--text-2xs);
-    padding: 2px var(--sp-2);
+    font-weight: 600;
+    padding: 5px var(--sp-4);
     cursor: pointer;
-    transition: color 0.13s var(--ease-out-quart), border-color 0.13s var(--ease-out-quart);
+    transition: background 0.13s var(--ease-out-quart), border-color 0.13s var(--ease-out-quart);
   }
 
   .lens-empty-clear:hover {
-    color: var(--ink);
-    border-color: var(--ink-faint);
+    background: var(--wash-3);
   }
 
   .lens-empty {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: var(--sp-2);
+    gap: var(--sp-3);
     font-family: var(--font-sans);
     letter-spacing: normal;
+    text-align: center;
+    max-width: 320px;
+    line-height: 1.6;
   }
 
   /* 空态容器 pointer-events:none 不穿透到恢复出口按钮 */
@@ -1804,17 +1912,19 @@
 
   .zoom-hint {
     position: absolute;
-    bottom: var(--sp-2);
+    bottom: var(--sp-4);
     left: 50%;
     transform: translateX(-50%);
     font-family: var(--font-sans);
     font-size: var(--text-2xs);
     color: var(--ink-faint);
     pointer-events: none;
-    background: color-mix(in srgb, var(--bg-chrome) 85%, transparent);
+    background: var(--glass);
+    -webkit-backdrop-filter: var(--blur-panel);
+    backdrop-filter: var(--blur-panel);
     padding: var(--sp-1) var(--sp-3);
-    border-radius: var(--r);
-    border: 1px solid var(--line);
+    border-radius: 999px;
+    border: 1px solid var(--glass-line);
     z-index: 5;
     letter-spacing: 0.02em;
     transition: color 0.2s var(--ease-out-quart);
@@ -1840,12 +1950,48 @@
     outline: none;
   }
 
-  @media (max-width: 768px) {
+  /* 云心 hover/选中动效（d3 生成 DOM → :global）：
+     hover 云心微涨 + 同色环提亮；选中套白色实心环（与节点选中白描边同语言） */
+  .graph-canvas :global(g.hull .hull-core),
+  .graph-canvas :global(g.hull .hull-core-ring),
+  .graph-canvas :global(g.hull .hull-core-sel) {
+    transform-box: fill-box;
+    transform-origin: center;
+    transition: transform 0.15s var(--ease-out-quart), stroke-opacity 0.15s var(--ease-out-quart),
+      opacity 0.15s var(--ease-out-quart);
+  }
+
+  .graph-canvas :global(g.hull .hull-core-sel) {
+    opacity: 0;
+  }
+
+  .graph-canvas :global(g.hull.core-hot .hull-core) {
+    transform: scale(1.25);
+  }
+
+  .graph-canvas :global(g.hull.core-hot .hull-core-ring) {
+    transform: scale(1.3);
+    stroke-opacity: 0.95;
+  }
+
+  .graph-canvas :global(g.hull.core-selected .hull-core-sel) {
+    opacity: 0.95;
+  }
+
+  .graph-canvas :global(g.hull.core-selected.core-hot .hull-core-sel) {
+    transform: scale(1.12);
+  }
+
+  @media (max-width: 1000px) {
+    /* 窄屏下底部提示条与左下图例同泊位：提示条是桌面 affordance，直接让位 */
     .zoom-hint { display: none; }
+  }
+
+  @media (max-width: 768px) {
     .ctx-legend {
       max-width: 150px;
       left: var(--sp-2);
-      bottom: calc(52px + var(--sp-2));
+      bottom: calc(56px + 20px);
     }
   }
 

@@ -1,11 +1,11 @@
-# Super Plumber 🚰 — AI Agent工作流拓扑图管理工具
+# Super Plumber 🚰 — 让 AI agent 按拓扑图干活的工具
 
-> 把"任务文档"变成 **agent 能原生理解的拓扑图**：节点是任务、边是依赖、状态机管生命周期。
-> 一条命令装好，CLI / MCP / Web UI 三层访问，纯 YAML 文件存储（无数据库、无服务端）。
+> 把"任务文档"变成 **agent 能原生理解的拓扑图**：节点是带计划与验收标准的压缩包、边是类型化依赖、
+> 状态机管生命周期。CLI / MCP / 星空可视化 Web UI 三层访问，纯 YAML 文件存储——无数据库、无服务端，
+> Git 就是版本控制。
 
 [![npm version](https://img.shields.io/npm/v/@lukawi/super-plumber)](https://www.npmjs.com/package/@lukawi/super-plumber)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-504%2F504-green)](https://github.com/LUKAWI/super-plumber/actions)
 [![GitHub](https://img.shields.io/badge/GitHub-LUKAWI%2Fsuper--plumber-black)](https://github.com/LUKAWI/super-plumber)
 
 **English:** [README.en.md](README.en.md) · **npm:** [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)
@@ -25,8 +25,42 @@ todo: "做个注册模块"            →     entry → l1_register → l1_login
                                       ↳ 每个状态 = 状态机强制流转（不能跳步）
 ```
 
-- **对人类**：一目了然的结构、实时可视化的 Web UI、可提交进 Git 的纯文本文件
-- **对 AI agent**：通过 MCP 直接读图、认领任务、上报进度——每个节点是一个"压缩包"（计划 + 检查点 + 交接单），agent 不需要猜
+- **对人类**：一目了然的结构、挂屏级的星空可视化、可提交进 Git 的纯文本文件
+- **对 AI agent**：通过 MCP 直接读图、认领任务、上报进度——每个节点是一个"压缩包"，agent 不需要猜
+
+---
+
+## 它与众不同在哪里？
+
+市面上不缺任务管理工具，缺的是**给 agent 用的工作流底座**。Super Plumber 的差异点：
+
+**① 结构优先，不是又一朵 Markdown 云**
+Todo 工具给 agent 的是文本，它得猜顺序、猜验收。这里给的是受 schema 约束的图——依赖参与拓扑排序、
+`ready` 门禁拦截跳步、`passed` 硬门禁拒绝没有交接单的"我做完了"。agent 想糊弄？状态机先不答应。
+
+**② Agent 是一等用户，人是监督者**
+24 个 MCP 工具覆盖设计→执行→裁决全流程：原子认领（并发只有一个成功）、checkpoint 逐步上报、
+交接单（summary + artifacts）落盘、死认领回收、审计日志逐条可追查。读接口全面分页——
+大图不再撑爆 agent 的上下文窗口。
+
+**③ 独此一家的星空监控台**
+`graph serve` 打开不是又一格仪表盘，而是一片**可以挂屏盯一下午的星空**：每个任务是八向棱星、
+状态色贴芒呼吸、running 的能量沿边流动、领域是星云、银河带横贯背景。专注模式下 chrome 全部退场——
+左上角扫一眼，哪个任务在跑、哪些卡住，一目了然。
+
+**④ 领域建模是一等公民，不是注释**
+bounded context 是图里的顶点（边界 + 术语表，节点即文档），ADR 是带三态机的决策顶点——
+废弃必带接替者，决策变更沿 decides 边自动传播成"决策依据已过时 ⚠️"警告。`graph export --docs`
+从图反向生成领域文档——图是真相源，文档是视图。
+
+**⑤ 多 agent 裁决协议开箱即用**
+`sp-designer`（拓扑设计）与 `super-mario`（裁决主控）双 subagent + 两阶段 skill：设计期有审核硬门禁，
+执行期有三层验收（状态全绿 + 结构校验 + 成果对照验收标准）。单人单会话？solo 裁决边界有成文规则
+——机械核算可自裁，裁量必须留人。
+
+**⑥ 纯文件，Git 就是版本控制**
+一个节点一个 YAML，无数据库无服务端。快照/对比/回滚三原语 + append-only 审计日志，
+branch/merge 直接交给 Git。
 
 ---
 
@@ -34,6 +68,7 @@ todo: "做个注册模块"            →     entry → l1_register → l1_login
 
 | 能力 | 说明 |
 |------|------|
+| 🌌 **星空可视化（v0.7.0 深空仪器舱）** | 星空画布 + 玻璃 chrome：单排仪器条、浮动玻璃 dock、图库弹层、右缘统一详情抽屉、专注模式挂屏；详见 [Web UI](#web-ui星空观测台svelte-5--d3js) |
 | 🗂️ **多图工作区（v0.5.2）** | 一个 `.graph/` 管多张命名图：类 git branch 的 `graph switch`（工作区默认 + MCP 进程内 active 双层语义）、`graph init <内容名>`/`list`/`rename-graph`/`delete-graph`（.trash 软删除）、全部命令支持 `--graph` 参数与 `SUPER_PLUMBER_GRAPH`；旧仓库零迁移兼容（建第二图时锁内一次性迁移）；每图独立锁/索引/事件/快照 |
 | 🧭 **类型化拓扑** | 9 种边类型：`depends_on` / `validates` 参与拓扑排序，`shares_context` / `fan_out` / `fan_in` / `fallback` / `iterates` 表达运行时控制流，`decides` / `relates`（v0.5）承载领域知识边 |
 | 🏛️ **领域语义（v0.5）** | **bounded context 与 ADR 是图中一等公民**：context 顶点"节点即文档"（boundary+术语表 glossary），节点归属（`--context`）派生工作流/领域两张 map；**ADR 三态机** proposed→accepted→superseded（废弃必带接替者、提议/裁决分离）；`graph adr` 命令组 + MCP `graph_create_adr`；决策变更沿 decides 边传播（claim 注入 `governing_adrs` 指针、调度条目打 `adr_flags` ⚠️）；跨 context 工作流边为契约边（必填 contract）；`graph export --docs` 导出 docs/adr + CONTEXT-MAP.md + 各 CONTEXT.md（图为真相源，md 是视图） |
@@ -45,7 +80,6 @@ todo: "做个注册模块"            →     entry → l1_register → l1_login
 | 🎯 **调度决策** | `graph next` / `graph_get_next_actions` 一屏返回可认领 / **可转 ready（ready_eligible，冷启动入口）** / 等依赖 / 执行中 / 疑似卡住，每桶分页 + truncated 标记，ready/ready_eligible 按节点 `priority` 排序，stale 判据=最后活动时间（上报即心跳），条目可含 `adr_flags`（决策依据已过时 ⚠️），知识顶点永不进调度桶，agent 规划循环首选 |
 | 📉 **上下文经济** | MCP 读接口全面分页：`graph_get_graph` 默认 summary 模式（紧凑字段）+ full 分页、`graph_search` limit、`graph_traverse` max_nodes、`graph_get_node` 可附拓扑邻居——大图不再 token 爆炸；ADR 只注入标题级指针，永不全文推送 |
 | ⚡ **大图热路径** | 索引两级缓存（内存 + 磁盘 graph.json）：门禁/调度从"每次全图扫描"（10k 图 ~9s）降为查表 + 单文件读；调度 O(N+M)；**写路径主动失效缓存**（不赌文件系统 mtime，长驻进程写后读一致） |
-| 🌐 **Web 可视化** | 力导向图 + 边类型着色 + running 光点流动 + checkpoint 进度条 + 执行报告面板 + 层级过滤/搜索 + 版本 diff 视图，WebSocket 增量推送 + 断线自动重连；**v0.5 map 透镜**：左侧勾选工作流图/领域图任意子集——领域视图（context+relates+术语详情）、叠加视图（簇壳包裹成员、ADR 徽章、契约边高亮），UI 保持纯只读 |
 | 📁 **纯文件存储** | 每个节点/边一个 YAML 文件，Git 是唯一真相源，人类可直接编辑，无数据库 |
 | 🧩 **agent 协作协议** | 内置 `plumber-design`（拓扑设计+领域建模+ADR 甄别+预览审核闸门）与 `plumber-execute`（拓扑执行+三层验收+管辖 ADR 纪律）双阶段 skill + 2 个专用 subagent（拆解 / 裁决） |
 
@@ -78,7 +112,7 @@ npm install -g @lukawi/super-plumber
 ### 2. 验证安装
 
 ```bash
-graph --version     # 输出 0.6.0 即成功
+graph --version     # 输出版本号即成功
 graph --help        # 查看全部 27 个命令
 which graph         # 确认命令位置（Windows: where graph）
 ```
@@ -259,7 +293,7 @@ node $SCRIPTS/sp-report.mjs l1_register "注册功能完成" "dist/register.js,t
 
 ```bash
 graph export --mermaid -o flow.mmd    # 导出 Mermaid 流程图（知识顶点形状/配色 + 边样式区分，文件头含 entry/exit 与图例）
-graph serve                           # 打开 http://localhost:8934 看力导向图
+graph serve                           # 打开 http://localhost:8934 看星空拓扑
 ```
 
 ---
@@ -433,22 +467,25 @@ npm install -g @lukawi/super-plumber
 
 ---
 
-## Web UI（Svelte 5 + D3.js）
+## Web UI（星空观测台，Svelte 5 + D3.js）
 
 ```bash
 graph serve
 # 自动打开默认浏览器访问 http://localhost:8934；CI/无头环境用 `graph serve --no-open`
 ```
 
-- **力导向图**：缩放 / 平移 / 适应视图（修复版）/ 固定布局开关，按节点状态着色
-- **map 透镜（v0.5）**：左侧勾选**工作流图 / 领域图**任意子集——单独看任一张是一等能力；领域视图只渲染 context 顶点 + relates 边，点开 context 显示边界与全部术语（节点即文档）；**叠加视图**：context 呈现为 D3 簇壳（cluster hull）空间包裹成员节点 + 着色，ADR 渲染为附着徽章，跨 context 契约边高亮；边可见 ⇔ 两端顶点所属 map 都勾选（decides 边天然只在叠加视图出现）；**UI 保持纯只读**（裁决走 Super Mario/人类通道）
-- **边类型可视化**：9 种边类型不同颜色，悬停高亮，**点击边查看语义与合约**（decides/relates 含领域语义说明）
-- **光点流动**：`running` 节点的下游边有光点沿边流动（"血管"隐喻）
-- **checkpoint 进度条**：节点下方展示子步骤完成进度；详情面板含**执行报告（交接单 + 裁决徽标）**
-- **执行者标签**：`running` 节点旁显示 `assigned_to`
-- **分层钻取与搜索**：L0–L5 层级 chips 高亮过滤 + id/label 搜索 + 状态摘要条
-- **版本 diff 视图**：快照列表 → 画布上新增（绿）/ 删除（红）/ 修改（黄）着色 + 状态变化明细
-- **WebSocket 增量推送**：节点变更推送 `node:updated` 增量（非全量重推）；边变更只更新边层不重排布局；**断线指数退避自动重连**（HTTP 兜底刷新）
+一片挂在开发者屏幕上的**星空**：每个任务是八向棱星，状态色贴芒呼吸，领域是星云，银河带横贯背景。chrome 是悬浮其上的磨砂仪器玻璃——这就是 v0.7.0 的「深空仪器舱」设计。
+
+- **星空画布**：V4 八向棱星（白炽主芒 + 色差残像）+ 状态贴芒 halo + 闪烁相位按 id 哈希；`running` 节点呼吸 + 下游边琥珀能量流；边两端渐隐溶入星晕，契约边虚线区分；银河带与微尘是屏幕固定氛围层
+- **map 透镜**：dock 勾选**工作流图 / 领域图**任意子集——叠加视图（星体 + 按上下文着色的星云 + 契约边虚线）、单独领域视图（星体 + 星云、无连线）；星云配色必配左下**簇色图例**
+- **单排仪器条**：品牌 + 状态过滤（计数即图例，点击即过滤）+ 层级 + 搜索 + n/e 统计一条不叠栏；**计数所见即所计**（只数画布上真实存在的工作流星体与可渲染边）
+- **浮动玻璃 dock**：图库（切图弹层）/ 决策文档（ADR 目录弹层：三态点色、superseded 划线 + 接替链）/ map 透镜 / 版本对比 / 缩放×3 / 固定布局 / 专注模式；Tab 在 dock 内循环
+- **统一详情抽屉**：点星体/边/context 云心/ADR 目录项，右侧浮起同一玻璃抽屉——节点（计划/完成标准/检查点/执行报告，全 Markdown 渲染）、上下文（边界/术语表/成员，节点即文档）、决策文档（决策/背景/备选/理由/后果 + 管辖范围双向跳转 + 接替链）、边（语义/端点/契约）；**面板互斥**，Esc 逐层退出
+- **版本对比**：dock 打开快照列表 → 选中即在画布上以形状编码新增/删除/修改（加粗实线/虚线/点划线，不劫持状态色）+ 顶部对比模式徽章 + 逐文件/逐状态差异明细
+- **专注模式**：chrome 全部退场，纯黑星空 + running 呼吸 + 能量流——挂屏盯一下午的形态；右下角常驻退出钮（Esc 同效）
+- **键盘完整可达**：星体/云心 Tab 分组循环（星体在星体间、云心在云心间、dock 在 dock 内）、Enter/Space 选中、Esc 按 面板→对比→专注→浮层 逐层退出、搜索 Enter 定位、`0` 适配全图；focus 焦点环全链路可见
+- **所见即所计与纯只读**：状态七色是画布唯一彩色语义；UI 不发任何写命令（裁决走 CLI/MCP 人类通道）；WebSocket 增量推送 + 断线指数退避自动重连
+- **无障碍**：正文对比度 ≥ AA、prefers-reduced-motion 全链路降级（呼吸/流点/入场动画全停）
 
 ---
 
@@ -537,7 +574,7 @@ cd super-plumber
 npm install
 npm run build && npm --prefix web-ui run build
 
-# 测试（504 个用例：状态机/拓扑/CLI/MCP 协议/多图迁移与性能/并发加固/转义）
+# 测试（后端 534 例 + 前端 68 例：状态机/拓扑/CLI/MCP 协议/多图迁移与性能/并发加固/转义/渲染冒烟）
 npm test
 
 # 本地链接全局（开发调试用）
@@ -576,7 +613,7 @@ graph --version
 ## 项目状态
 
 ```text
-Tests: 504（后端）+ 54（前端）✅ | CLI: 27 命令 | MCP: 24 工具 | 状态机: 7 态 + ready 门禁 + max_attempts + passed 硬门禁 + 事件日志审计 + ADR 三态机（知识顶点豁免） | 边类型: 9 种 | 版本控制: snapshot/diff/rollback（含 design-only）| Web UI: Svelte 5 + D3.js（map 透镜）
+Tests: 534（后端）+ 68（前端）✅ | CLI: 27 命令 | MCP: 24 工具 | 状态机: 7 态 + ready 门禁 + max_attempts + passed 硬门禁 + 事件日志审计 + ADR 三态机（知识顶点豁免） | 边类型: 9 种 | 版本控制: snapshot/diff/rollback（含 design-only）| Web UI: Svelte 5 + D3.js 星空观测台（v0.7.0 深空仪器舱）
 ```
 
 - **npm**: [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)

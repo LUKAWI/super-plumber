@@ -8,6 +8,7 @@
   } from "../lib/types";
   import { adrFlagsFor } from "../lib/maps";
   import Markdown from "../lib/components/Markdown.svelte";
+  import DetailDrawer from "../lib/components/DetailDrawer.svelte";
 
   let visible = $state(false);
   let prevId: string | undefined;
@@ -47,122 +48,232 @@
     return m[status] ?? "cp-pending";
   }
 
-  // v0.5：context 顶点以文档形态呈现；adr 顶点不进模拟（无入口，2026-08-28）
-  const isContext = $derived(graphState.selectedNode?.type === "context");
+  const node = $derived(graphState.selectedNode);
+  // v0.5：知识顶点以文档形态呈现（context=边界/术语，adr=决策文档）
+  const isContext = $derived(node?.type === "context");
+  const isAdr = $derived(node?.type === "adr");
 
   // adr_flags：superseded ADR 沿 decides 边传播的"决策依据已过时"警告（客户端预计算，纯只读展示）
   const adrFlags = $derived.by(() => {
     const g = graphState.graph;
-    const n = graphState.selectedNode;
-    if (!g || !n) return [] as string[];
-    return adrFlagsFor(g.nodes, g.edges).get(n.id) ?? [];
+    if (!g || !node) return [] as string[];
+    return adrFlagsFor(g.nodes, g.edges).get(node.id) ?? [];
   });
 
   // context 成员（归属该上下文的工作流节点）
   const contextMembers = $derived.by(() => {
     const g = graphState.graph;
-    const n = graphState.selectedNode;
-    if (!g || !n || n.type !== "context") return [] as NodeSchema[];
-    return g.nodes.filter((m) => m.context === n.id && !isKnowledgeType(m.type));
+    if (!g || !node || node.type !== "context") return [] as NodeSchema[];
+    return g.nodes.filter((m) => m.context === node.id && !isKnowledgeType(m.type));
   });
+
+  /** 管辖决策：decides 打到本节点（或本节点所属 context）的 ADR —— 从详情页可跳转 */
+  const linkedAdrs = $derived.by(() => {
+    const g = graphState.graph;
+    if (!g || !node) return [] as NodeSchema[];
+    const out: NodeSchema[] = [];
+    for (const e of g.edges) {
+      if (e.type !== "decides") continue;
+      const src = g.nodes.find((x) => x.id === e.source);
+      if (!src || src.type !== "adr") continue;
+      if (e.target === node.id || (node.context && e.target === node.context)) out.push(src);
+    }
+    return out;
+  });
+
+  /** 决策文档的管辖范围：decides 边的落点（工作流节点或 context 簇） */
+  const governedTargets = $derived.by(() => {
+    const g = graphState.graph;
+    if (!g || !node || node.type !== "adr") return [] as NodeSchema[];
+    return g.edges
+      .filter((e) => e.type === "decides" && e.source === node.id)
+      .map((e) => g.nodes.find((x) => x.id === e.target))
+      .filter((x): x is NodeSchema => !!x);
+  });
+
+  /** 接替链：superseded ADR 的接替者实体（可跳转） */
+  const supersededBy = $derived.by(() => {
+    const g = graphState.graph;
+    if (!g || !node || node.type !== "adr" || !node.superseded_by) return null;
+    return g.nodes.find((x) => x.id === node.superseded_by) ?? null;
+  });
+
+  function jumpTo(target: NodeSchema) {
+    graphState.selectNode(target);
+  }
 </script>
 
-{#if graphState.selectedNode && graphState.selectedNode.type !== "adr"}
-  <div class="detail-panel" class:visible>
-    <div class="panel-header">
-      <span class="panel-title">{isContext ? "上下文详情" : "节点详情"}</span>
-      <span class="panel-kbd">Esc 关闭</span>
-      <button class="close-btn" onclick={() => graphState.selectNode(null)} aria-label="关闭">
-        <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-          <path d="M3.5 3.5l8 8M11.5 3.5l-8 8" stroke-linecap="round"/>
-        </svg>
-      </button>
+{#if node}
+  <DetailDrawer
+    title={isAdr ? "决策文档" : isContext ? "上下文详情" : "节点详情"}
+    open={visible}
+    onclose={() => graphState.selectNode(null)}
+  >
+    <h2 class="entity-title">{node.label}</h2>
+
+    <!-- meta chips：context 是知识顶点，无工作流生命周期，不显示假状态 -->
+    <div class="meta-grid">
+      <span class="meta-tag id-tag">{node.id}</span>
+      <span class="meta-tag">{node.type}</span>
+      <span class="meta-tag">L{node.level}</span>
+      {#if !isContext}
+        <span class="meta-tag status-tag"
+          style="border-color: {statusColorOf(node.status)}">
+          <span class="status-dot" style="background: {statusColorOf(node.status)}"></span>
+          {node.status}
+        </span>
+      {/if}
+      {#if node.assigned_to}
+        <span class="meta-tag">{node.assigned_to}</span>
+      {/if}
     </div>
 
-    <div class="panel-body">
-      <h2 class="node-label">{graphState.selectedNode.label}</h2>
-
-      <!-- Meta tags -->
-      <div class="meta-grid">
-        <span class="meta-tag id-tag">{graphState.selectedNode.id}</span>
-        <span class="meta-tag type-tag">{graphState.selectedNode.type}</span>
-        <span class="meta-tag level-tag">L{graphState.selectedNode.level}</span>
-        <span class="meta-tag status-tag"
-          style="border-color: {statusColorOf(graphState.selectedNode.status)}">
-          <span class="status-dot" style="background: {statusColorOf(graphState.selectedNode.status)}"></span>
-          {graphState.selectedNode.status}
-        </span>
-        {#if graphState.selectedNode.assigned_to}
-          <span class="meta-tag assign-tag">{graphState.selectedNode.assigned_to}</span>
-        {/if}
+    <!-- adr_flags：superseded ADR 沿 decides 边传播的"决策依据已过时"警告 -->
+    {#if adrFlags.length > 0}
+      <div class="adr-flags" role="alert">
+        {#each adrFlags as f}
+          <p class="adr-flag-item">
+            <svg class="flag-icon" width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+              <path d="M6.5 1.5 12 11H1L6.5 1.5ZM6.5 5v3M6.5 9.6v.8" stroke-linejoin="round"/>
+            </svg>
+            {f}
+          </p>
+        {/each}
       </div>
+    {/if}
 
-      <!-- adr_flags：superseded ADR 沿 decides 边传播的"决策依据已过时"警告 -->
-      {#if adrFlags.length > 0}
+    {#if isAdr}
+      <!-- 决策文档：decision 必填，其余四节选填 -->
+      {#if node.status === "superseded"}
         <div class="adr-flags" role="alert">
-          {#each adrFlags as f}
-            <p class="adr-flag-item">
-              <svg class="flag-icon" width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
-                <path d="M6.5 1.5 12 11H1L6.5 1.5ZM6.5 5v3M6.5 9.6v.8" stroke-linejoin="round"/>
-              </svg>
-              {f}
-            </p>
-          {/each}
+          <p class="adr-flag-item">
+            <svg class="flag-icon" width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+              <path d="M6.5 1.5 12 11H1L6.5 1.5ZM6.5 5v3M6.5 9.6v.8" stroke-linejoin="round"/>
+            </svg>
+            已被接替：
+            {#if supersededBy}
+              <button class="chain-link" onclick={() => jumpTo(supersededBy)}>{supersededBy.label ?? supersededBy.id}</button>
+            {:else}
+              {node.superseded_by}
+            {/if}
+          </p>
         </div>
       {/if}
-
-      <!-- context 顶点：节点即文档（boundary 全文 + glossary 全部术语 + 成员清单） -->
-      {#if isContext}
-        {#if graphState.selectedNode.boundary}
-          <section class="section">
-            <h3 class="section-title">边界
-              <span class="section-count">boundary</span>
-            </h3>
-            <p class="plan-desc">{graphState.selectedNode.boundary}</p>
-          </section>
-        {/if}
-        {#if graphState.selectedNode.glossary && graphState.selectedNode.glossary.length > 0}
-          <section class="section">
-            <h3 class="section-title">术语表
-              <span class="section-count">{graphState.selectedNode.glossary.length}</span>
-            </h3>
-            <dl class="glossary-list">
-              {#each graphState.selectedNode.glossary as entry}
-                <div class="glossary-entry">
-                  <dt class="glossary-term">{entry.term}</dt>
-                  <dd class="glossary-def">{entry.definition}</dd>
-                </div>
-              {/each}
-            </dl>
-          </section>
-        {/if}
+      {#if node.decision}
         <section class="section">
-          <h3 class="section-title">成员
-            <span class="section-count">{contextMembers.length}</span>
-          </h3>
-          {#if contextMembers.length > 0}
-            <div class="member-list">
-              {#each contextMembers as m}
-                <span class="chip member-chip">{m.label} <span class="member-id">{m.id}</span></span>
-              {/each}
-            </div>
-          {:else}
-            <p class="plan-desc">暂无成员——用节点的 context 字段挂接到此上下文</p>
-          {/if}
+          <h3 class="section-title">决策</h3>
+          <Markdown text={node.decision} />
         </section>
       {/if}
-
-      <!-- adr 顶点不在此呈现（图中不再设 ADR 文档入口） -->
-
+      {#if node.background}
+        <section class="section">
+          <h3 class="section-title">背景</h3>
+          <Markdown text={node.background} />
+        </section>
+      {/if}
+      {#if node.considered_options}
+        <section class="section">
+          <h3 class="section-title">备选方案</h3>
+          <Markdown text={node.considered_options} />
+        </section>
+      {/if}
+      {#if node.why}
+        <section class="section">
+          <h3 class="section-title">理由</h3>
+          <Markdown text={node.why} />
+        </section>
+      {/if}
+      {#if node.consequences}
+        <section class="section">
+          <h3 class="section-title">后果与代价</h3>
+          <Markdown text={node.consequences} />
+        </section>
+      {/if}
+      {#if governedTargets.length > 0}
+        <section class="section">
+          <h3 class="section-title">管辖范围
+            <span class="section-count">{governedTargets.length}</span>
+          </h3>
+          <div class="sub-list">
+            {#each governedTargets as t (t.id)}
+              <button class="chip chip-link" onclick={() => jumpTo(t)}>
+                {t.type === "context" ? "◇ " : ""}{t.label || t.id}
+              </button>
+            {/each}
+          </div>
+        </section>
+      {/if}
+      <div class="footer-info">
+        {#if node.created_at}
+          <span><span class="footer-label">created:</span>{new Date(node.created_at).toLocaleDateString()}</span>
+        {/if}
+        {#if node.updated_at}
+          <span><span class="footer-label">updated:</span>{new Date(node.updated_at).toLocaleDateString()}</span>
+        {/if}
+      </div>
+    {:else if isContext}
+      <!-- context 顶点：节点即文档（boundary 全文 + glossary 全部术语 + 成员清单） -->
+      {#if node.boundary}
+        <section class="section">
+          <h3 class="section-title">边界</h3>
+          <p class="plan-desc">{node.boundary}</p>
+        </section>
+      {/if}
+      {#if node.glossary && node.glossary.length > 0}
+        <section class="section">
+          <h3 class="section-title">术语表
+            <span class="section-count">{node.glossary.length}</span>
+          </h3>
+          <dl class="glossary-list">
+            {#each node.glossary as entry}
+              <div class="glossary-entry">
+                <dt class="glossary-term">{entry.term}</dt>
+                <dd class="glossary-def">{entry.definition}</dd>
+              </div>
+            {/each}
+          </dl>
+        </section>
+      {/if}
+      <section class="section">
+        <h3 class="section-title">成员
+          <span class="section-count">{contextMembers.length}</span>
+        </h3>
+        {#if contextMembers.length > 0}
+          <div class="member-list">
+            {#each contextMembers as m}
+              <button class="chip chip-link" onclick={() => jumpTo(m)}>{m.label} <span class="member-id">{m.id}</span></button>
+            {/each}
+          </div>
+        {:else}
+          <p class="plan-desc">暂无成员——用节点的 context 字段挂接到此上下文</p>
+        {/if}
+      </section>
+      {#if linkedAdrs.length > 0}
+        <section class="section">
+          <h3 class="section-title">管辖决策
+            <span class="section-count">{linkedAdrs.length}</span>
+          </h3>
+          <div class="sub-list column">
+            {#each linkedAdrs as adr (adr.id)}
+              <button class="adr-ref" onclick={() => jumpTo(adr)}>
+                <span class="adr-ref-dot" style="background: {statusColorOf(adr.status)}"></span>
+                <span class="adr-ref-name" class:superseded={adr.status === "superseded"}>{adr.label}</span>
+                <span class="adr-ref-status">{adr.status}</span>
+              </button>
+            {/each}
+          </div>
+        </section>
+      {/if}
+    {:else}
       <!-- Build plan -->
-      {#if graphState.selectedNode.plan?.description}
+      {#if node.plan?.description}
         <section class="section">
           <h3 class="section-title">计划</h3>
-          <Markdown text={graphState.selectedNode.plan.description} />
-          {#if graphState.selectedNode.plan.output_to && graphState.selectedNode.plan.output_to.length > 0}
+          <Markdown text={node.plan.description} />
+          {#if node.plan.output_to && node.plan.output_to.length > 0}
             <div class="sub-list">
               <span class="sub-label">outputs:</span>
-              {#each graphState.selectedNode.plan.output_to as out}
+              {#each node.plan.output_to as out}
                 <span class="chip">{out.artifact} → {out.node}</span>
               {/each}
             </div>
@@ -171,18 +282,18 @@
       {/if}
 
       <!-- Definition of done -->
-      {#if graphState.selectedNode.expected_outcome?.definition_of_done}
+      {#if node.expected_outcome?.definition_of_done}
         <section class="section">
           <h3 class="section-title">完成标准</h3>
           <ul class="dod-list">
-            {#each graphState.selectedNode.expected_outcome.definition_of_done as item}
+            {#each node.expected_outcome.definition_of_done as item}
               <li><Markdown inline text={item} /></li>
             {/each}
           </ul>
-          {#if graphState.selectedNode.expected_outcome.quality_gates && graphState.selectedNode.expected_outcome.quality_gates.length > 0}
+          {#if node.expected_outcome.quality_gates && node.expected_outcome.quality_gates.length > 0}
             <div class="sub-list">
               <span class="sub-label">quality gates:</span>
-              {#each graphState.selectedNode.expected_outcome.quality_gates as gate}
+              {#each node.expected_outcome.quality_gates as gate}
                 <span class="chip">{gate.check} · {gate.method}</span>
               {/each}
             </div>
@@ -191,21 +302,21 @@
       {/if}
 
       <!-- Plan inputs / context -->
-      {#if (graphState.selectedNode.plan?.input_from && graphState.selectedNode.plan.input_from.length > 0) || (graphState.selectedNode.plan?.required_context && graphState.selectedNode.plan.required_context.length > 0)}
+      {#if (node.plan?.input_from && node.plan.input_from.length > 0) || (node.plan?.required_context && node.plan.required_context.length > 0)}
         <section class="section">
           <h3 class="section-title">输入与上下文</h3>
-          {#if graphState.selectedNode.plan?.input_from && graphState.selectedNode.plan.input_from.length > 0}
+          {#if node.plan?.input_from && node.plan.input_from.length > 0}
             <div class="sub-list">
               <span class="sub-label">input from:</span>
-              {#each graphState.selectedNode.plan.input_from as inp}
+              {#each node.plan.input_from as inp}
                 <span class="chip">{inp.node} · {inp.artifact}</span>
               {/each}
             </div>
           {/if}
-          {#if graphState.selectedNode.plan?.required_context && graphState.selectedNode.plan.required_context.length > 0}
+          {#if node.plan?.required_context && node.plan.required_context.length > 0}
             <div class="sub-list">
               <span class="sub-label">context:</span>
-              {#each graphState.selectedNode.plan.required_context as ctx}
+              {#each node.plan.required_context as ctx}
                 <span class="chip">{ctx.key} ← {ctx.source}</span>
               {/each}
             </div>
@@ -214,17 +325,17 @@
       {/if}
 
       <!-- Checkpoints -->
-      {#if graphState.selectedNode.checkpoints && graphState.selectedNode.checkpoints.length > 0}
+      {#if node.checkpoints && node.checkpoints.length > 0}
         <section class="section">
           <h3 class="section-title">检查点
             <span class="section-count">
-              {graphState.selectedNode.checkpoints.filter((c: Checkpoint) => c.status === 'passed').length}
+              {node.checkpoints.filter((c: Checkpoint) => c.status === 'passed').length}
               /
-              {graphState.selectedNode.checkpoints.length}
+              {node.checkpoints.length}
             </span>
           </h3>
           <div class="cp-list">
-            {#each graphState.selectedNode.checkpoints as cp}
+            {#each node.checkpoints as cp}
               <div class="cp-item">
                 <span class="cp-icon {cpClass(cp.status)}">
                   <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
@@ -242,281 +353,137 @@
       {/if}
 
       <!-- Execution report（交接单，P4-3）-->
-      {#if graphState.selectedNode.execution_report}
+      {#if node.execution_report}
         <section class="section">
           <h3 class="section-title">执行报告</h3>
-          <Markdown text={graphState.selectedNode.execution_report.summary || '(no summary)'} />
+          <Markdown text={node.execution_report.summary || '(no summary)'} />
 
-          {#if graphState.selectedNode.execution_report.verification}
+          {#if node.execution_report.verification}
             <div class="verdict-row">
               <span
-                class="verdict-badge {graphState.selectedNode.execution_report.verification.verdict}"
+                class="verdict-badge {node.execution_report.verification.verdict}"
               >
-                {graphState.selectedNode.execution_report.verification.verdict}
+                {node.execution_report.verification.verdict}
               </span>
-              {#if graphState.selectedNode.execution_report.verification.note}
-                <span class="verdict-note"><Markdown inline text={graphState.selectedNode.execution_report.verification.note} /></span>
+              {#if node.execution_report.verification.note}
+                <span class="verdict-note"><Markdown inline text={node.execution_report.verification.note} /></span>
               {/if}
             </div>
           {/if}
 
-          {#if graphState.selectedNode.execution_report.artifacts && graphState.selectedNode.execution_report.artifacts.length > 0}
+          {#if node.execution_report.artifacts && node.execution_report.artifacts.length > 0}
             <div class="sub-list">
               <span class="sub-label">artifacts:</span>
-              {#each graphState.selectedNode.execution_report.artifacts as art}
+              {#each node.execution_report.artifacts as art}
                 <span class="chip">{art}</span>
               {/each}
             </div>
           {/if}
-          {#if graphState.selectedNode.execution_report.blockers && graphState.selectedNode.execution_report.blockers.length > 0}
+          {#if node.execution_report.blockers && node.execution_report.blockers.length > 0}
             <div class="sub-list">
               <span class="sub-label">blockers:</span>
-              {#each graphState.selectedNode.execution_report.blockers as b}
+              {#each node.execution_report.blockers as b}
                 <span class="chip chip-warn">{b}</span>
               {/each}
             </div>
           {/if}
-          {#if graphState.selectedNode.execution_report.notes}
+          {#if node.execution_report.notes}
             <div class="notes-block">
               <div class="sub-label">notes:</div>
-              <Markdown text={graphState.selectedNode.execution_report.notes} />
+              <Markdown text={node.execution_report.notes} />
             </div>
           {/if}
         </section>
       {/if}
 
+      <!-- 管辖决策：decides 打到本节点/所属 context 的 ADR（可跳转） -->
+      {#if linkedAdrs.length > 0}
+        <section class="section">
+          <h3 class="section-title">管辖决策
+            <span class="section-count">{linkedAdrs.length}</span>
+          </h3>
+          <div class="sub-list column">
+            {#each linkedAdrs as adr (adr.id)}
+              <button class="adr-ref" onclick={() => jumpTo(adr)}>
+                <span class="adr-ref-dot" style="background: {statusColorOf(adr.status)}"></span>
+                <span class="adr-ref-name" class:superseded={adr.status === "superseded"}>{adr.label}</span>
+                <span class="adr-ref-status">{adr.status}</span>
+              </button>
+            {/each}
+          </div>
+        </section>
+      {/if}
+
       <!-- Footer info（工作流顶点专属：attempts/时间戳对知识顶点无意义） -->
-      {#if !isContext}
       <div class="footer-info">
         <span>
           <span class="footer-label">attempts:</span>
-          {graphState.selectedNode.attempts}/{graphState.selectedNode.max_attempts}
+          {node.attempts}/{node.max_attempts}
         </span>
-        {#if graphState.selectedNode.execution_report?.started_at}
+        {#if node.execution_report?.started_at}
           <span>
             <span class="footer-label">started:</span>
-            {new Date(graphState.selectedNode.execution_report.started_at).toLocaleString()}
+            {new Date(node.execution_report.started_at).toLocaleString()}
           </span>
         {/if}
-        {#if graphState.selectedNode.execution_report?.completed_at}
+        {#if node.execution_report?.completed_at}
           <span>
             <span class="footer-label">done:</span>
-            {new Date(graphState.selectedNode.execution_report.completed_at).toLocaleString()}
+            {new Date(node.execution_report.completed_at).toLocaleString()}
           </span>
         {/if}
-        {#if graphState.selectedNode.created_at}
+        {#if node.created_at}
           <span>
             <span class="footer-label">created:</span>
-            {new Date(graphState.selectedNode.created_at).toLocaleDateString()}
+            {new Date(node.created_at).toLocaleDateString()}
           </span>
         {/if}
       </div>
-      {/if}
-    </div>
-  </div>
+    {/if}
+  </DetailDrawer>
 {/if}
 
 <style>
-  .detail-panel {
-    position: fixed;
-    right: 0;
-    top: var(--header-h);
-    bottom: 0;
-    width: 380px;
-    background: var(--surface-1);
-    border-left: 1px solid var(--line);
-    color: var(--ink);
+  /* adr_flags / superseded 警告区（状态红仅用于真实失败语义） */
+  .adr-flags {
     display: flex;
     flex-direction: column;
-    z-index: var(--z-panel);
-    transform: translateX(100%);
-    transition: transform 0.22s var(--ease-out-quint);
-  }
-
-  .detail-panel.visible {
-    transform: translateX(0);
-  }
-
-  .panel-header {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    padding: 0 var(--sp-3);
-    min-height: 44px;
-    border-bottom: 1px solid var(--line);
-    flex-shrink: 0;
-    background: var(--surface-1);
-  }
-
-  .panel-title {
-    font-family: var(--font-sans);
-    font-size: var(--text-sm);
-    font-weight: 650;
-    color: var(--ink);
-    flex: 1;
-  }
-
-  .panel-kbd {
-    font-family: var(--font-mono);
-    font-size: var(--text-2xs);
-    color: var(--ink-faint);
-    border: 1px solid var(--line);
-    border-radius: var(--r-sm);
-    padding: 1px var(--sp-1);
-  }
-
-  .close-btn {
-    background: none;
-    border: none;
-    color: var(--ink-muted);
-    cursor: pointer;
+    gap: var(--sp-1);
+    margin-bottom: var(--sp-4);
+    padding: var(--sp-3);
+    background: rgba(229, 80, 79, 0.1);
+    border: 1px solid rgba(229, 80, 79, 0.4);
     border-radius: var(--r);
-    min-width: var(--tap);
-    min-height: var(--tap);
-    margin-right: calc((var(--tap) - 32px) / -2);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.13s var(--ease-out-quart), color 0.13s var(--ease-out-quart);
   }
 
-  .close-btn:hover {
-    background: var(--surface-2);
-    color: var(--ink);
-  }
-
-  .close-btn:active {
-    background: var(--surface-3);
-  }
-
-  .panel-body {
-    padding: var(--sp-5);
-    overflow-y: auto;
-    flex: 1;
-  }
-
-  .node-label {
-    font-family: var(--font-sans);
-    font-size: var(--text-xl);
-    font-weight: 700;
-    margin: 0 0 var(--sp-4);
-    color: var(--ink);
-    line-height: 1.25;
-    letter-spacing: var(--track-tight);
-    text-wrap: balance;
-  }
-
-  /* Meta tags */
-  .meta-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--sp-2);
-    margin-bottom: var(--sp-5);
-    padding-bottom: var(--sp-4);
-    border-bottom: 1px solid var(--line);
-  }
-
-  .meta-tag {
-    font-family: var(--font-mono);
-    font-size: var(--text-2xs);
-    padding: var(--sp-1) var(--sp-2);
-    border-radius: var(--r-sm);
-    background: var(--surface-2);
-    color: var(--ink-muted);
-    border: 1px solid var(--line);
-    font-weight: 500;
-    display: inline-flex;
-    align-items: center;
-    gap: var(--sp-1);
-    letter-spacing: 0.02em;
-  }
-
-  .id-tag {
-    color: var(--ink);
-    border-color: var(--line-strong);
-    background: var(--surface-2);
-  }
-
-  .status-tag {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-1);
-    text-transform: lowercase;
-    color: var(--ink);
-  }
-
-  .status-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-
-  /* Sections（sans 中文小节标题，废除 ▸ mono 大写 eyebrow）*/
-  .section {
-    margin-bottom: var(--sp-5);
-    padding-top: var(--sp-3);
-    border-top: 1px solid var(--line);
-  }
-
-  .section-title {
+  .adr-flag-item {
     font-family: var(--font-sans);
     font-size: var(--text-xs);
-    font-weight: 650;
-    margin: 0 0 var(--sp-3);
-    color: var(--ink);
-    display: flex;
-    align-items: baseline;
-    gap: var(--sp-2);
-  }
-
-  .section-count {
-    margin-left: auto;
-    color: var(--ink-faint);
-    font-variant-numeric: tabular-nums;
-    font-family: var(--font-mono);
-    font-size: var(--text-2xs);
-  }
-
-  .plan-desc {
-    font-family: var(--font-sans);
-    font-size: var(--text-sm);
-    line-height: 1.7;
-    color: var(--ink-muted);
+    line-height: 1.6;
+    color: var(--status-failed);
     margin: 0;
-  }
-
-  .sub-list {
-    margin-top: var(--sp-3);
     display: flex;
-    flex-wrap: wrap;
+    align-items: flex-start;
     gap: var(--sp-2);
-    align-items: center;
   }
 
-  .notes-block {
-    margin-top: var(--sp-3);
+  .flag-icon {
+    flex-shrink: 0;
+    margin-top: 3px;
   }
 
-  .notes-block .sub-label {
-    margin-bottom: var(--sp-1);
-    display: block;
-  }
-
-  .sub-label {
-    font-family: var(--font-mono);
-    font-size: var(--text-2xs);
-    color: var(--ink-faint);
-  }
-
-  .chip {
-    font-family: var(--font-mono);
-    font-size: var(--text-2xs);
-    background: var(--surface-2);
-    padding: var(--sp-1) var(--sp-2);
-    border-radius: var(--r-sm);
-    color: var(--ink-muted);
-    border: 1px solid var(--line);
+  /* 接替链跳转链接 */
+  .chain-link {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--status-failed);
+    font-family: inherit;
+    font-size: inherit;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    text-align: left;
   }
 
   /* Definition of done list */
@@ -559,25 +526,25 @@
     align-items: center;
     gap: var(--sp-3);
     padding: var(--sp-3);
-    background: var(--surface-2);
+    background: var(--wash-1);
     border-radius: var(--r);
     border: 1px solid var(--line);
     transition: background 0.13s var(--ease-out-quart), border-color 0.13s var(--ease-out-quart);
   }
 
   .cp-item:hover {
-    background: var(--surface-2);
+    background: var(--wash-2);
     border-color: var(--line-strong);
   }
 
   .cp-icon {
-    width: 24px;
-    height: 24px;
+    width: 26px;
+    height: 26px;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    border-radius: var(--r-sm);
+    border-radius: 8px;
   }
 
   .cp-passed {
@@ -602,7 +569,7 @@
   }
 
   .cp-pending {
-    background: var(--surface-2);
+    background: var(--wash-2);
     color: var(--ink-faint);
   }
 
@@ -628,8 +595,8 @@
   .cp-status {
     font-family: var(--font-mono);
     font-size: var(--text-2xs);
-    padding: 2px var(--sp-2);
-    border-radius: var(--r-sm);
+    padding: 2px 9px;
+    border-radius: 999px;
     text-transform: lowercase;
     flex-shrink: 0;
     font-weight: 500;
@@ -652,7 +619,7 @@
   }
 
   .cp-status.cp-pending {
-    background: var(--surface-2);
+    background: var(--wash-2);
     color: var(--ink-faint);
   }
 
@@ -691,8 +658,8 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: var(--track-caps);
-    padding: 3px var(--sp-2);
-    border-radius: var(--r-sm);
+    padding: 3px 10px;
+    border-radius: 999px;
   }
 
   .verdict-badge.passed {
@@ -724,32 +691,13 @@
     border-color: rgba(229, 80, 79, 0.4);
   }
 
-  /* adr_flags 警告区 */
-  .adr-flags {
-    display: flex;
-    flex-direction: column;
-    gap: var(--sp-1);
-    margin-bottom: var(--sp-4);
-    padding: var(--sp-3);
-    background: rgba(229, 80, 79, 0.1);
-    border: 1px solid rgba(229, 80, 79, 0.4);
-    border-radius: var(--r);
+  .notes-block {
+    margin-top: var(--sp-3);
   }
 
-  .adr-flag-item {
-    font-family: var(--font-sans);
-    font-size: var(--text-xs);
-    line-height: 1.6;
-    color: var(--status-failed);
-    margin: 0;
-    display: flex;
-    align-items: flex-start;
-    gap: var(--sp-2);
-  }
-
-  .flag-icon {
-    flex-shrink: 0;
-    margin-top: 3px;
+  .notes-block .sub-label {
+    margin-bottom: var(--sp-1);
+    display: block;
   }
 
   /* context glossary（节点即文档） */
@@ -761,9 +709,9 @@
   }
 
   .glossary-entry {
-    background: var(--surface-2);
+    background: var(--wash-1);
     border: 1px solid var(--line);
-    border-radius: var(--r-sm);
+    border-radius: var(--r);
     padding: var(--sp-2) var(--sp-3);
   }
 
@@ -791,33 +739,76 @@
     gap: var(--sp-2);
   }
 
-  .member-chip {
-    display: inline-flex;
-    align-items: baseline;
-    gap: var(--sp-1);
-  }
-
   .member-id {
     color: var(--ink-faint);
     font-size: var(--text-2xs);
   }
 
-  /* Responsive */
-  @media (max-width: 768px) {
-    .detail-panel {
-      width: 100%;
-      max-width: 100%;
-      top: 0;
-    }
-    .footer-info {
-      flex-direction: column;
-      gap: var(--sp-1);
-    }
+  /* 管辖决策引用行（ADR 跳转） */
+  .sub-list.column {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    align-items: stretch;
+  }
+
+  .adr-ref {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: var(--sp-2) var(--sp-3);
+    background: var(--wash-1);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.13s var(--ease-out-quart), border-color 0.13s var(--ease-out-quart);
+  }
+
+  .adr-ref:hover {
+    background: var(--wash-2);
+    border-color: var(--line-strong);
+  }
+
+  .adr-ref:focus-visible {
+    outline: 2px solid var(--interactive);
+    outline-offset: 1px;
+  }
+
+  .adr-ref-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .adr-ref-name {
+    font-family: var(--font-sans);
+    font-size: var(--text-xs);
+    color: var(--ink);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .adr-ref-name.superseded {
+    text-decoration: line-through;
+    color: var(--ink-faint);
+  }
+
+  .adr-ref-status {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--ink-faint);
+    flex-shrink: 0;
+    text-transform: lowercase;
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .detail-panel {
-      transition: none;
+    .cp-icon.cp-running {
+      animation: none;
     }
   }
 </style>

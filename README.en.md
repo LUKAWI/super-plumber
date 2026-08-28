@@ -1,11 +1,10 @@
-# Super Plumber 🚰 — AI Agent Workflow Topology Graph Manager
+# Super Plumber 🚰 — Make AI Agents Work From a Topology Graph
 
-> Turn "task documents" into **graphs agents can natively understand**: nodes are tasks, edges are dependencies, a state machine owns the lifecycle.
-> One install, three access layers (CLI / MCP / Web UI), pure YAML file storage (no database, no server).
+> Turn "task documents" into **graphs agents can natively understand**: nodes are self-contained packages with plans and acceptance criteria, edges are typed dependencies, a state machine owns the lifecycle.
+> One install, three access layers (CLI / MCP / a starfield Web UI), pure YAML file storage — no database, no server, Git is your version control.
 
 [![npm version](https://img.shields.io/npm/v/@lukawi/super-plumber)](https://www.npmjs.com/package/@lukawi/super-plumber)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-504%2F504-green)](https://github.com/LUKAWI/super-plumber/actions)
 [![GitHub](https://img.shields.io/badge/GitHub-LUKAWI%2Fsuper--plumber-black)](https://github.com/LUKAWI/super-plumber)
 
 **中文版:** [README.md](README.md) · **npm:** [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)
@@ -25,8 +24,32 @@ todo: "build a registration module"  →   entry → l1_register → l1_login �
                                           ↳ each state = enforced by a state machine (no skipping steps)
 ```
 
-- **For humans**: a structure you can read at a glance, a live Web UI, plain-text files you can commit to Git.
-- **For AI agents**: read the graph, claim tasks, and report progress over MCP — every node is a "tarball" (plan + checkpoints + handoff report). No guessing.
+- **For humans**: a structure you can read at a glance, a starfield wall-mount visualization, plain-text files you can commit to Git.
+- **For AI agents**: read the graph, claim tasks, and report progress over MCP — every node is a self-contained package. No guessing.
+
+---
+
+## What Makes It Different?
+
+The market doesn't lack task trackers; it lacks a **workflow foundation built for agents**. Where Super Plumber stands apart:
+
+**① Structure over prose — not another Markdown cloud**
+Todo tools feed agents text that must be guessed at. Here agents get a schema-constrained graph — dependencies feed the topological sort, the `ready` gate blocks skipped steps, and the `passed` hard gate rejects "done" without a handoff report. Want to bluff completion? The state machine says no.
+
+**② Agents are first-class users; humans supervise**
+24 MCP tools cover the whole design→execute→adjudicate loop: atomic claims (exactly one concurrent winner), step-by-step checkpoint reporting, handoff reports (summary + artifacts) persisted to disk, dead-claim reclamation, and an append-only audit log. Read endpoints paginate everywhere — large graphs never blow the agent's context window.
+
+**③ A starfield observatory you won't find anywhere else**
+`graph serve` opens not another dashboard grid but a **starfield you can leave on a wall-mounted screen all afternoon**: every task is an eight-point star, status colors breathe along the rays, energy flows along edges from `running` nodes, domains glow as nebulae, a galaxy band stretches across the background. Focus mode removes every piece of chrome — one glance tells you what's running and what's stuck.
+
+**④ Domain modeling is a first-class citizen, not a comment**
+Bounded contexts are graph vertices (boundary + glossary — node as document) and ADRs are decision vertices with a three-state machine — superseding requires a successor, and a superseded decision automatically propagates a "stale decision basis ⚠️" warning along decides edges. `graph export --docs` regenerates domain docs from the graph — the graph is the source of truth, the docs are a view.
+
+**⑤ A multi-agent adjudication protocol out of the box**
+`sp-designer` (topology design) and `super-mario` (adjudication) subagents plus two staged skills: a hard review gate in the design phase, three-layer acceptance in execution (all states green + structure validation + deliverables checked against exit criteria). Solo? The solo adjudication boundary is a written rule — mechanical checks may self-adjudicate; judgment calls always stop for a human.
+
+**⑥ Plain files, Git as version control**
+One YAML file per node/edge. No database, no server. Snapshot/diff/rollback primitives + an append-only audit log; branch/merge stays with Git.
 
 ---
 
@@ -34,17 +57,18 @@ todo: "build a registration module"  →   entry → l1_register → l1_login �
 
 | Capability | Description |
 |------------|-------------|
+| 🌌 **Starfield visualization (v0.7.0 "Deep-Space Instrument Bay")** | Starfield canvas + instrument-glass chrome: single-row console bar, floating glass dock, graph-library popover, unified right-edge detail drawers, focus mode for wall-mount monitoring — see [Web UI](#web-uistarfield-observatorysvelte-5--d3js) |
 | 🗂️ **Multi-graph workspace (v0.5.2)** | One `.graph/` manages multiple named graphs: `graph switch` like git branch (workspace default + per-process MCP active, two-layer semantics), `graph init <name>`/`list`/`rename-graph`/`delete-graph` (.trash soft delete), `--graph` flag and `SUPER_PLUMBER_GRAPH` on every command; legacy repos stay compatible (one-shot locked migration when the second graph is born); per-graph locks/index/events/snapshots |
 | 🧭 **Typed topology** | 9 edge types: `depends_on` / `validates` participate in topological sort; `shares_context` / `fan_out` / `fan_in` / `fallback` / `iterates` express runtime control flow; `decides` / `relates` (v0.5) carry domain knowledge |
 | 🏛️ **Domain semantics (v0.5)** | **Bounded contexts and ADRs are first-class graph citizens**: context vertices follow "node as document" (boundary + glossary); node membership (`--context`) derives workflow/domain maps; **ADR state machine** proposed→accepted→superseded (supersede requires a successor; propose/adjudicate separation); `graph adr` command group + MCP `graph_create_adr`; decision changes propagate along decides edges (claim responses inject `governing_adrs` pointers, scheduling entries get `adr_flags` ⚠️); cross-context workflow edges are contract edges (contract required); `graph export --docs` regenerates docs/adr + CONTEXT-MAP.md + per-context CONTEXT.md (graph is the source of truth, markdown is a view) |
 | 🔄 **Enforced state machine** | 7 states + three hard rules: ready gate (gating predecessors must be `passed`), max_attempts cap, and a **passed hard gate** (no execution report / unaggregated checkpoints / failed verdict → `passed` rejected); concurrent claims are atomic under a lock; knowledge vertices are exempt (context is stateless, ADR has its own 3-state machine) |
-| 🤖 **Native MCP** | 24 `graph_*` tools covering the whole flow: design (batch create / add edge / edit entry-exit / **graph_create_adr**), execution (atomic claim with governing-ADR pointers / checkpoint / report / **reclaim of dead claims**), adjudication (verdict), versioning (snapshot/diff/rollback), self-check (**graph_validate**: structure + domain rules + reference drift), audit (**graph_events**: event-log replay) — all with zod-validated params |
-| 🎯 **Scheduling decisions** | `graph next` / `graph_get_next_actions` returns claimable / ready-eligible (cold-start entry) / waiting-on-deps / running / possibly-stale in one screen, with per-bucket pagination + truncated flags; ready buckets ordered by node `priority`; staleness = last activity (reporting acts as a heartbeat); entries may carry `adr_flags` (stale decision basis ⚠️); knowledge vertices never enter scheduling buckets — the agent planning loop's first call |
+| 🛡️ **Schema validation** | Every YAML file is validated on read (enums/types/required fields) with readable errors; `graph validate` locates issues per file + six domain rules (dangling membership=error, duplicate glossary terms=warning, cross-context missing contract=warning, relates endpoints=error, orphan ADR=warning, decides source=error) |
 | 🗂️ **Versioning** | `snapshot` / `diff` / `rollback` primitives (auto-backup before rollback, explicit confirm required; **design-only rollback** rewinds design fields while keeping execution progress); Branch/Merge stays with Git |
 | 🧾 **Event log** | `.graph/events.jsonl` append-only audit: who created/deleted/transitioned/claimed/overrode/reset/rolled back what and when, including the ADR lifecycle (adr_created/accepted/superseded) — `graph events` for one-command traceability |
+| 🤖 **Native MCP** | 24 `graph_*` tools covering the whole flow: design (batch create / add edge / edit entry-exit / **graph_create_adr**), execution (atomic claim with governing-ADR pointers / checkpoint / report / **reclaim of dead claims**), adjudication (verdict), versioning (snapshot/diff/rollback), self-check (**graph_validate**: structure + domain rules + reference drift), audit (**graph_events**: event-log replay) — all with zod-validated params |
+| 🎯 **Scheduling decisions** | `graph next` / `graph_get_next_actions` returns claimable / ready-eligible (cold-start entry) / waiting-on-deps / running / possibly-stale in one screen, with per-bucket pagination + truncated flags; ready buckets ordered by node `priority`; staleness = last activity (reporting acts as a heartbeat); entries may carry `adr_flags` (stale decision basis ⚠️); knowledge vertices never enter scheduling buckets — the agent planning loop's first call |
 | 📉 **Context economy** | All MCP read endpoints paginate: `graph_get_graph` defaults to summary mode (compact fields) + paginated full mode, `graph_search` limit, `graph_traverse` max_nodes, `graph_get_node` optional topology neighbors — no more token explosions on large graphs; ADRs are injected as title-level pointers only, never full-text |
 | ⚡ **Large-graph hot paths** | Two-level index cache (in-memory + on-disk graph.json): gate/scheduling drop from full-graph scans (~9s @10k) to table lookup + single-file reads; scheduling is O(N+M); **write paths actively invalidate the cache** (no betting on filesystem mtimes — long-running processes read-after-write consistent) |
-| 🌐 **Web visualization** | Force-directed graph, per-edge-type colors, flow dots on `running` nodes, checkpoint progress bars, WebSocket delta push; **v0.5 map lenses**: checkbox workflow/domain maps in any subset — domain view (contexts + relates + glossary detail), overlay view (cluster hulls wrapping members, ADR badges, contract-edge highlighting); the UI stays strictly read-only |
 | 📁 **File-first storage** | One YAML file per node/edge, Git as the single source of truth, human-editable, no database |
 | 🧩 **Agent collaboration protocol** | Built-in `plumber-design` (topology design + domain modeling + ADR triage + preview review gate) and `plumber-execute` (topology execution + 3-layer acceptance + governing-ADR discipline) skills + 2 dedicated subagents (designer / adjudicator) |
 
@@ -54,12 +78,12 @@ todo: "build a registration module"  →   entry → l1_register → l1_login �
 
 ### Prerequisites
 
-| Requirement | Version | How to check |
-|-------------|---------|--------------|
-| Node.js | **≥ 20** (includes npm) | `node --version` |
+| Requirement | Version | Check |
+|-------------|---------|-------|
+| Node.js | **≥ 20** (with npm) | `node --version` |
 | Platform | Windows / macOS / Linux | — |
 
-> No Node.js yet? Download the LTS installer from [nodejs.org](https://nodejs.org) and click through the defaults.
+> No Node.js? Grab the LTS installer from [nodejs.org](https://nodejs.org) (defaults are fine).
 
 ### 1. Install globally
 
@@ -77,7 +101,7 @@ npm install -g @lukawi/super-plumber
 ### 2. Verify the install
 
 ```bash
-graph --version     # prints 0.6.0 on success
+graph --version     # prints the version → success
 graph --help        # lists all 27 commands
 which graph         # confirm location (Windows: where graph)
 ```
@@ -142,30 +166,30 @@ graph update-graph \
 
 > `graph validate` warns when entry/exit are empty — a hint, not an error. Fill them in and the warning goes away.
 
-### Step 2 — Create nodes (each node is a "tarball")
+### Step 2 — Create nodes (each node is a package)
 
 A node = **id + label + plan + checkpoints + definition_of_done**:
 
 ```bash
-# Top-level node with plan, acceptance criteria and assignee
+# Backbone node: with plan, DoD, assignee
 graph create-node -i l1_register -l "Registration" -t task --level 1 \
-  --plan-desc "Email+password registration: endpoint, validation, storage" \
-  --dod "Register API returns 200" --dod "Passwords bcrypt-hashed" --dod "Duplicate email rejected" \
+  --plan-desc "Email + password registration: endpoint, validation, storage" \
+  --dod "Register API returns 200" --dod "bcrypt password hashing" --dod "Duplicate email rejected" \
   --assigned-to "backend-agent"
 
-# Child node, decomposed to executable granularity
-graph create-node -i l2_reg_api -l "Register endpoint" -t task --level 2 \
+# Child nodes: executable granularity
+graph create-node -i l2_reg_api -l "Registration endpoint" -t task --level 2 \
   --plan-desc "POST /register endpoint" --dod "Endpoint tests pass"
 
 graph create-node -i l2_reg_store -l "User storage" -t task --level 2 \
-  --plan-desc "Users table + password hashing" --dod "Storage tests pass"
+  --plan-desc "User table + password hashing" --dod "Storage tests pass"
 ```
 
-Add **checkpoints** (sub-steps the executor reports as it finishes each one):
+Add **checkpoints** (sub-steps reported during execution):
 
 ```bash
 graph update-node -i l1_register \
-  --add-checkpoint '{"id":"cp1","label":"Endpoint dev"}' \
+  --add-checkpoint '{"id":"cp1","label":"Endpoint"}' \
   --add-checkpoint '{"id":"cp2","label":"Password hashing"}' \
   --add-checkpoint '{"id":"cp3","label":"Integration test"}'
 
@@ -178,23 +202,23 @@ graph update-node -i l1_register --show
 ```bash
 graph add-edge -i e1 -s l1_register -t l1_login --type depends_on
 graph add-edge -i e2 -s l2_reg_api -t l2_reg_store --type depends_on
-graph add-edge -i e3 -s l2_reg_api -t l1_register --type validates   # validation relationship
+graph add-edge -i e3 -s l2_reg_api -t l1_register --type validates    # validation relation
 graph add-edge -i e4 -s l1_register -t l1_login --type shares_context # shared context
 ```
 
-| Edge type | Meaning | Participates in topo sort |
-|-----------|---------|:---:|
-| `depends_on` | Sequential dependency: B needs A done | ✅ |
-| `validates` | A's output is validated by B | ✅ |
-| `shares_context` | A's output feeds B as input context | ❌ |
-| `fan_out` | After A, multiple downstreams may run in parallel | ❌ |
-| `fan_in` | C runs only after all upstreams finish | ❌ |
-| `fallback` | On B's failure, retry via A | ❌ |
-| `iterates` | A ⇄ B iterate until satisfactory | ❌ |
-| `decides` | ADR → any vertex: decision governance; supersession propagates adr_flags along it (v0.5 knowledge edge) | ❌ |
-| `relates` | context ↔ context: domain relationship, free-form `--rel-kind` label (v0.5 knowledge edge) | ❌ |
+| Edge type | Semantics | Topo sort |
+|-----------|-----------|:---------:|
+| `depends_on` | Order dependency: B needs A done | ✅ |
+| `validates` | Validation: A's output is verified by B | ✅ |
+| `shares_context` | A's output feeds B as context | ❌ |
+| `fan_out` | After A, multiple downstream tasks may run in parallel | ❌ |
+| `fan_in` | C waits for multiple upstream completions | ❌ |
+| `fallback` | On B's failure, retry with A | ❌ |
+| `iterates` | A ⇄ B iterate | ❌ |
+| `decides` | ADR → any vertex: decision governance; staleness propagates as adr_flags (v0.5 knowledge edge) | ❌ |
+| `relates` | context ↔ context: domain relation, free-form `--rel-kind` (v0.5 knowledge edge) | ❌ |
 
-> `depends_on` / `validates` feed the topological sort; other workflow edges express runtime control flow and are ignored for sorting (e.g. `fallback`'s backward reference won't be misreported as a cycle); knowledge edges (`decides` / `relates`) are excluded from sorting and gates.
+> `depends_on` / `validates` participate in the topological sort; the other workflow edges express runtime control flow and are ignored by sorting (a `fallback` back-reference won't false-positive as a cycle); knowledge edges (`decides` / `relates`) never join sorting or gating.
 
 ### Step 4 — Validate
 
@@ -212,108 +236,102 @@ Expected output:
 📊 结果: 0 错误, 0 警告
 ```
 
-> **Try creating a cycle on purpose**: `graph add-edge -i e_cycle -s l1_login -t l1_register --type depends_on`
-> validate reports `检测到循环依赖: l1_register → l1_login → l1_register` — the tool won't let you ship a graph with a cycle.
+> **Try creating a cycle on purpose**: `graph add-edge -i e_cycle -s l1_login -t l1_register --type depends_on` — validate reports `检测到循环依赖: l1_register → l1_login → l1_register`. The tool won't let you ship a cycle.
 
-### Step 5 — Execute (state-machine driven, claimed by a human or an agent)
+### Step 5 — Execute (state-machine driven, claimed by agent or human)
 
 ```bash
 # State machine: pending → ready → running → passed
-graph update-status -i l1_register -s ready      # deps done, ready to run
-graph update-status -i l1_register -s running    # claim: records start time (pass `--claim-by <agent>` to record the executor)
+graph update-status -i l1_register -s ready      # predecessors done → eligible
+graph update-status -i l1_register -s running    # claim: records started_at (--claim-by <agent>)
 graph update-status -i l1_register -s passed     # done
 
-# Try an illegal jump — the state machine stops you:
+# Try skipping steps — the state machine blocks it:
 graph update-status -i l1_login -s running
 # ❌ Invalid transition: pending → running. Allowed: [ready, cancelled]
 ```
 
-> Full machine: `pending → ready → running → passed → blocked`, `running → failed → pending` (retry, `attempts` auto-increments), any state → `cancelled`.
+> Full machine: `pending → ready → running → passed → blocked`, `running → failed → pending` (retry, attempts accumulate), any state → `cancelled`.
 
-**Reporting checkpoints and the handoff** (CLI has no such commands — use the MCP tools or the skill scripts):
+**Report checkpoints and the handoff report** (no CLI commands for these — use MCP tools or skill scripts):
 
-Option 1 · MCP tools (requires an agent wired up, see the MCP section below):
+Option A · MCP tools (agent connected, see MCP below):
 
 ```json
 // graph_update_checkpoint: { node_id: "l1_register", checkpoint_id: "cp1", status: "passed" }
 // graph_update_execution_report: { node_id: "l1_register", summary: "Registration done", artifacts: ["dist/register.js"] }
 ```
 
-Option 2 · skill scripts (shipped with the `plumber-execute` skill — for pi users at `~/.pi/agent/skills/plumber-execute/scripts/`, or project-local `.pi/skills/plumber-execute/scripts/`):
+Option B · skill scripts (shipped with the `plumber-execute` skill; for pi at `~/.pi/agent/skills/plumber-execute/scripts/`, in-project at `.pi/skills/plumber-execute/scripts/`):
 
 ```bash
 SCRIPTS=~/.pi/agent/skills/plumber-execute/scripts
 
-# Claim a ready node (records claim_by + started_at; non-ready nodes are rejected by the state machine)
 node $SCRIPTS/sp-claim.mjs l1_register backend-agent
-
-# Report each checkpoint as you finish it (finished-but-unreported progress is lost)
 node $SCRIPTS/sp-checkpoint.mjs l1_register cp1 passed
-
-# Submit the handoff (summary + artifacts + blockers + notes)
-node $SCRIPTS/sp-report.mjs l1_register "Registration done" "dist/register.js,test/register.test.js" "" "bcrypt for passwords"
+node $SCRIPTS/sp-report.mjs l1_register "Registration done" "dist/register.js,test/register.test.js" "" "bcrypt hashing"
 ```
 
 ### Step 6 — Visualize and share
 
 ```bash
-graph export --mermaid -o flow.mmd    # export a Mermaid flow diagram (knowledge vertex shapes/colors + per-type edge styles, header carries entry/exit + legend)
-graph serve                           # open http://localhost:8934 for the force-directed view
+graph export --mermaid -o flow.mmd    # Mermaid export (knowledge-vertex shapes/colors + edge styles, entry/exit + legend in the header)
+graph serve                           # open http://localhost:8934 to see the starfield
 ```
 
 ---
 
-## CLI Reference (27 commands)
+## CLI reference (27 commands)
 
-| Command | Purpose | Key flags |
-|---------|---------|-----------|
-| `graph init` | Initialize: a fresh repo must create a named graph (v0.5.2); on a legacy repo, `init <name>` = migrate + create | `<name>` content-named graph id (required for fresh repos, e.g. refactor-auth); `-l <label>` display name; `--force` trash-and-rebuild same-name graph / reset legacy single graph |
-| `graph switch` | Switch the workspace default graph (writes `.graph/active`); no arg prints the current graph (with source) | `[<name>]`; warns about in-flight running nodes on the previous default |
-| `graph list` | List all graphs in the workspace (or one graph's detail) | `[<name>]`; `--json` |
-| `graph rename-graph` | Rename a graph (directory moves, active fixed up, audited); CLI human channel only | `-o <old>` `-n <new>` |
-| `graph delete-graph` | Delete a graph (soft delete into `.trash/`, manually recoverable; refuses the last graph / the active default); CLI human channel only | `-i <name>` `--confirm` |
-| `graph create-node` | Create a node (plan + DoD in one call; checkpoints go through `update-node`) | `-i <id>` `-l <label>` `-t <type>` (task/checkpoint/decision/gate/context/adr) `--level <n>` `--priority <n>` (lower runs first) `--context <ctx_id>` (v0.5 membership) `--plan-desc <text>` `--dod <item>` (repeatable) `--assigned-to <agent>` |
-| `graph get-node` | Read a node + allowed transitions + gate status (optional topology neighbors) | `-i <id>`; `--json` stable output; `--neighbors up\|down\|none` |
-| `graph add-edge` | Add a typed edge (core validates endpoints) | `-i <id>` `-s <source>` `-t <target>` `--type <one of 9>`; `--contract '<json>'` cross-context contract; `--rel-kind <text>` |
-| `graph update-status` | State transition (state machine + ready gate + max_attempts + passed hard gate) | `-i <id>` `-s <status>`; `--claim-by <agent>` to claim; `--force` human ops only |
-| `graph reclaim` | Reclaim a dead claim: running → pending (clears assignee, notes the reclaim) | `-i <id>`; `--by <actor>` |
-| `graph update-node` | Update node details | `-i <id>` `--plan-desc` `--add-dod <item>` (repeatable) `--clear-dod` `--add-checkpoint '<JSON>'` (repeatable) `--set-assigned <agent>` `--label <text>` `--max-attempts <n>` `--set-priority <n>` `--set-context <ctx_id>` `--boundary <text>` `--glossary-add '<JSON>'` (repeatable) `--reset-attempts` (explicit, audited) `--show` |
-| `graph update-graph` | Edit entry/exit/acceptance criteria/label (no hand-editing graph.yaml) | `--entry-desc` `--exit-desc` `--add-criteria <item>` (repeatable) `--clear-criteria` `--label` `--set-context '<json>'` |
-| `graph adr` | ADR lifecycle command group (v0.5): create lands as proposed; accept/supersede are adjudication | `create -t <title> -d <decision>`; `accept -i <id>`; `supersede -i <id> --by <id>`; `list [-s <status>]` |
-| `graph delete-node` | Soft-delete a node; refused while edges reference it | `-i <id>`; `--cascade` deletes referencing edges too |
-| `graph delete-edge` | Soft-delete an edge (keeps `.deleted.yaml` history) | `-i <id>` |
-| `graph status` | Status overview + topo check | `--json` |
-| `graph validate` | schema + references + topo sort + cycles (per-file locating) | `--json` |
-| `graph next` | Scheduling decision: claimable / ready-eligible / waiting / running / possibly stale | `--stale-ms <ms>` (default 30 min); `--json` |
-| `graph verdict` | Record an adjudication verdict (Super Mario) | `-i <id>` `--verdict passed\|failed\|pending` `--note <text>` |
-| `graph snapshot` | Create a version snapshot | `-m <msg>`; `--git` also git-commits |
+| Command | Purpose | Common flags |
+|---------|---------|--------------|
+| `graph init` | Initialize: new repos must name the graph (v0.5.2); naming init on a legacy repo = migrate + create | `<name>`; `-l <label>`; `--force` |
+| `graph switch` | Switch the workspace default graph (writes `.graph/active`); no args shows current (with source) | `[<name>]` |
+| `graph list` | List all graphs (or inspect one) | `[<name>]`; `--json` |
+| `graph rename-graph` | Rename a graph (directory moves + active fixed + audited); CLI-human only | `-o <old>` `-n <new>` |
+| `graph delete-graph` | Delete a graph (soft-delete to `.trash/`; refuses last/default); CLI-human only | `-i <name>` `--confirm` |
+| `graph create-node` | Create a node (plan & DoD inline; checkpoints via `update-node`) | `-i <id>` `-l <label>` `-t <type>`(task/checkpoint/decision/gate/context/adr) `--level <n>` `--priority <n>` `--context <ctx_id>` `--plan-desc <text>` `--dod <item>`(repeatable) `--assigned-to <agent>` |
+| `graph get-node` | Read node + legal transitions + gate status (+topology neighbors) | `-i <id>`; `--json`; `--neighbors up\|down\|none` |
+| `graph add-edge` | Add an edge (endpoint existence checked) | `-i <id>` `-s <source>` `-t <target>` `--type <one of 9>`; `--contract '<json>'`; `--rel-kind <text>` |
+| `graph update-status` | Transition (state machine + ready gate + max_attempts + passed hard gate) | `-i <id>` `-s <status>`; `--claim-by <agent>`; `--force` human-ops only |
+| `graph reclaim` | Reclaim a dead claim: running → pending | `-i <id>`; `--by <actor>` |
+| `graph update-node` | Update node details | `-i <id>` `--plan-desc` `--add-dod`(repeatable) `--clear-dod` `--add-checkpoint '<JSON>'`(repeatable) `--set-assigned` `--label` `--max-attempts` `--set-priority` `--set-context` `--boundary` `--glossary-add '<JSON>'`(repeatable) `--reset-attempts` `--show` |
+| `graph update-graph` | Edit entry/exit/criteria/label (never hand-edit graph.yaml) | `--entry-desc` `--exit-desc` `--add-criteria`(repeatable) `--clear-criteria` `--label` `--set-context '<json>'` |
+| `graph adr` | ADR lifecycle group (v0.5): create lands as proposed; accept/supersede belong to the adjudicator | `create -t <title> -d <decision>`; `accept -i <id>`; `supersede -i <id> --by <id>`; `list [-s <status>]` |
+| `graph delete-node` | Soft-delete a node; refuses when referenced | `-i <id>`; `--cascade` |
+| `graph delete-edge` | Soft-delete an edge | `-i <id>` |
+| `graph status` | Status overview + topology check | `--json` |
+| `graph validate` | Schema + references + topology + cycles (per-file locations) | `--json` |
+| `graph next` | Scheduling: claimable / ready-eligible / blocked / running / stale | `--stale-ms <ms>`; `--json` |
+| `graph verdict` | Record an adjudication verdict | `-i <id>` `--verdict passed\|failed\|pending` `--note <text>` |
+| `graph snapshot` | Create a version snapshot | `-m <msg>`; `--git` also commits |
 | `graph snapshots` | List snapshots | `--json` |
-| `graph diff` | Diff topologies (default: latest snapshot vs current) | `--from <id>` `--to <id>`; `--json` |
-| `graph rollback` | Rollback (auto-backup first) | `<snapshot-id>` `--confirm` (required); `--design-only` keeps execution progress |
-| `graph events` | Read the append-only event log (audit trail) | `--node <id>` `--kind <k>` `--last <n>`; `--json` |
-| `graph rebuild` | Rebuild `index/` derived indexes (graph.json + meta.json + topology.dot) | — |
-| `graph export` | Export a Mermaid diagram (contexts as teal pills without status lines, ADRs as hexagons colored by three states, edge styles per type, header comment with entry/exit + legend); `--docs` exports domain docs views (graph is the source of truth, md is a view) | `--mermaid -o <file>`; `--docs` (ADRs → docs/adr/, contexts → CONTEXT-MAP.md + docs/contexts/; `--adr-dir`/`--ctx-dir`) |
-| `graph serve` | Start the Web UI (auto-opens browser) | `-p <port>` (default 8934); `--no-open` to skip |
+| `graph diff` | Diff (default: latest snapshot vs working tree) | `--from <id>` `--to <id>`; `--json` |
+| `graph rollback` | Rollback (auto-backup first) | `<snapshot-id>` `--confirm`; `--design-only` |
+| `graph events` | Read the audit event log | `--node <id>` `--kind <k>` `--last <n>`; `--json` |
+| `graph rebuild` | Rebuild `index/` derived artifacts (graph.json + topology.dot) | — |
+| `graph export` | Mermaid export (knowledge-vertex shapes/colors + edge styles, entry/exit + legend in header); `--docs` regenerates domain doc views | `--mermaid -o <file>`; `--docs` (`--adr-dir`/`--ctx-dir` optional) |
+| `graph serve` | Start the Web UI (auto-opens browser) | `-p <port>` (default 8934); `--no-open` |
 
-> Not sure about flags? Every command has `--help`: `graph create-node --help`.
+> Unsure about flags? Every command has `--help`: `graph create-node --help`.
 
-### Shortcuts (aliases)
+### Command aliases
 
-Common commands accept 1-2 character aliases; full names still work (equivalent):
+Common commands have 1–2 character aliases (fully equivalent):
 
-| Full command | Alias | Full command | Alias |
-|--------------|-------|--------------|-------|
+| Command | Alias | Command | Alias |
+|---------|-------|---------|-------|
 | `graph init` | `graph i` | `graph update-node` | `graph un` |
 | `graph create-node` | `graph cn` | `graph delete-node` | `graph dn` |
 | `graph get-node` | `graph gn` | `graph delete-edge` | `graph de` |
 | `graph add-edge` | `graph ae` | `graph update-graph` | `graph ug` |
 | `graph update-status` | `graph us` | `graph next` | `graph n` |
-| `graph reclaim` | `graph rc` | `graph verdict` | `graph vd` |
+| `graph verdict` | `graph vd` | `graph diff` | `graph d` |
 | `graph snapshot` | `graph sp` | `graph snapshots` | `graph sps` |
-| `graph diff` | `graph d` | `graph rollback` | `graph rol` |
-| `graph status` | `graph s` | `graph validate` | `graph v` |
-| `graph export --mermaid` | `graph x --mermaid` | `graph rebuild` | `graph rb` |
-| `graph serve` | `graph sv` | `graph switch` | `graph sw` |
+| `graph rollback` | `graph rol` | `graph status` | `graph s` |
+| `graph validate` | `graph v` | `graph export --mermaid` | `graph x --mermaid` |
+| `graph rebuild` | `graph rb` | `graph serve` | `graph sv` |
+| `graph reclaim` | `graph rc` | `graph switch` | `graph sw` |
 | `graph list` | `graph ls` | `graph rename-graph` | `graph rg` |
 | `graph delete-graph` | `graph dg` | | |
 
@@ -321,39 +339,39 @@ E.g. `graph cn -i t1 -l "Task 1"` ≡ `graph create-node -i t1 -l "Task 1"`.
 
 ---
 
-## State Machine (7 states, 16 transitions)
+## State machine (7 states + three hard rules)
 
 ```text
 pending ──► ready ──► running ──► passed ──► blocked
                      │   │
-                     │   └──► failed ──► pending   (retry, attempts increments)
+                     │   └──► failed ──► pending   (retry, attempts accumulate)
                      ▼
               cancelled (terminal)
         blocked ──► ready / failed / cancelled
 ```
 
-- **Claim**: `ready → running` records `assigned_to` + `started_at` (pass `claim_by` over MCP)
-- **Completion**: transitioning to `passed` / `failed` auto-records `completed_at`
-- **Passed hard gate**: `running → passed` is rejected by the core layer when the execution report is missing (empty summary), a verdict is `failed`, or checkpoints are not aggregated (`--force` is human-ops only)
-- **Reclaim**: `graph reclaim` returns a dead claim from `running` to `pending` (recovery after an executor crash); `cancelled` can be reopened as `pending`
-- **Protection**: illegal transitions (e.g. `pending → running`) return an explicit error — **never silent**
+- **Claim**: `ready → running` records `assigned_to` + `started_at` (MCP: `claim_by`)
+- **Completion**: `passed` / `failed` record `completed_at` automatically
+- **Passed hard gate**: missing execution report / unaggregated checkpoints / failed verdict → `running → passed` rejected at the core layer (`--force` is human-ops only)
+- **Reclaim**: `graph reclaim` returns a dead `running` claim to `pending` (recovery when an executor crashed); `cancelled` can reopen to `pending`
+- **Protection**: illegal transitions (e.g. `pending → running`) return explicit errors — **never silent**
 
 ---
 
 ## MCP: let AI agents do the work 🤖
 
-Super Plumber ships an MCP Server (stdio transport). Coding agents read the graph, create nodes, claim tasks, and report progress like any other tool.
+Super Plumber ships an MCP server (stdio transport). Coding agents can read the graph, create nodes, claim tasks, and report progress like any other tool.
 
-### Start it
+### Start
 
 ```bash
 graph-mcp
 ```
 
-### Wire it up (configure once globally — works in every project)
+### Client configuration (set up once, works in every project)
 
-**Recommended: install globally and configure once. No paths, no `--root` needed.**
-The server locates the current project's graph on every tool call (see resolution order below), so switching projects or opening new sessions requires zero config changes.
+**Recommended: global install + global config — no paths / `--root` needed.**
+The server locates the current project's graph on every tool call (resolution chain below). Switching projects or sessions requires no config changes.
 
 ```bash
 npm install -g @lukawi/super-plumber
@@ -385,7 +403,7 @@ npm install -g @lukawi/super-plumber
 }
 ```
 
-**Universal npx form** (no global install; works with any MCP-capable client):
+**Generic npx form** (no global install; any MCP client):
 
 ```json
 {
@@ -398,135 +416,138 @@ npm install -g @lukawi/super-plumber
 }
 ```
 
-> Since v0.4.1 the global install also registers a package-named `super-plumber` command
-> (same MCP server), so the npx form shortens to `npx -y @lukawi/super-plumber`.
+> Since v0.4.1 a global install also registers a `super-plumber` command (also starts the MCP server), so npx can be shortened to `npx -y @lukawi/super-plumber`.
 
-**Graph auto-location** (evaluated per tool call, highest priority first):
+**Graph directory resolution** (evaluated per tool call, highest first):
 
-1. `--root <dir>` launch arg / `SUPER_PLUMBER_ROOT` env var — only if you want to pin the server to one graph;
-2. **MCP workspace roots**: the client reports the currently open project root(s) over the MCP protocol; the first one containing `.graph/` wins;
-3. walk **up from the server process cwd** looking for a `.graph/` directory (agents started inside a subdirectory still hit the project root);
-4. nothing found → a readable error ("graph not initialized… run graph init or pass --root") — never a silently empty graph.
+1. `--root <dir>` startup flag / `SUPER_PLUMBER_ROOT` env — only when you want to pin the server to one graph;
+2. **MCP workspace roots**: the first client-reported project root containing `.graph/`;
+3. Walk up from the server process cwd looking for `.graph/` (works from project subdirectories);
+4. Otherwise → readable error ("graph directory not initialized… run graph init or pass --root") — **never silently returns an empty graph**.
 
-> Once the workspace is located, the current graph inside it resolves as (v0.5.2): `SUPER_PLUMBER_GRAPH` env var > in-process active (set by `graph_switch`, MCP only) > `.graph/active` workspace default > default fallback; `graph_switch` switches in-process and never rewrites the workspace default (CLI data commands additionally take a leading `--graph` flag).
+> Inside a workspace, the current graph resolves along the chain (v0.5.2): `SUPER_PLUMBER_GRAPH` env > in-process active (`graph_switch`, MCP only) > `.graph/active` workspace default > `default` fallback. MCP switches graphs in-process via `graph_switch` without rewriting the workspace default (CLI data commands take a leading `--graph` flag instead).
 >
-> Pinning to a single fixed graph (testing etc.): `"command": "graph-mcp", "args": ["--root", "/path/to/graph"]`.
+> Only a pinned single-graph setup needs explicit config: `"command": "graph-mcp", "args": ["--root", "/path/to/graph"]`.
 
 ### The 24 tools
 
-**Scheduling**: `graph_get_next_actions` — one call returns claimable (ready) / ready-eligible (pending/failed whose gates are satisfied — the cold-start entry) / waiting-on-deps (blocked, with unmet predecessors) / running (with elapsed time) / possibly-stale (stale_running), paginated per bucket (`limit` + `truncated`), entries may carry `adr_flags` (stale decision basis ⚠️) — the first call of any agent planning loop.
+**Scheduling**: `graph_get_next_actions` — claimable (ready) / **ready-eligible (pending|failed whose gates are satisfied — cold-start entry)** / blocked (with unmet predecessors) / running (with elapsed) / stale_running, per-bucket pagination (`limit` + `truncated`), entries may carry `adr_flags` (stale decision basis ⚠️). The agent planning loop's first call.
 
-**Multi-graph (v0.5.2)**: `graph_switch` (in-process switch of the current graph: named switch + summary / no-arg shows current; restart falls back to the workspace default), `graph_list_graphs` (list all graphs with is_current / single-graph detail); every tool response carries the graph name; cross-graph hints (a node/edge id missing from the current graph → the error notes "it exists in graph X, run graph_switch first" — never auto-switches).
+**Multi-graph (v0.5.2)**: `graph_switch` (in-process switch: with name → switch + summary; without → current info; restarts fall back to the workspace default), `graph_list_graphs` (list all with is_current / inspect one); **every tool response echoes the graph name**; cross-graph smart errors (a missing id that exists in graph X → error says "it lives in graph X, graph_switch first" — never auto-switches).
 
-**Reads**: `graph_get_node` (node + allowed transitions + checkpoint aggregate + gate status + **governing_adrs pointers**, optional topology neighbors), `graph_get_graph` (compact summary mode by default, `mode=full` + `offset/limit` pagination), `graph_traverse` (`max_nodes` cap), `graph_search` (`limit` cap + compact results; `--type adr/context` finds knowledge vertices).
+**Reads**: `graph_get_node` (node + legal transitions + checkpoint aggregation + gate status + **governing_adrs pointers** + optional topology neighbors), `graph_get_graph` (summary mode by default; `mode=full` + `offset/limit` pages), `graph_traverse` (`max_nodes` cap), `graph_search` (`limit` + compact results, supports `type: adr/context`).
 
-**Design-time writes**: `graph_create_node` (full bundle with plan/DoD/checkpoints; `type=context/adr` and `context` membership), `graph_create_adr` (v0.5: auto-numbered adr_NNNN, lands as proposed — propose/adjudicate separation; accept/supersede belong to Super Mario/humans), `graph_batch_create` (batch nodes+edges, full pre-validation reporting all conflicts), `graph_add_edge` (incl. `decides`/`relates` knowledge edges with `contract`/`rel_kind`), `graph_update_node` (incl. domain fields `set_context`/`boundary`/`glossary_add`/`superseded_by`), `graph_update_graph` (entry/exit/acceptance criteria), `graph_delete_node` (refuses while referenced, `cascade` deletes together), `graph_delete_edge`.
+**Design-time writes**: `graph_create_node` (full package: plan/DoD/checkpoints in one call; supports `type=context/adr` and `context` membership), `graph_create_adr` (**v0.5**: auto-numbered adr_NNNN, lands as proposed — propose/adjudicate separation), `graph_batch_create` (batch nodes+edges with whole-batch pre-validation), `graph_add_edge` (incl. `decides`/`relates` knowledge edges with `contract`/`rel_kind`), `graph_update_node` (domain fields `set_context`/`boundary`/`glossary_add`/`superseded_by`), `graph_update_graph` (entry/exit/criteria), `graph_delete_node` (refuses when referenced; `cascade`), `graph_delete_edge`.
 
-**Execution-time writes**: `graph_update_node_status` (`claim_by` with `status=running` performs an **atomic claim** — concurrent double-claims fail for the loser, response carries governing_adrs pointers; **force is rejected at protocol level on the MCP channel** — human ops go through CLI `--force` with a force_override audit event; the ADR state machine flows through this tool too, supersede is two-step: `graph_update_node {superseded_by}` first, then the status), `graph_update_checkpoint` (checkpoint state machine + idempotent), `graph_update_execution_report` (handoff + `verification` verdict), `graph_reclaim_node` (reclaim dead claims: running → pending). Attempts reset requires an explicit `reset_attempts: true` on `graph_update_node` (plan edits no longer reset implicitly; a reset always writes an audit event).
+**Execution-time writes**: `graph_update_node_status` (`status=running` with `claim_by` performs an **atomic claim** — concurrent losers fail cleanly — and the response carries **governing_adrs pointers**; **force is protocol-level rejected on MCP** — humans use CLI `--force` with a force_override audit event; the ADR three-state machine flows through this tool, supersede = set `superseded_by` via `graph_update_node` first, then the status), `graph_update_checkpoint` (checkpoint state machine, idempotent), `graph_update_execution_report` (handoff + `verification` verdict), `graph_reclaim_node` (dead-claim reclamation: running → pending). `graph_update_node` requires explicit `reset_attempts: true` (editing the plan never implicitly resets attempts; resets are audited).
 
-**Versioning**: `graph_snapshot` / `graph_diff` / `graph_rollback` (requires `confirm: true`; `design_only: true` rewinds design only, keeping execution progress).
+**Versioning**: `graph_snapshot` / `graph_diff` / `graph_rollback` (`confirm: true` required; `design_only: true` rewinds design while keeping execution progress).
 
-**Self-check & audit (v0.6.0)**: `graph_validate` (cycle/ghost-edge/schema/six domain rules/reference-list drift in one summary, structured ok/errors/warnings — the self-check after batch creates or crash recovery), `graph_events` (event-log replay with `node`/`kind` filters and `last` tail; claim/force_override/attempts_reset traceable).
+**Self-check & audit (v0.6.0)**: `graph_validate` (cycles/ghost edges/schema/six domain rules/reference-list drift, structured ok/errors/warnings — the self-check after batch creation or crash recovery), `graph_events` (event-log replay with `node`/`kind` filters + `last` tail — trace claims/force_override/attempts_reset).
 
-**Reliability by design**: every param is zod-validated — missing params / invalid enums return `-32602` protocol errors; nonexistent nodes/edges return `isError=true` with readable messages; illegal state transitions, gate violations, attempt caps and the passed hard gate error explicitly. **Tools never fail silently.**
+**Reliability**: every parameter is zod-validated — missing/invalid params return `-32602` protocol errors; unknown nodes/edges return `isError=true` with readable messages; illegal transitions/gates/attempt caps/passed hard gate fail loudly. **Tools never fail silently.**
 
 ---
 
-## Web UI (Svelte 5 + D3.js)
+## Web UI (starfield observatory, Svelte 5 + D3.js)
 
 ```bash
 graph serve
-# auto-opens the default browser at http://localhost:8934; CI/headless: `graph serve --no-open`
+# auto-opens http://localhost:8934; use `graph serve --no-open` on CI/headless
 ```
 
-- **Force-directed graph**: zoom / pan / auto-fit / fixed-layout toggle, colored by node status
-- **Map lenses (v0.5)**: checkbox any subset of the **workflow map / domain map** — the domain view renders context vertices + relates edges with boundary and glossary detail; the overlay view wraps members in D3 cluster hulls, badges ADRs, and highlights cross-context contract edges; the UI stays strictly read-only
-- **Edge-type visualization**: distinct color per type (9 types), hover highlight, **click an edge for its semantics and contract** (decides/relates carry domain meaning)
-- **Flow dots**: animated dots travel the downstream edges of `running` nodes (the "vascular" metaphor)
-- **Checkpoint progress bars**: sub-step completion shown under each node; the detail panel shows the execution report (handoff + verdict badge)
-- **Assignee labels**: `assigned_to` shown next to `running` nodes
-- **Layer drill-down & search**: L0–L5 level chips to filter/highlight + id/label search + status summary bar
-- **Version diff view**: snapshot list → added (green) / removed (red) / modified (yellow) coloring on the canvas + status-change details
-- **WebSocket delta push**: node changes push `node:updated` deltas (not full re-sends); edge changes update the edge layer only; **automatic reconnection with exponential backoff** (+ HTTP fallback refresh)
+A **starfield** pinned to the developer's screen: every task is an eight-point star, status colors breathe along the rays, domains glow as nebulae, and a galaxy band stretches across the background. The chrome is frosted instrument glass floating above — the v0.7.0 "Deep-Space Instrument Bay" design.
+
+- **Starfield canvas**: V4 prism stars (white-hot rays + chromatic ghosting) + status halos along the rays + id-hashed twinkle phases; `running` nodes breathe and feed amber energy flows along outgoing edges; edges fade into the star glow at both ends; contract edges dashed; the galaxy band and dust form a fixed-screen atmosphere layer
+- **Map lenses**: pick **workflow / domain** maps in any subset from the dock — overlay view (stars + per-context nebulae + dashed contract edges), domain-only view (stars + nebulae, no edges); nebula colors always ship with the bottom-left **cluster legend**
+- **Single-row console bar**: brand + status filters (counts are the legend; click to filter) + levels + search + n/e stats on one line that never stacks; **counts match what you see** (only workflow stars and renderable edges are counted)
+- **Floating glass dock**: graph library (switch-graph popover) / decision docs (ADR catalog popover: three-state dots, superseded strikethrough + successor chain) / map lenses / diff / zoom ×3 / pin layout / focus mode; Tab cycles within the dock
+- **Unified detail drawer**: click a star, an edge, a context core, or an ADR catalog entry — the same glass drawer rises on the right: node (plan / DoD / checkpoints / execution report, all Markdown-rendered), context (boundary / glossary / members — node as document), decision doc (decision / background / options / rationale / consequences + governed-targets jumping + successor chain), edge (semantics / endpoints / contract); **panels are mutually exclusive**, Esc exits layer by layer
+- **Version diff**: open the snapshot list from the dock → selecting a snapshot shape-encodes added/removed/modified on the canvas (bold solid / dashed / dash-dot — never hijacking status colors) + a top diff badge + per-file/per-status details
+- **Focus mode**: all chrome exits; pure black starfield + breathing `running` + energy flows — the wall-mount form; a persistent exit pill bottom-right (Esc works too)
+- **Fully keyboard-accessible**: stars/cores/dock each cycle within their own group via Tab, Enter/Space selects, Esc exits panel→diff→focus→popovers in order, search Enter locates, `0` fits the view; visible focus rings throughout
+- **Read-only + live**: the seven status colors are the canvas's only chromatic semantics; the UI sends zero write commands (adjudication stays on the CLI/MCP human channel); WebSocket delta push + exponential-backoff auto-reconnect
+- **Accessibility**: body text ≥ AA contrast; `prefers-reduced-motion` disables every animation end to end
 
 ---
 
-## Storage Layout (Git-friendly, human-readable)
+## Storage layout (Git-friendly, human-readable)
 
 ```text
-.graph/                    # workspace directory (created by graph init; gitignored)
-├── active                 # workspace default graph name (rewritten by graph switch)
-├── schema.yaml            # human-readable schema doc (runtime validation lives in core/schema.ts)
+.graph/                    # workspace directory (created by graph init)
+├── active                 # workspace default graph name (written by graph switch)
+├── schema.yaml            # human-readable schema description (runtime validation in core/schema.ts)
 ├── workspace-events.jsonl # workspace-level audit (init/switch/migrate/rename/delete)
-├── <graph-name>/          # one first-level directory per graph (v0.5.2; per-graph locks/index/events/snapshots)
+├── <graph>/               # one directory per graph (v0.5.2; per-graph locks/index/events/snapshots)
 │   ├── graph.yaml         # graph definition: entry/exit/root context + node/edge reference lists
 │   ├── nodes/*.yaml       # node files: plan / checkpoints / expected_outcome / execution_report
 │   ├── edges/*.yaml       # edge files: source / target / type / contract
 │   ├── snapshots/<id>/    # version snapshots: manifest + full file copies (graph snapshot)
-│   ├── events.jsonl       # append-only event log (read with graph events; commit it for audit or gitignore it)
-│   └── index/             # derived indexes (graph.json / meta.json / topology.dot — deletable, rebuildable)
-└── .trash/                # delete-graph soft-delete trash (manually recoverable)
+│   ├── events.jsonl       # per-graph append-only event log (read by graph events)
+│   └── index/             # derived index (graph.json / meta.json / topology.dot — deletable, rebuildable)
+└── .trash/                # delete-graph soft-delete recycle bin (manually recoverable)
 ```
 
-> Legacy repos stay compatible with zero migration: an old flat `.graph/graph.yaml` at the root is recognized in place as the `default` graph; a one-shot locked migration into `.graph/default/` happens when the second graph is created.
+> Legacy repos are zero-migration compatible: `.graph/graph.yaml` at the root is recognized in place as the `default` graph; creating a second graph migrates it into `.graph/default/` once, under the workspace lock.
 
 **Design principles:**
 
-- **Git is the single source of truth** — all data is files: diffable, revertable, reviewable
-- **File-as-node** — one node = one YAML, editable with a plain text editor
-- **Structure over prose** — YAML schema constraints; no free-form Markdown ambiguity
-- **Pure file system** — no database; soft-delete keeps `.deleted.yaml` history
+- **Git is the single source of truth** — everything is a file: diffable, revertible, reviewable
+  > ⚠️ If you treat Git as the source of truth (delete `.graph/`, restore via `git clone`), do **not** gitignore `.graph/`; this repo ignores it only because its runtime graphs aren't committed during development
+- **File per node** — one YAML per node; edit directly in your editor
+- **Structure over prose** — YAML schema constraints refuse the ambiguity of free-form Markdown
+- **Pure filesystem** — no database; soft deletes keep `.deleted.yaml` history
 
-> The repo ships an example topology at `.graph-example/` (20 nodes / 36 edges + a `setup-topology.sh` rebuild script) — a good reference for node/edge authoring style.
-
----
-
-## Pi Agent Ecosystem: subagents + skill
-
-The repo includes 2 dedicated subagents (`.pi/agents/`) and 2 phased skills (`.pi/skills/plumber-design/` + `.pi/skills/plumber-execute/`):
-
-| Agent | Role | Responsibilities |
-|-------|------|------------------|
-| `sp-designer` | Topology designer | Decompose requirements into a structured topology; author each node's plan and definition of done |
-| `super-mario` | Topology controller | Node lifecycle adjudication (checkpoint aggregation + output spot-checks), retry management, status monitoring |
-
-**Two-phase skill protocol**: `plumber-design` owns the **design phase** (decompose requirements → build the topology → `graph validate` + a design check script prove it's bug-free → `graph serve` opens a browser preview → request user approval; approval is a hard gate). Once approved, `plumber-execute` owns the **execution phase** (claim → checkpoint-by-checkpoint reporting → execution_report → passed; fan_out/fan_in structure plus a condition check decide when to dispatch parallel subagents; when all task nodes pass, run the 3-layer acceptance: status all-green + `graph validate` 0 errors + acceptance criteria checked one-by-one against real artifacts). Scripts: `sp-check-design.mjs` (design check) on the design side; 6 on the execute side (read/status/claim/checkpoint/report/traverse) — agents operate the graph by protocol, never out-of-band or with fake progress.
+> The repo ships an example topology `.graph-example/` (20 nodes, 36 edges + `setup-topology.sh`) if you want reference material.
 
 ---
 
-## Multi-Tool Integration (v0.6.1)
+## Pi agent ecosystem: subagents + skills
 
-The same workflow assets (role prompts / phase skills / execution scripts / the Operations manual) ship in two integration forms — pick the one that matches your agent tool:
+The project ships 2 dedicated subagents (`.pi/agents/`) and 2 staged skills (`.pi/skills/plumber-design/` + `.pi/skills/plumber-execute/`):
 
-| Integration path | How to install |
-|------------------|----------------|
-| **pi** (in-repo, native) | Use the repo-root `.pi/` in place; to carry it into other projects, copy the whole `.pi/` directory to the project root |
-| **Claude Code** (plugin `super-plumber`) | `/plugin marketplace add lukawi/super-plumber`, then install `super-plumber`; to preview a local checkout, run `claude plugin marketplace add ./` at the repo root |
-| **ZCode** (same plugin) | Settings → Plugin management → Discover → add the marketplace source `lukawi/super-plumber` (or a local directory), then install `super-plumber` |
+| Agent | Role | Responsibility |
+|-------|------|----------------|
+| `sp-designer` | Topology designer | Decompose requirements into a structured topology; write plan and definition_of_done per node |
+| `super-mario` | Topology adjudicator | Node lifecycle adjudication (checkpoint aggregation + output spot-checks), retry management, health monitoring |
 
-> Claude Code and ZCode install **the same plugin package** (`integrations/plugin/`, carried by the `.claude-plugin` manifest; ZCode loads it through the `.claude-plugin` compatibility fallback, with agents auto-discovered from the conventional in-package directory) — one package, two tools.
-
-What you get:
-
-- **2 slash commands**: `/plumber-design` — design-phase orchestration (decompose the requirement → build the topology → validate/doctor both green → browser preview → request user approval); `/plumber-execute` — execution-phase orchestration (claim → report checkpoints as you go → handoff report → three-layer acceptance). pi has no slash commands; the two `.pi/skills/` phases drive the same flow directly.
-- **2 subagents**: `sp-designer` (topology designer) and `super-mario` (adjudication controller), dispatched by the skills via dispatch templates; when no subagent is available, the skills' solo branch runs on the main thread.
-- **The Operations manual** — the single source of truth for operational syntax. pi users read `integrations/shared/manual.md` from the repo root; plugin users read `manual.md` inside the plugin package (a build-time-synced copy). Whenever a prompt or skill says "Read manual §N", resolve it this way (conventions in manual §11).
-
-### Solo mode (one person, one session, no separate adjudicator)
-
-When the main thread plays the designer and executor roles itself, the adjudication boundaries are codified (manual §10): **mechanical checks you may settle yourself** — checkpoint aggregation, artifact existence, the status and structure acceptance layers; let the numbers speak and keep evidence in your notes. **Judgment calls must go to a human** — subjective DoD quality, ADR accept/supersede, the user approval gate, and any force-type action: stop, itemize, and present; never sign on anyone's behalf.
-
-### npm fallback (when marketplace sources are unreachable)
-
-The npm package ships the integration assets (`files` in `package.json` includes `integrations/` and `.pi/`). After installing, copy `integrations/plugin/` out of `node_modules/@lukawi/super-plumber/` (point Claude Code / ZCode at that directory to install), or copy `.pi/` to your project root — no GitHub access required.
-
-### Using ZCode without the plugin
-
-You can also skip the plugin entirely: copy the agent definition md files into `~/.zcode/agents/` (user level) and ZCode will pick them up. If you place them at the project level (`<repo>/.zcode/agents/`) instead, note that a `permissionMode` frontmatter field is stripped from project-level agents (permission fields only take effect at user level), and the reserved names `general-purpose` and `Explore` cannot be used.
+**Two-stage skill protocol**: `plumber-design` owns the **design phase** (requirements → graph → `graph validate` + doctor script → `graph serve` preview → user review, which is a hard gate); once approved, `plumber-execute` owns the **execution phase** (claim → checkpoint-by-checkpoint reporting → execution_report → passed; fan_out/fan_in structure + conditional judgment decide when to fan out subagents; after all task nodes pass, a three-layer acceptance: states all green + structure validate 0 errors + deliverables checked against exit criteria). Supporting scripts: `sp-check-design.mjs` (design doctor) on the design side; 6 scripts (read/status/claim/checkpoint/report/traverse) on the execute side.
 
 ---
 
-## Development & Testing
+## Multi-tool integration (v0.6.1)
+
+The same workflow assets (role prompts / staged skills / execution scripts / Operations manual) ship in two integration forms — pick per your agent tool:
+
+| Integration | How |
+|-------------|-----|
+| **pi** (repo-native) | Use the repo-root `.pi/` directly; to bring it elsewhere, copy the `.pi/` directory to that project root |
+| **Claude Code** (plugin `super-plumber`) | `/plugin marketplace add lukawi/super-plumber`, then install `super-plumber`; for local preview run `claude plugin marketplace add ./` at the repo root |
+| **ZCode** (same plugin) | Settings → Plugin management → Discover → add marketplace `lukawi/super-plumber` (or a local directory), then install `super-plumber` |
+
+> Claude Code and ZCode install **the same plugin package** (`integrations/plugin/`, carried by a `.claude-plugin` manifest; zcode loads it via `.claude-plugin` fallback compatibility, agents discovered from conventional package directories) — one package, two tools.
+
+After installing you get:
+
+- **2 slash commands**: `/plumber-design` — design-phase orchestration (requirements → graph → validate/doctor double-green → browser preview → user review); `/plumber-execute` — execution-phase orchestration (claim → checkpoint reporting → handoff → three-layer acceptance). pi has no slash commands; the `.pi/skills/` staged skills drive the same flows directly.
+- **2 subagents**: `sp-designer` and `super-mario`, dispatched by the skills' templates; a solo branch kicks in when no subagent facility exists.
+- **Operations manual**: the single source of truth for command syntax. pi users read `integrations/shared/manual.md` at the repo root; plugin users read `manual.md` inside the plugin package (a build-time-synced copy).
+
+### Solo mode (single person, single session)
+
+When the main thread plays both designer and executor, the adjudication boundary is a written rule (manual §10): **mechanical checks may self-adjudicate** — checkpoint aggregation, artifact existence, state/structure acceptance, with evidence in notes; **judgment calls must stop for a human** — subjective DoD quality, ADR accept/supersede, user review gates, force actions.
+
+### npm fallback (when marketplaces are unreachable)
+
+The npm package ships the integration assets (`files` includes `integrations/` and `.pi/`). After installing, copy `integrations/plugin/` from `node_modules/@lukawi/super-plumber/` (point Claude Code / ZCode at that directory), or copy `.pi/` to your project root — no GitHub access required.
+
+### ZCode without the plugin
+
+Alternatively, skip the plugin and copy the agent definition markdown files into `~/.zcode/agents/` (user level) — ZCode discovers them. At project level `<repo>/.zcode/agents/`, the `permissionMode` frontmatter field is stripped (permission fields only take effect at user level), and reserved names `general-purpose` / `Explore` cannot be used.
+
+---
+
+## Development & testing
 
 ```bash
 # Build from source
@@ -535,10 +556,10 @@ cd super-plumber
 npm install
 npm run build && npm --prefix web-ui run build
 
-# Tests (504 backend + 54 frontend cases)
+# Tests (534 backend + 68 frontend: state machine/topology/CLI/MCP protocol/multi-graph migration & perf/concurrency hardening/escaping/render smoke)
 npm test
 
-# Link globally for local dev
+# Link globally for development
 npm link
 graph --version
 ```
@@ -549,28 +570,38 @@ graph --version
 
 | Problem | Cause & fix |
 |---------|-------------|
-| `❌ 未找到图（.../.graph 无 graph.yaml），请先运行 graph init <内容名>` | No graph in the current directory. Run `graph init <name>`, or `cd` into the graph directory |
-| **MCP tools still behave like the old version after upgrading** (e.g. schema errors on context/adr vertices) | The connected MCP server process still runs the old code in memory. **Restart the MCP server** (reconnect the client, or restart it after `npm i -g @lukawi/super-plumber`) to load the new build — upgrades never hot-swap a running process |
-| `❌ 端口 8934 已被占用` | Another serve is running. Use `graph serve -p 8935` |
-| `❌ Node x already exists` / `Edge x already exists` | Duplicate id. The tool refuses to overwrite — pick a new id |
-| `❌ Invalid transition: ...` | You skipped a legal path in the state machine. Follow `Allowed: [...]` |
-| `❌ MCP error -32602: ...` | Missing/invalid params on an MCP call — read the hint and fix the argument |
-| `❌ 节点不存在: x` | Node doesn't exist (soft-deleted or wrong id). Confirm with `graph status` / `graph_search` |
-| Global command unchanged after code edits | Global install is the published snapshot. `npm version patch && npm publish && npm i -g @lukawi/super-plumber` |
-| `graph serve` shows an empty graph | Check `cwd` is the graph directory; empty graphs show an onboarding empty state |
+| `❌ 未找到图…请先运行 graph init <内容名>` | No graph in the current directory. Run `graph init <name>` or `cd` into the graph directory |
+| MCP reports "graph directory not initialized…" | The server didn't locate your project: run `graph init <name>` in the project; if the client supports workspace roots it follows automatically, otherwise restart the client from the project directory or set `SUPER_PLUMBER_ROOT` |
+| **MCP tools still behave like the old version after upgrading** | A connected MCP server keeps old code in memory. **Restart the MCP server** (reconnect the client or restart it after `npm i -g @lukawi/super-plumber`) — upgrades never hot-swap a running process |
+| `❌ 端口 8934 已被占用` | A serve is already running. Use `graph serve -p 8935` |
+| `❌ Node x already exists` / `Edge x already exists` | Duplicate id. Tools refuse to overwrite; pick a new id |
+| `❌ Invalid transition: ...` | Skipped the allowed path. Follow the `Allowed: [...]` hint |
+| `❌ MCP error -32602: ...` | Missing params or invalid enum on an MCP call; fix per the message |
+| `❌ 节点不存在: x` | Node doesn't exist (soft-deleted or typo) — confirm with `graph status` / `graph_search` |
+| `❌ Node x 前置未满足…` | Ready gate (predecessors not all passed). Finish predecessors first; don't use `--force` (human-ops only) |
+| `❌ force 仅人类运维通道…` | By design: agents cannot override. Humans use CLI `graph update-status --force` (audited as force_override) |
+| `❌ Node x already claimed by y` | Lost a concurrent claim race (atomic protection). Pick another ready node |
+| `❌ Node x 已达最大重试次数` | Attempts exhausted. Intervene manually or `graph update-node --reset-attempts` (audited) |
+| `❌ Node x 无执行报告，不能标记 passed` | Passed hard gate: file the handoff report first (MCP `graph_update_execution_report` or `sp-report.mjs`, non-empty summary); unaggregated checkpoints or a failed verdict also block |
+| `❌ Node x 被 N 条边引用` | Deleting would leave dangling references. Use `--cascade` or delete edges first |
+| `❌ 节点长时间 running 无进展` | Dead claim: `graph reclaim -i <id>` returns it to pending (executor crashed) |
+| `❌ schema 校验失败: ...` | Hand-edited YAML typo. `graph validate` locates it per file |
+| Global command unchanged after code edits | The global install is a published snapshot. `npm version patch && npm publish && npm i -g @lukawi/super-plumber` |
+| Blank graph after `graph serve` | Check the cwd contains the graph; the UI shows empty-state guidance |
+| UI stopped updating | Auto-reconnect since v0.2 (exponential backoff + HTTP fallback); if the server exited, run `graph serve` again |
 
 ---
 
-## Project Status
+## Project status
 
 ```text
-Tests: 504 backend + 54 frontend ✅ | CLI: 27 commands | MCP: 24 tools | State machine: 7 states + ready gate + max_attempts + passed hard gate + event-log audit + ADR 3-state machine (knowledge vertices exempt) | Edge types: 9 | Versioning: snapshot/diff/rollback (incl. design-only) | Web UI: Svelte 5 + D3.js (map lenses)
+Tests: 534 (backend) + 68 (frontend) ✅ | CLI: 27 commands | MCP: 24 tools | State machine: 7 states + ready gate + max_attempts + passed hard gate + audit log + ADR 3-state machine (knowledge vertices exempt) | Edge types: 9 | Versioning: snapshot/diff/rollback (incl. design-only) | Web UI: Svelte 5 + D3.js starfield observatory (v0.7.0 Deep-Space Instrument Bay)
 ```
 
 - **npm**: [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)
 - **GitHub**: [LUKAWI/super-plumber](https://github.com/LUKAWI/super-plumber)
-- **Architecture decisions**: `docs/adr/` (topo sort ignores runtime edges / file-system storage)
-- **Domain vocabulary**: `CONTEXT.md`
+- **Architecture decisions**: `docs/adr/` (topological sort ignores runtime edges / file-first storage)
+- **Domain glossary**: `CONTEXT.md`
 
 ## License
 

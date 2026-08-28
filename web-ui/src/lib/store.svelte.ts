@@ -83,6 +83,10 @@ let _layoutPinned = $state(false);
 // 2026-08-28：ADR 决策目录随「图中不设 ADR 文档入口」删除
 let _diffOpen = $state(false);
 let _lensOpen = $state(false);
+/** 图库弹层（dock 选图器）：低频操作收进折叠栏，顶栏不再随图数量膨胀 */
+let _graphsOpen = $state(false);
+/** 决策文档弹层（ADR 目录）：画布徽章退役后决策文档的唯一目录入口（2026-08-28 用户拍板恢复） */
+let _adrOpen = $state(false);
 /** GraphCanvas 消费的命令令牌：缩放 / 定位节点 */
 let _zoomRequest = $state<{ kind: "in" | "out" | "fit"; token: number } | null>(null);
 let _locateRequest = $state<{ nodeId: string; token: number } | null>(null);
@@ -156,11 +160,12 @@ export const graphState = {
 		return _buckets[name]?.graph != null;
 	},
 
-	/** 图节点数（选图器徽标）：已加载桶用实时数据，否则退回列表元信息 */
-	nodeCountOf(name: string): number {
-		const b = _buckets[name];
-		if (b?.graph) return b.graph.nodes.length;
-		return _graphsList?.graphs.find((g) => g.name === name)?.nodeCount ?? 0;
+	/** 图节点数（选图器徽标）：工作流口径——只数非知识顶点（所见即所计）。
+	 *  未加载的图无数据可算，返回 null（徽标隐藏），避免列表元信息（含 context/adr）误导 */
+	nodeCountOf(name: string): number | null {
+		const g = _buckets[name]?.graph;
+		if (g) return g.nodes.filter((n) => n.type !== "context" && n.type !== "adr").length;
+		return null;
 	},
 
 	/** ws graphs:list：更新图列表；无当前图或当前图已被删 → 优先恢复上次查看的图，再退 active/首图 */
@@ -213,6 +218,8 @@ export const graphState = {
 	selectGraph(name: string) {
 		_current = name;
 		saveUiPrefs({ currentName: name });
+		_graphsOpen = false;
+		_adrOpen = false;
 		const b = bucketOf(name);
 		b.loadError = null;
 		if (b.graph === null && !b.loading) void this.fetchGraph(name);
@@ -247,6 +254,8 @@ export const graphState = {
 		_layoutPinned = false;
 		_diffOpen = false;
 		_lensOpen = false;
+		_graphsOpen = false;
+		_adrOpen = false;
 		_zoomRequest = null;
 		_locateRequest = null;
 		try {
@@ -310,9 +319,14 @@ export const graphState = {
 	setFocusMode(v: boolean) {
 		_focusMode = v;
 		if (v) {
-			// 专注模式 = 画布即一切：入口先收掉所有浮层，Esc 才能干净退出
+			// 专注模式 = 画布即一切：入口先收掉所有浮层与详情抽屉，Esc 才能干净退出
 			_diffOpen = false;
 			_lensOpen = false;
+			_graphsOpen = false;
+			_adrOpen = false;
+			const b = cur();
+			b.selectedNode = null;
+			b.selectedEdge = null;
 		}
 	},
 	get layoutPinned() {
@@ -328,6 +342,12 @@ export const graphState = {
 		_diffOpen = !_diffOpen;
 		if (_diffOpen) {
 			_lensOpen = false;
+			_graphsOpen = false;
+			_adrOpen = false;
+			// 右缘抽屉互斥：开对比即收详情（同一泊位，评审 F1 的结构性解法）
+			const b = cur();
+			b.selectedNode = null;
+			b.selectedEdge = null;
 			void this.loadSnapshots();
 			void this.loadDiff();
 		} else {
@@ -341,6 +361,30 @@ export const graphState = {
 		_lensOpen = !_lensOpen;
 		if (_lensOpen) {
 			_diffOpen = false;
+			_graphsOpen = false;
+			_adrOpen = false;
+		}
+	},
+	get graphsOpen() {
+		return _graphsOpen;
+	},
+	toggleGraphs() {
+		_graphsOpen = !_graphsOpen;
+		if (_graphsOpen) {
+			_diffOpen = false;
+			_lensOpen = false;
+			_adrOpen = false;
+		}
+	},
+	get adrOpen() {
+		return _adrOpen;
+	},
+	toggleAdr() {
+		_adrOpen = !_adrOpen;
+		if (_adrOpen) {
+			_diffOpen = false;
+			_lensOpen = false;
+			_graphsOpen = false;
 		}
 	},
 	get zoomRequest() {
@@ -370,12 +414,22 @@ export const graphState = {
 	/** 选中即纯数据快照：剥掉 d3 SimNode 附加字段（x/y/fx/index…），避免模拟对象泄漏进 UI 层 */
 	selectNode(n: NodeSchema | null) {
 		cur().selectedNode = n ? this.plainNode(n) : null;
-		if (n) cur().selectedEdge = null;
+		if (n) {
+			cur().selectedEdge = null;
+			// 右缘抽屉互斥：选中节点即退出对比面板与目录弹层（单焦点）
+			_diffOpen = false;
+			_adrOpen = false;
+			this.clearDiff();
+		}
 	},
 
 	selectEdge(e: EdgeSchema | null) {
 		cur().selectedEdge = e;
-		if (e) cur().selectedNode = null;
+		if (e) {
+			cur().selectedNode = null;
+			_diffOpen = false;
+			this.clearDiff();
+		}
 	},
 
 	setLevelFilter(levels: number[] | null) {

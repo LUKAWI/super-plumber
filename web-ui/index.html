@@ -5,14 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Super Plumber — 拓扑图可视化</title>
     <style>
-      /* ── Design tokens: terminal-native monochrome（v0.7 设计系统提案落地）── */
+      /* ── Design tokens: deep-space instrument glass（2026-08-28 现代化重构落地）── */
       :root {
-        /* Surfaces：画布纯黑舞台，chrome 灰阶层差拉开 */
+        /* Surfaces：画布纯黑舞台不变；chrome = 冷调近黑玻璃分层 */
         --bg: #000000;
-        --bg-chrome: #0a0a0a;
-        --surface-1: #141414;
-        --surface-2: #1e1e1e;
-        --surface-3: #2a2a2a;
+        --bg-chrome: #0a0b0e;
+        --glass: rgba(13, 15, 20, 0.72); /* 浮层玻璃基（dock/图例/提示/胶囊） */
+        --glass-strong: rgba(15, 17, 22, 0.88); /* 抽屉玻璃（正文可读优先） */
+        --glass-line: rgba(255, 255, 255, 0.08); /* 玻璃边线 */
+        --hi-line: rgba(255, 255, 255, 0.06); /* 玻璃顶部内高光 */
+
+        /* Washes（白色洗刷阶梯：容器底/hover/active，替代不透明灰阶） */
+        --wash-1: rgba(255, 255, 255, 0.04);
+        --wash-2: rgba(255, 255, 255, 0.07);
+        --wash-3: rgba(255, 255, 255, 0.12);
 
         /* Ink（白阶梯：文本最低档 0.52 ≈ 5.7:1，全部 ≥ AA） */
         --ink: #ffffff;
@@ -20,11 +26,21 @@
         --ink-faint: rgba(255, 255, 255, 0.52);
 
         /* Lines & borders */
-        --line: rgba(255, 255, 255, 0.09);
+        --line: rgba(255, 255, 255, 0.08);
         --line-strong: rgba(255, 255, 255, 0.16);
 
-        /* 交互色（推荐：白）。focus/选中/开关一律明度表达 */
+        /* 交互色：白。focus/选中/开关一律明度表达 */
         --interactive: #ffffff;
+
+        /* 浮层唯一投影档（玻璃深度）+ 模糊 */
+        --shadow-float: 0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35);
+        --blur-panel: blur(20px) saturate(140%);
+        --blur-bar: blur(24px) saturate(140%);
+
+        /* 兼容别名（旧 surface 语义 → wash 映射，防止漏改处裸退） */
+        --surface-1: var(--wash-1);
+        --surface-2: var(--wash-2);
+        --surface-3: var(--wash-3);
 
         /* Status colors — 画布上唯一的彩色语义（OKLCH-tuned for black）*/
         --status-pending: #8a8f98;
@@ -69,10 +85,11 @@
         --sp-12: 48px;
         --sp-16: 64px;
 
-        /* Radii（上限 10px）*/
-        --r-sm: 3px;
-        --r: 6px;
-        --r-lg: 10px;
+        /* Radii（6/10/14/18 + pill：玻璃仪器的圆角阶梯）*/
+        --r-sm: 6px;
+        --r: 10px;
+        --r-lg: 14px;
+        --r-xl: 18px;
 
         /* Easings */
         --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
@@ -86,8 +103,8 @@
         --z-tooltip: 1000;
 
         /* 布局常量 */
-        --header-h: 76px; /* 两排顶栏总高 */
-        --rail-w: 44px; /* 左缘工具轨宽 */
+        --header-h: 48px; /* 单排仪器条高度 */
+        --rail-w: 48px; /* 左缘浮动玻璃 dock 宽（含内衬） */
 
         /* Touch targets */
         --tap: 44px;
@@ -126,18 +143,18 @@
 
       /* Scrollbar */
       ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
+        width: 6px;
+        height: 6px;
       }
       ::-webkit-scrollbar-track {
         background: transparent;
       }
       ::-webkit-scrollbar-thumb {
-        background: var(--surface-3);
-        border-radius: var(--r-sm);
+        background: var(--wash-3);
+        border-radius: 999px;
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: rgba(255, 255, 255, 0.18);
+        background: rgba(255, 255, 255, 0.2);
       }
 
       /* Selection */
@@ -150,11 +167,11 @@
   <body>
     <!--
       FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance.
-      FORM: replacement world, direction pinned by user review of docs/design-system/preview.html (A+C 画布优先); code-led build (no image generation in harness).
-      THESIS: 色彩即状态，交互用明度——画布上唯一的彩色是 7 个节点状态语义，一切交互态用白色明度阶梯表达；chrome 让位于画布（两排顶栏 + 统一工具轨），拒绝通用 dashboard 套皮与彩虹编码。
-      OWN-WORLD: 纯黑画布舞台 #000 + 中性灰阶 chrome（0a/14/1e）；ink 白阶梯 100/72/52%（文本下限 4.6:1）；状态色七值（cancelled 提亮 #7e848d）；mono 只为 id/数字/命令，UI 标签 sans；3/6/10px 圆角；130/220/450ms 单一 ease-out 曲线；图标全部内联 SVG。
-      STORY: 开发者挂屏审阅任务拓扑——一眼看到 running 在哪、点两下看到任何细节、每个空态给出路；Esc 与空白点击是全局退出手势。
-      FIRST VIEWPORT: 两排顶栏（品牌+可点状态 chips / 图 tab+层级+搜索）约 76px，左缘 44px 工具轨（透镜/决策/版本/缩放/专注），其余全部让给画布；fit 挂接模拟收敛，首屏约 1s 内取景完成。
+      FORM: replacement world v2（2026-08-28 现代化重构，用户钉死：黑底星空 + 现代科技暗色 + 反 AI slop）；code-led build。
+      THESIS: 深空仪器舱——星空是唯一主角，chrome 是悬浮其上的磨砂仪器玻璃；拒绝满边框方盒仪表盘与死板小圆角。承袭「色彩即状态，交互用明度」：7 状态色仍是画布唯一彩色语义，一切交互态用白阶梯 + 玻璃面差表达。
+      OWN-WORLD: 纯黑画布 #000 不变；chrome = 冷调近黑玻璃（--glass 0.72 / --glass-strong 0.88 + backdrop-blur 20px + 1px 白 8% 边 + 顶部内高光 + 单档 --shadow-float）；白色洗刷阶梯 4/7/12% 承担容器/hover/active；圆角 6/10/14/18+pill；图标 16px 内联描边；mono 只为数据；130/220/450ms 单一 ease-out。
+      STORY: 挂屏开发者抬眼读状态、点星开玻璃抽屉、开对比看差异；Esc 逐层退出（选中→对比→专注→浮层），空白点击永远清空选中（星云云体放行点击，命中只在云缘/云心/标签）。
+      FIRST VIEWPORT: 顶部双排仪器条（品牌砖 + 分段过滤组 + 图标搜索框，高 76px）；左缘垂直玻璃 dock（透镜/对比/缩放/固定/专注）悬浮于画布；点星右侧浮起 400px 玻璃抽屉；对比面板同为右侧抽屉（与详情抽屉互斥，左下永不遮挡簇色图例）。
     -->
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
