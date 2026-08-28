@@ -202,6 +202,10 @@
   // 边视觉基线（2026-08-28 拍板：E1 渐隐星座线 + E3 running 能量流）
   // 两端渐隐由每边的 userSpaceOnUse 线性渐变承担（线本体 stroke-opacity 恒 1）；
   // 契约边虚线 + 中段略亮；running 源的出边走琥珀能量档（E3，与 flow dots 同源）
+  // 2026-08-28 排查（.edge-debug 像素采样实证）：fit 后 k≈0.6-0.9，1.5px 线缩到
+  // 0.9-1.35px 亚像素 + 渐变中段 0.75，整条 96px 边仅 ~98 个亮像素（峰值 61%）
+  // ——感知"隐约可见"；叠加 f8389b4 旧版参数（0.5/22-78）则峰值再打 68% 折即
+  // "完全不可见"。修复 = 渐变增亮（0.85/8-92）+ 线宽随缩放补偿（屏幕宽 base×√k）。
   function edgeEnergy(e: SimEdge): boolean {
     const sid = edgeEndId(e.source);
     return currentNodes.find((n) => n.id === sid)?.status === "running";
@@ -212,6 +216,24 @@
   function edgeBaseWidth(e: SimEdge): number {
     return edgeEnergy(e) ? 1.9 : edgeIsContract(e) ? 1.8 : 1.5;
   }
+  // 线宽缩放补偿：k<1 时按 1/√k 放大（屏幕宽 = base×√k，亚像素不再摊薄），
+  // k≥1 不缩（上限 2.2×，scaleExtent 下限 0.15 时防巨粗）；zoom 时批量刷（带 0.03 步进阈值）
+  let edgeZoomW = 1;
+  let lastAppliedZoomW = 1;
+  function syncEdgeZoomWidth(k: number) {
+    const w = Math.min(2.2, Math.max(1, 1 / Math.sqrt(k)));
+    if (Math.abs(w - lastAppliedZoomW) < 0.03) {
+      edgeZoomW = lastAppliedZoomW;
+      return;
+    }
+    edgeZoomW = w;
+    lastAppliedZoomW = w;
+    zoomGroup?.selectAll<SVGLineElement, SimEdge>(".edges .edge-line")
+      .attr("stroke-width", (d: SimEdge) => edgeWidthOf(d));
+  }
+  function edgeWidthOf(e: SimEdge): number {
+    return edgeBaseWidth(e) * edgeZoomW;
+  }
 
   /** 渐变 stops（energy 切档）+ 初始端点坐标；渐变元素内嵌在 g.edge-group 里，随组生死 */
   function applyEdgeVisual(sel: d3.Selection<SVGGElement, SimEdge, any, any>) {
@@ -219,15 +241,16 @@
       const g = d3.select(this);
       g.selectAll("stop").remove();
       if (edgeEnergy(d)) {
-        g.append("stop").attr("offset", "0%").attr("stop-color", STATUS_COLORS.running).attr("stop-opacity", 0.75);
-        g.append("stop").attr("offset", "70%").attr("stop-color", STATUS_COLORS.running).attr("stop-opacity", 0.2);
+        g.append("stop").attr("offset", "0%").attr("stop-color", STATUS_COLORS.running).attr("stop-opacity", 0.85);
+        g.append("stop").attr("offset", "65%").attr("stop-color", STATUS_COLORS.running).attr("stop-opacity", 0.25);
         g.append("stop").attr("offset", "100%").attr("stop-color", STATUS_COLORS.running).attr("stop-opacity", 0);
       } else {
-        // 中段 0.75 + 10%-90% 平台：结构可读，仍向星晕两端溶解（0.5/22-78 实测不可见）
-        const mid = edgeIsContract(d) ? 0.8 : 0.75;
+        // 中段 0.85 + 8%-92% 平台：结构清晰可读，仍向星晕两端溶解
+        //（0.5/22-78 实测不可见；0.75/10-90 像素采样仅 ~98 亮像素，感知过弱）
+        const mid = edgeIsContract(d) ? 0.9 : 0.85;
         g.append("stop").attr("offset", "0%").attr("stop-color", "#ffffff").attr("stop-opacity", 0);
-        g.append("stop").attr("offset", "10%").attr("stop-color", "#ffffff").attr("stop-opacity", mid);
-        g.append("stop").attr("offset", "90%").attr("stop-color", "#ffffff").attr("stop-opacity", mid);
+        g.append("stop").attr("offset", "8%").attr("stop-color", "#ffffff").attr("stop-opacity", mid);
+        g.append("stop").attr("offset", "92%").attr("stop-color", "#ffffff").attr("stop-opacity", mid);
         g.append("stop").attr("offset", "100%").attr("stop-color", "#ffffff").attr("stop-opacity", 0);
       }
       // 初始坐标（tick 逐帧接管）：端点未就绪时 0,0 退化一帧可接受
@@ -239,7 +262,7 @@
     });
     sel.select<SVGLineElement>(".edge-line")
       .attr("stroke", (d: SimEdge) => `url(#${edgeGradId(d)})`)
-      .attr("stroke-width", (d: SimEdge) => edgeBaseWidth(d))
+      .attr("stroke-width", (d: SimEdge) => edgeWidthOf(d))
       .attr("stroke-opacity", 1);
   }
 
@@ -271,10 +294,10 @@
       .classed("diff-added", (d: SimEdge) => edgeDiff.get(d.id) === "diff-added")
       .classed("diff-removed", (d: SimEdge) => edgeDiff.get(d.id) === "diff-removed")
       .classed("diff-modified", (d: SimEdge) => edgeDiff.get(d.id) === "diff-modified");
-    // 边基线（E1 渐隐由渐变承担；契约边虚线 + 加粗中段；E3 能量档加粗）
+    // 边基线（E1 渐隐由渐变承担；契约边虚线 + 加粗中段；E3 能量档加粗；宽度随缩放补偿）
     edgeSel.select<SVGLineElement>(".edge-line")
       .attr("stroke-opacity", 1)
-      .attr("stroke-width", (d: SimEdge) => edgeBaseWidth(d))
+      .attr("stroke-width", (d: SimEdge) => edgeWidthOf(d))
       .attr("stroke-dasharray", (d: SimEdge) => (edgeIsContract(d) ? "7 4" : null));
   }
 
@@ -519,9 +542,14 @@
       .attr("class", "edge-group")
       .style("cursor", "pointer");
 
-    // 渐变内嵌在边组里（随组生死，免 defs 孤儿清理）；坐标由 tick 逐帧同步
+    // 渐变内嵌在边组里（随组生死，免 defs 孤儿清理）；坐标由 tick 逐帧同步。
+    // 2026-08-28 排查实锤：此处曾漏设 id——全部渐变 id 为空，stroke 的
+    // url(#eg-…) 引用悬空（Chrome 对无 fallback 的失效 paint 引用按 initial
+    // none 处理 → 线整体不绘制），即"边完全不可见"的根因；computed style
+    // 逐项核验却全部"正确"（引用字面值无误，无人解引用查目标存在性）。
     enter.append("linearGradient")
       .attr("class", "edge-grad")
+      .attr("id", (d: SimEdge) => edgeGradId(d))
       .attr("gradientUnits", "userSpaceOnUse")
       .attr("x1", 0).attr("y1", 0).attr("x2", 0).attr("y2", 0);
     enter.append("line").attr("class", "edge-line");
@@ -550,7 +578,7 @@
       .on("mouseenter", function (this: SVGGElement) {
         const group = d3.select(this);
         group.select(".edge-line")
-          .attr("stroke-width", 2.5);
+          .attr("stroke-width", 2.5 * edgeZoomW);
         group.select(".edge-label").attr("opacity", 1);
         const d = group.datum() as SimEdge;
         const srcId = edgeEndId(d.source);
@@ -563,7 +591,7 @@
         const group = d3.select(this);
         const d = group.datum() as SimEdge;
         group.select(".edge-line")
-          .attr("stroke-width", edgeBaseWidth(d));
+          .attr("stroke-width", edgeWidthOf(d));
         group.select(".edge-label").attr("opacity", 0);
         const srcId = edgeEndId(d.source);
         const tgtId = edgeEndId(d.target);
@@ -933,6 +961,8 @@
           if (event.sourceEvent) userMovedView = true;
           const gridOpacity = Math.min(1, event.transform.k * 1.5);
           svg.select(".grid-bg").attr("opacity", gridOpacity);
+          // 边线宽随缩放补偿（k<1 亚像素摊薄是"看不到线"的共因）
+          syncEdgeZoomWidth(event.transform.k);
         })
         .on("end", () => {
           // 缩放稳定后重跑标签退让（放大后隐藏的标签自然回归）
@@ -986,6 +1016,9 @@
     renderEdgeLayer(zoomGroup, edges);
     renderNodeLayer(zoomGroup, nodes);
     applyFiltersAndDiff();
+    // 保持视角的同图重渲染：边宽补偿与当前 k 对齐（新建 DOM 已按 edgeZoomW 生成，
+    // 这里兜底 lastAppliedZoomW 状态与实际 transform 一致）
+    syncEdgeZoomWidth((svgEl as SVGSVGElement & { __zoom?: d3.ZoomTransform }).__zoom?.k ?? 1);
 
     // 入场动画只跑一次（v0.7：原实现在 tick 内每帧重启，浪费且抖动）
     if (!prefersReducedMotion && !isGraphSwitch) {

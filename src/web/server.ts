@@ -185,26 +185,41 @@ function serveStatic(req: http.IncomingMessage, res: http.ServerResponse): void 
     return;
   }
 
-  // S3-7：exists/stat/read 之间的删除/权限竞态不再抛进 http handler（曾可击穿整个 serve 进程）
-  try {
-    const st = fs.existsSync(filePath) ? fs.statSync(filePath) : null;
-    if (!st || st.isDirectory()) {
-      filePath = path.join(WEB_UI_DIR, "index.html");
-    }
+    // S3-7：exists/stat/read 之间的删除/权限竞态不再抛进 http handler（曾可击穿整个 serve 进程）
+    try {
+      const st = fs.existsSync(filePath) ? fs.statSync(filePath) : null;
+      let fallbackToIndex = false;
+      if (!st || st.isDirectory()) {
+        filePath = path.join(WEB_UI_DIR, "index.html");
+        fallbackToIndex = true;
+      }
 
-    const ext = path.extname(filePath);
-    const mime: Record<string, string> = {
-      ".html": "text/html",
-      ".js": "application/javascript",
-      ".css": "text/css",
-      ".json": "application/json",
-      ".svg": "image/svg+xml",
-    };
-    // 先读后写头：读取失败时 headers 尚未发出，catch 才能安全回 500
-    // （writeHead 在读取之前的话，竞态抛错后再 writeHead(500) 会 ERR_HTTP_HEADERS_SENT）
-    const data = fs.readFileSync(filePath);
-    res.writeHead(200, { "Content-Type": mime[ext] ?? "application/octet-stream" });
-    res.end(data);
+      const ext = path.extname(filePath);
+      const mime: Record<string, string> = {
+        ".html": "text/html",
+        ".js": "application/javascript",
+        ".css": "text/css",
+        ".json": "application/json",
+        ".svg": "image/svg+xml",
+      };
+      // 先读后写头：读取失败时 headers 尚未发出，catch 才能安全回 500
+      // （writeHead 在读取之前的话，竞态抛错后再 writeHead(500) 会 ERR_HTTP_HEADERS_SENT）
+      const data = fs.readFileSync(filePath);
+      // 缓存加固（2026-08-28 边不可见排查）：此前无任何缓存头，长开标签页在
+      // web-ui 重新构建后仍执行旧 bundle（SPA 不重载永不换 JS）。Vite 产物
+      // 文件名带 content hash → 可 immutable 长缓存；index.html 等入口必须
+      // no-cache（无 ETag/Last-Modified，revalidate 即全量重取）。
+      // 404 fallback 到 index.html 时按入口对待（不能让 /assets/404 缓死 immutable）。
+      const isHashedAsset =
+        !fallbackToIndex &&
+        /(^|\/)assets\/[^/]+-[0-9A-Za-z_-]{8,}\.(?:js|css)$/.test(decoded.replace(/\\/g, "/"));
+      res.writeHead(200, {
+        "Content-Type": mime[ext] ?? "application/octet-stream",
+        "Cache-Control": isHashedAsset
+          ? "public, max-age=31536000, immutable"
+          : "no-cache",
+      });
+      res.end(data);
   } catch {
     if (!res.headersSent) {
       res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });

@@ -16,3 +16,4 @@ wechat-*.md
 # 浏览器调试会话产物（非资产）
 .playwright-mcp/
 web-ui/.impeccable/live/
+web-ui/.edge-debug/
