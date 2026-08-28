@@ -2,7 +2,7 @@
 
 只保留一个插件包：目录 integrations/plugin/，清单 .claude-plugin/plugin.json（zcode 以兼容回退读取同一份），插件命名 super-plumber（不带渠道后缀）。marketplace.json 收敛为单条目。废除 super-plumber-claude 与 super-plumber-zcode 双包分装。pi 渠道维持 .pi/ 直用不变。
 
-**Status：** proposed（待裁决）
+**Status：** accepted
 
 **Context：** 双包组装与冒烟均已完成并各自过审后，用户在实测反馈中裁决：两包骨架与内容高度同构（仅清单文件名/插件名/渠道标注三处差异），双包并行维护是重复负担；且探针与官方样实证 zcode 以兼容回退方式直接读取 .claude-plugin 清单（example-plugin 官方样板明文），单包即可双工具通用。
 

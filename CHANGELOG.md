@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.7.0] — 2026-08-28（minor：0.7.0-beta.1 转正 + 领域文档与设计系统同步补录）
+
+- 版本决策：0.7.0-beta.1（tag=beta，2026-08-28 发布）为「深空仪器舱」重构预发布；beta 验证通过、无阻断缺陷，直接转正 0.7.0 发布为 latest。npm 不允许删除 dist-tag，beta 保留指向 0.7.0-beta.1（latest 已是 0.7.0）。
+- 转正前补录（审计发现 → 已同步）：
+  - **ADR 裁决补录**：multitool-refactor 图 adr_0002「插件包合二为一」此前停在 proposed——0.6.1 已按该决策发布实施；经裁决执行 `graph adr accept adr_0002`，`graph export --docs` 再生成 docs/adr（0001 superseded / 0002 accepted 落视图，图为真相源）。
+  - **PRODUCT.md**：ADR 形态由「徽章/角座/文档」更正为现行「dock 决策文档目录 + 详情抽屉五节 + 接替链（画布不渲 ADR 形体）」，decides 边转「管辖决策」反向板块。
+  - **DESIGN.md**：由 0.6.2 灰阶 chrome 基线更新为 v0.7.0 玻璃语言定档（token 正本 `web-ui/index.html`：`--glass` 0.72/0.88、blur 20/24px、wash 4/7/12%、圆角 6/10/14/18+pill、单档 `--shadow-float`、单排 48px 仪器条 + 浮动 glass dock + 右缘统一抽屉），画布语汇同步星体/星云/边态定档值；顶部附修订注记与取值来源。
+  - **README.en.md**：特性表 Web UI 锚点补齐连字符（原断链跳转失效）。
+- 回归：后端 534 例 + web-ui 68 例全绿、svelte-check 0 错误、生产构建通过、`scripts/sync-integrations.mjs --check` 手工手册一致性门禁通过。
+- 发布动作：npm 0.7.0（latest，2026-08-28）+ GitHub tag v0.7.0 与 release。
+
 ## [0.7.0-beta.1] — 2026-08-28（web-ui「深空仪器舱」全面重构：玻璃 chrome + 图库/决策文档 + 交互六修）
 
 > 星空画布主体不变，chrome（顶栏/工具轨/抽屉/浮层）整体替换为现代科技暗色的玻璃语言

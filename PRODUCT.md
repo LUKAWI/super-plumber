@@ -16,7 +16,7 @@ super-plumber 把需求拆解为任务拓扑图（节点/状态机/契约边/ADR
 
 ## Positioning
 
-图即真相源：拓扑图（.graph/）是唯一权威数据，CLI/MCP/webui 三端同源消费。Web UI 的不可复制机制是**领域顶点的原生可视化**——decides 边转管辖徽章、契约边虚线、context 簇壳、ADR 三形态（徽章/角座/文档）、superseded 接替链，这些是任意通用图工具拿不到的语义。
+图即真相源：拓扑图（.graph/）是唯一权威数据，CLI/MCP/webui 三端同源消费。Web UI 的不可复制机制是**领域顶点的原生可视化**——decides 边转「管辖决策」反向板块（节点/context 详情页）、契约边虚线、context 星云（云心 + 云缘命中环）、ADR 决策文档（dock 目录 + 详情抽屉五节 + superseded 接替链；画布不渲 ADR 形体），这些是任意通用图工具拿不到的语义。
 
 ## Operating Context
 
