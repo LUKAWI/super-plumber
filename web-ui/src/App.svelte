@@ -9,10 +9,10 @@
   import { createGraphConnection } from "./lib/api";
   import { graphState } from "./lib/store.svelte";
   import { deriveMaps } from "./lib/maps";
+  import type { NodeStatus } from "./lib/types";
 
   let disconnect: (() => void) | null = null;
   let connStatus = $state<"connecting" | "connected" | "offline">("connecting");
-  let selectorOpen = $state(true);
 
   onMount(() => {
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -27,11 +27,12 @@
   });
   onDestroy(() => disconnect?.());
 
-  // 多图选图器（v0.5.2）：有几张图显示几张；切换纯审阅（本地切桶，不写服务端）
   const graphMetas = $derived(graphState.graphMetas);
   const currentName = $derived(graphState.currentName);
+  const focusMode = $derived(graphState.focusMode);
+  const layoutPinned = $derived(graphState.layoutPinned);
 
-  // 层级过滤（L0–L5，P4-4 分层钻取）
+  // 层级过滤（L0–L5，分层钻取）
   const LEVELS = [0, 1, 2, 3, 4, 5];
   const levelsPresent = $derived(
     graphState.graph
@@ -39,35 +40,84 @@
       : [],
   );
 
-  const summary = $derived.by(() => {
+  // 状态计数（顶栏可点 chips：计数即图例，点击即过滤）
+  const STATUSES: { key: NodeStatus; label: string }[] = [
+    { key: "pending", label: "pending" },
+    { key: "ready", label: "ready" },
+    { key: "running", label: "running" },
+    { key: "passed", label: "passed" },
+    { key: "failed", label: "failed" },
+    { key: "blocked", label: "blocked" },
+    { key: "cancelled", label: "cancelled" },
+  ];
+  const statusCounts = $derived.by(() => {
+    const counts = new Map<NodeStatus, number>();
+    for (const s of STATUSES) counts.set(s.key, 0);
     const g = graphState.graph;
-    if (!g) return null;
-    const s = { total: g.nodes.length, passed: 0, running: 0, blocked: 0, failed: 0, ready: 0 };
-    for (const n of g.nodes) {
-      if (n.status === "passed") s.passed++;
-      else if (n.status === "running") s.running++;
-      else if (n.status === "blocked") s.blocked++;
-      else if (n.status === "failed") s.failed++;
-      else if (n.status === "ready") s.ready++;
+    if (g) for (const n of g.nodes) {
+      const k = n.status as NodeStatus;
+      if (counts.has(k)) counts.set(k, (counts.get(k) ?? 0) + 1);
     }
-    return s;
+    return counts;
   });
 
-  // map 透镜计数（左侧勾选器展示每个 map 的顶点规模）
+  // map 透镜计数（工具轨透镜 flyout 展示每个 map 的顶点规模）
   const mapCounts = $derived.by(() => {
     const g = graphState.graph;
     if (!g) return { workflow: 0, domain: 0 };
     const maps = deriveMaps(g.nodes);
     return { workflow: maps.workflow.length, domain: maps.domain.length };
   });
+
+  // ADR 计数（工具轨「决策」按钮徽标）
+  const adrCount = $derived(
+    graphState.graph?.nodes.filter((n) => n.type === "adr").length ?? 0,
+  );
+
+  /** 搜索 Enter：选中并居中首个命中节点 */
+  function searchKeydown(e: KeyboardEvent) {
+    if (e.key !== "Enter") return;
+    const q = graphState.query.trim().toLowerCase();
+    if (!q) return;
+    const node = graphState.graph?.nodes.find(
+      (n) => n.id.toLowerCase().includes(q) || n.label.toLowerCase().includes(q),
+    );
+    if (node) {
+      graphState.selectNode(node);
+      graphState.locateNode(node.id);
+    }
+  }
+
+  /** 全局退出手势：Esc 按 面板 → 对比 → 专注 → 浮层 的优先级逐层退出 */
+  function globalKeydown(e: KeyboardEvent) {
+    if (e.key !== "Escape") return;
+    if (graphState.selectedNode || graphState.selectedEdge) {
+      graphState.selectNode(null);
+      graphState.selectEdge(null);
+    } else if (graphState.diff) {
+      graphState.clearDiff();
+    } else if (graphState.focusMode) {
+      graphState.setFocusMode(false);
+    } else if (graphState.adrDockOpen || graphState.diffOpen || graphState.lensOpen) {
+      if (graphState.adrDockOpen) graphState.toggleAdrDock();
+      if (graphState.diffOpen) graphState.toggleDiff();
+      if (graphState.lensOpen) graphState.toggleLens();
+    }
+  }
 </script>
 
-<div class="app">
+<svelte:window onkeydown={globalKeydown} />
+
+<div class="app" class:focus-mode={focusMode}>
+  <!-- ── 排 1：品牌 + 可点状态 chips（计数即图例）── -->
   <header class="header">
     <div class="brand">
-      <span class="logo" aria-hidden="true">⬡</span>
+      <svg class="logo" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path d="M8 1.2 13.9 4.6v6.8L8 14.8 2.1 11.4V4.6L8 1.2Z" stroke="currentColor" stroke-width="1.3"/>
+        <circle cx="8" cy="8" r="2" fill="currentColor"/>
+      </svg>
       <div class="brand-text">
-        <h1 class="title">SUPER PLUMBER</h1>
+        <span class="title">Super Plumber</span>
         {#if currentName}
           <span class="graph-label" title={graphState.graph?.label ?? ""}>
             {currentName}{graphState.graph?.label ? ` · ${graphState.graph.label}` : ""}
@@ -76,33 +126,24 @@
       </div>
     </div>
 
-    {#if summary}
-      <div class="status-bar" aria-label="状态摘要">
-        <span class="sb-item total">{summary.total}<span class="sb-unit">total</span></span>
-        <span class="sb-item ready">{summary.ready}<span class="sb-unit">ready</span></span>
-        <span class="sb-item running">{summary.running}<span class="sb-unit">running</span></span>
-        <span class="sb-item passed">{summary.passed}<span class="sb-unit">passed</span></span>
-        <span class="sb-item blocked">{summary.blocked}<span class="sb-unit">blocked</span></span>
-        <span class="sb-item failed">{summary.failed}<span class="sb-unit">failed</span></span>
+    {#if graphState.graph}
+      <div class="status-bar" role="group" aria-label="按状态过滤（计数即图例）">
+        <span class="sb-total"><span class="sb-n">{graphState.graph.nodes.length}</span> total</span>
+        {#each STATUSES as s (s.key)}
+          <button
+            class="sb-chip"
+            class:zero={(statusCounts.get(s.key) ?? 0) === 0}
+            aria-pressed={graphState.statusFilter?.includes(s.key) ?? false}
+            onclick={() => graphState.toggleStatus(s.key)}
+            title="点击只看 {s.label}"
+          >
+            <span class="sb-dot" style="background: var(--status-{s.key})"></span>
+            <span class="sb-n">{statusCounts.get(s.key) ?? 0}</span>
+            <span class="sb-label">{s.label}</span>
+          </button>
+        {/each}
       </div>
     {/if}
-
-    <nav class="legend" aria-label="状态图例">
-      {#each [
-        { label: "pending", color: "var(--status-pending)" },
-        { label: "ready", color: "var(--status-ready)" },
-        { label: "running", color: "var(--status-running)" },
-        { label: "passed", color: "var(--status-passed)" },
-        { label: "failed", color: "var(--status-failed)" },
-        { label: "blocked", color: "var(--status-blocked)" },
-        { label: "cancelled", color: "var(--status-cancelled)" },
-      ] as item}
-        <span class="legend-item">
-          <span class="legend-dot" style="background: {item.color}"></span>
-          <span class="legend-label">{item.label}</span>
-        </span>
-      {/each}
-    </nav>
 
     <div class="stats">
       <span class="stat">{graphState.graph?.nodes.length ?? 0}<span class="stat-unit">n</span></span>
@@ -114,69 +155,59 @@
     </div>
   </header>
 
+  <!-- ── 排 2：图 tab + 层级 + 搜索 ── -->
   {#if graphMetas && graphMetas.length > 0}
-    <div class="graph-tabbar" class:collapsed={!selectorOpen}>
-      <button
-        class="tabbar-toggle"
-        onclick={() => (selectorOpen = !selectorOpen)}
-        aria-expanded={selectorOpen}
-        aria-label={selectorOpen ? "折叠图选择器" : "展开图选择器"}
-        title={selectorOpen ? "折叠图选择器" : "展开图选择器"}
-      >
-        <span class="toggle-arrow" class:open={selectorOpen}>▸</span>
-        GRAPHS·{graphMetas.length}
-      </button>
-      {#if selectorOpen}
-        <div class="graph-tabs" role="tablist" aria-label="图选择（纯审阅，不影响 CLI/MCP 状态）">
-          {#each graphMetas as gm (gm.name)}
-            <button
-              class="graph-tab"
-              class:active={gm.name === currentName}
-              role="tab"
-              aria-selected={gm.name === currentName}
-              title={gm.label ? `${gm.name} · ${gm.label}` : gm.name}
-              onclick={() => graphState.selectGraph(gm.name)}
-            >
-              {#if gm.name === graphState.activeName}
-                <span class="tab-dot" title="工作区 active"></span>
-              {/if}
-              <span class="tab-name">{gm.name}</span>
-              <span class="tab-count">{graphState.nodeCountOf(gm.name)}</span>
-            </button>
-          {/each}
-        </div>
-      {/if}
-    </div>
-  {/if}
-
-  {#if graphState.graph && levelsPresent.length > 0}
-    <div class="filter-bar">
-      <div class="level-chips" role="group" aria-label="按层级过滤">
-        {#each LEVELS.filter((l) => levelsPresent.includes(l)) as l}
+    <div class="toolbar">
+      <div class="graph-tabs" role="tablist" aria-label="图选择（纯审阅，不影响 CLI/MCP 状态）">
+        {#each graphMetas as gm (gm.name)}
           <button
-            class="level-chip {graphState.levelFilter?.includes(l) ? 'active' : ''}"
-            onclick={() => graphState.toggleLevel(l)}
+            class="graph-tab"
+            class:active={gm.name === currentName}
+            role="tab"
+            aria-selected={gm.name === currentName}
+            title={gm.label ? `${gm.name} · ${gm.label}` : gm.name}
+            onclick={() => graphState.selectGraph(gm.name)}
           >
-            L{l}
+            {#if gm.name === graphState.activeName}
+              <span class="tab-dot" title="工作区 active"></span>
+            {/if}
+            <span class="tab-name">{gm.name}</span>
+            <span class="tab-count">{graphState.nodeCountOf(gm.name)}</span>
           </button>
         {/each}
-        {#if graphState.levelFilter}
-          <button class="level-chip clear" onclick={() => graphState.setLevelFilter(null)}>
-            清除
-          </button>
-        {/if}
       </div>
-      <input
-        class="search-input"
-        type="search"
-        placeholder="搜索 id / label…"
-        value={graphState.query}
-        oninput={(e) => graphState.setQuery((e.currentTarget as HTMLInputElement).value)}
-        aria-label="搜索节点"
-      />
+      <div class="toolbar-right">
+        {#if graphState.graph && levelsPresent.length > 0}
+          <div class="level-chips" role="group" aria-label="按层级过滤">
+            {#each LEVELS.filter((l) => levelsPresent.includes(l)) as l}
+              <button
+                class="level-chip {graphState.levelFilter?.includes(l) ? 'active' : ''}"
+                onclick={() => graphState.toggleLevel(l)}
+              >
+                L{l}
+              </button>
+            {/each}
+            {#if graphState.levelFilter || graphState.statusFilter}
+              <button class="level-chip clear" onclick={() => { graphState.setLevelFilter(null); graphState.clearStatusFilter(); }}>
+                清除
+              </button>
+            {/if}
+          </div>
+        {/if}
+        <input
+          class="search-input"
+          type="search"
+          placeholder="搜索 id / 标签，Enter 定位…"
+          value={graphState.query}
+          oninput={(e) => graphState.setQuery((e.currentTarget as HTMLInputElement).value)}
+          onkeydown={searchKeydown}
+          aria-label="搜索节点"
+        />
+      </div>
     </div>
   {/if}
 
+  <!-- ── 主区：画布 + 工具轨 + 面板 ── -->
   <main class="main">
     {#if connStatus === "connecting" && graphState.graph === null && currentName === null}
       <div class="loading-state">
@@ -195,57 +226,179 @@
             <line x1="70" y1="35" x2="80" y2="55" class="skeleton-edge"/>
           </svg>
         </div>
-        <p class="loading-text">connecting to topology service…</p>
+        <p class="loading-text">正在连接拓扑服务…</p>
+      </div>
+    {:else if graphState.graph === null && graphState.loadError}
+      <div class="error-state" role="alert">
+        <svg width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="var(--status-failed)" stroke-width="1.5" aria-hidden="true">
+          <path d="M8 32c6-8 12-8 16 0s10 8 16 0"/>
+          <path d="M24 12v10M24 27v3"/>
+          <circle cx="24" cy="38" r="1.6" fill="var(--status-failed)" stroke="none"/>
+        </svg>
+        <h3 class="error-title">图「{currentName}」加载失败</h3>
+        <p class="error-hint">{graphState.loadError}</p>
+        <button class="retry-btn" onclick={() => currentName && graphState.fetchGraph(currentName)}>
+          重试
+        </button>
       </div>
     {:else if graphMetas !== null && graphMetas.length === 0}
       <div class="empty-state">
-        <h3 class="empty-title">no graphs</h3>
-        <p class="empty-hint">工作区尚未初始化任何图</p>
-      </div>
-    {:else if graphState.graph === null}
-      <div class="loading-state">
-        <p class="loading-text">loading graph "{currentName}"…</p>
-      </div>
-    {:else if graphState.graph && graphState.graph.nodes.length === 0}
-      <div class="empty-state">
-        <svg viewBox="0 0 80 80" width="80" height="80" fill="none" stroke="var(--ink-faint)" stroke-width="1.5">
+        <svg width="80" height="80" viewBox="0 0 80 80" fill="none" stroke="var(--ink-faint)" stroke-width="1.5" aria-hidden="true">
           <circle cx="20" cy="20" r="6"/>
           <circle cx="60" cy="40" r="6"/>
           <circle cx="20" cy="60" r="6"/>
           <path d="M26 20h14M26 60h14M46 40H34" stroke-dasharray="4 3"/>
         </svg>
-        <h3 class="empty-title">empty topology</h3>
+        <h3 class="empty-title">工作区还没有图</h3>
         <p class="empty-hint">
-          <code>graph create-node</code> to add the first node
+          运行 <code>graph init &lt;图名&gt;</code> 创建第一张拓扑
+        </p>
+      </div>
+    {:else if graphState.graph === null}
+      <div class="loading-state">
+        <p class="loading-text">正在加载图「{currentName}」…</p>
+      </div>
+    {:else if graphState.graph && graphState.graph.nodes.length === 0}
+      <div class="empty-state">
+        <svg width="80" height="80" viewBox="0 0 80 80" fill="none" stroke="var(--ink-faint)" stroke-width="1.5" aria-hidden="true">
+          <circle cx="20" cy="20" r="6"/>
+          <circle cx="60" cy="40" r="6"/>
+          <circle cx="20" cy="60" r="6"/>
+          <path d="M26 20h14M26 60h14M46 40H34" stroke-dasharray="4 3"/>
+        </svg>
+        <h3 class="empty-title">空拓扑</h3>
+        <p class="empty-hint">
+          运行 <code>graph create-node</code> 添加第一个节点
         </p>
       </div>
     {:else}
       <GraphCanvas />
-      <aside class="map-selector" aria-label="map 透镜选择">
-        <span class="map-title">MAPS</span>
-        <label class="map-item" title="工作流图：任务/检查点/决策/门与调度边">
-          <input
-            type="checkbox"
-            class="map-checkbox"
-            checked={graphState.activeMaps.workflow}
-            onchange={() => graphState.toggleMap("workflow")}
-          />
-          <span class="map-name">工作流图</span>
-          <span class="map-count">{mapCounts.workflow}</span>
-        </label>
-        <label class="map-item" title="领域图：context 边界与 ADR（叠加视图显示簇壳/徽章/契约边）">
-          <input
-            type="checkbox"
-            class="map-checkbox"
-            checked={graphState.activeMaps.domain}
-            onchange={() => graphState.toggleMap("domain")}
-          />
-          <span class="map-name">领域图</span>
-          <span class="map-count">{mapCounts.domain}</span>
-        </label>
-      </aside>
       <DiffPanel />
       <AdrDock />
+    {/if}
+
+    <!-- ── 统一工具轨（画布存在时；专注模式下隐藏）── -->
+    {#if graphState.graph && graphState.graph.nodes.length > 0}
+      <nav class="tool-rail" aria-label="画布工具轨">
+        <button
+          class="rail-btn"
+          class:active={graphState.lensOpen}
+          onclick={() => graphState.toggleLens()}
+          title="map 透镜"
+          aria-label="map 透镜"
+          aria-expanded={graphState.lensOpen}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <circle cx="6" cy="6" r="4"/>
+            <circle cx="10" cy="10" r="4"/>
+          </svg>
+        </button>
+        <button
+          class="rail-btn"
+          class:active={graphState.adrDockOpen}
+          onclick={() => graphState.toggleAdrDock()}
+          title="ADR 决策目录"
+          aria-label="ADR 决策目录"
+          aria-expanded={graphState.adrDockOpen}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path d="M8 2 14 8 8 14 2 8Z"/>
+          </svg>
+          {#if adrCount > 0}
+            <span class="rail-badge">{adrCount}</span>
+          {/if}
+        </button>
+        <button
+          class="rail-btn"
+          class:active={graphState.diffOpen}
+          onclick={() => graphState.toggleDiff()}
+          title="版本对比（快照 → 当前工作区）"
+          aria-label="版本对比"
+          aria-expanded={graphState.diffOpen}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path d="M4 2v12M12 2v12M4 7l3-3 3 3M12 9l-3 3-3-3"/>
+          </svg>
+        </button>
+
+        <span class="rail-sep" aria-hidden="true"></span>
+
+        <button class="rail-btn" onclick={() => graphState.requestZoom("in")} title="放大" aria-label="放大">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path d="M8 3v10M3 8h10"/>
+          </svg>
+        </button>
+        <button class="rail-btn" onclick={() => graphState.requestZoom("out")} title="缩小" aria-label="缩小">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path d="M3 8h10"/>
+          </svg>
+        </button>
+        <button class="rail-btn" onclick={() => graphState.requestZoom("fit")} title="适配全图" aria-label="适配全图">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4"/>
+          </svg>
+        </button>
+        <button
+          class="rail-btn"
+          class:active={layoutPinned}
+          onclick={() => graphState.setLayoutPinned(!layoutPinned)}
+          title="固定布局（停用模拟，大图性能）"
+          aria-label="固定布局"
+          aria-pressed={layoutPinned}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path d="M5 1h6l-1.2 4.2L12 8H4l2.2-2.8L5 1ZM8 8v7"/>
+          </svg>
+        </button>
+
+        <span class="rail-sep" aria-hidden="true"></span>
+
+        <button
+          class="rail-btn"
+          class:active={focusMode}
+          onclick={() => graphState.setFocusMode(!focusMode)}
+          title="专注模式（隐藏 chrome，挂屏监控）"
+          aria-label="专注模式"
+          aria-pressed={focusMode}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z"/>
+            <circle cx="8" cy="8" r="2"/>
+          </svg>
+        </button>
+      </nav>
+
+      {#if graphState.lensOpen}
+        <aside class="rail-flyout lens-flyout" aria-label="map 透镜选择">
+          <span class="flyout-title">map 透镜</span>
+          <label class="lens-item" title="任务/检查点/决策/门与调度边">
+            <input
+              type="checkbox"
+              class="lens-checkbox"
+              checked={graphState.activeMaps.workflow}
+              onchange={() => graphState.toggleMap("workflow")}
+            />
+            <span class="lens-name">工作流图</span>
+            <span class="lens-count">{mapCounts.workflow}</span>
+          </label>
+          <label class="lens-item" title="context 边界与 ADR（叠加视图显示簇壳/徽章/契约边）">
+            <input
+              type="checkbox"
+              class="lens-checkbox"
+              checked={graphState.activeMaps.domain}
+              onchange={() => graphState.toggleMap("domain")}
+            />
+            <span class="lens-name">领域图</span>
+            <span class="lens-count">{mapCounts.domain}</span>
+          </label>
+        </aside>
+      {/if}
+    {/if}
+
+    {#if focusMode}
+      <button class="focus-exit" onclick={() => graphState.setFocusMode(false)}>
+        退出专注 <span class="focus-kbd">Esc</span>
+      </button>
     {/if}
   </main>
 
@@ -259,19 +412,20 @@
     display: flex;
     flex-direction: column;
     height: 100vh;
-    background: var(--bg);
+    background: var(--bg-chrome);
     color: var(--ink);
     overflow: hidden;
   }
 
-  /* ── Header ── */
+  /* ── 排 1：品牌 + 状态 chips ── */
   .header {
     display: flex;
     align-items: center;
     gap: var(--sp-4);
-    padding: var(--sp-3) var(--sp-4);
+    padding: var(--sp-2) var(--sp-4);
+    min-height: 40px;
     border-bottom: 1px solid var(--line);
-    background: var(--surface-1);
+    background: var(--bg-chrome);
     user-select: none;
     flex-shrink: 0;
     flex-wrap: wrap;
@@ -281,6 +435,7 @@
     display: flex;
     align-items: center;
     gap: var(--sp-2);
+    color: var(--ink-muted);
   }
 
   .brand-text {
@@ -289,18 +444,11 @@
     gap: 1px;
   }
 
-  .logo {
-    font-size: var(--text-md);
-    color: var(--ink-muted);
-    line-height: 1;
-  }
-
   .title {
     font-family: var(--font-mono);
-    font-size: var(--text-sm);
+    font-size: var(--text-xs);
     font-weight: 700;
     letter-spacing: var(--track-caps);
-    margin: 0;
     color: var(--ink);
     text-transform: uppercase;
     line-height: 1.2;
@@ -310,91 +458,94 @@
     font-family: var(--font-mono);
     font-size: var(--text-2xs);
     color: var(--ink-faint);
-    letter-spacing: var(--track-label);
+    letter-spacing: 0.02em;
     max-width: 220px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  /* ── 状态摘要条 ── */
+  /* 可点状态 chips：计数即图例，点击即过滤 */
   .status-bar {
     display: flex;
-    gap: var(--sp-1);
+    gap: 2px;
     margin-left: var(--sp-2);
+    flex-wrap: wrap;
   }
 
-  .sb-item {
+  .sb-total {
     font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    font-weight: 600;
-    padding: var(--sp-1) var(--sp-2);
-    border-radius: var(--r-sm);
-    background: var(--surface-2);
-    border: 1px solid var(--line);
-    color: var(--ink-muted);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .sb-unit {
     font-size: var(--text-2xs);
-    font-weight: 400;
-    color: var(--ink-faint);
-    margin-left: 3px;
-    text-transform: lowercase;
+    color: var(--ink-muted);
+    padding: 3px var(--sp-2);
+    font-variant-numeric: tabular-nums;
+    align-self: center;
   }
 
-  .sb-item.total { color: var(--ink); }
-  .sb-item.ready { color: var(--status-ready); }
-  .sb-item.running { color: var(--status-running); }
-  .sb-item.passed { color: var(--status-passed); }
-  .sb-item.blocked { color: var(--status-blocked); }
-  .sb-item.failed { color: var(--status-failed); }
-
-  /* ── Legend ── */
-  .legend {
-    display: flex;
-    gap: var(--sp-2);
-    margin-left: var(--sp-4);
+  .sb-n {
+    color: var(--ink);
+    font-weight: 600;
   }
 
-  .legend-item {
-    display: flex;
+  .sb-total .sb-n {
+    margin-right: 3px;
+  }
+
+  .sb-chip {
+    display: inline-flex;
     align-items: center;
-    gap: var(--sp-1);
-    padding: var(--sp-1) var(--sp-2);
-    border-radius: var(--r-sm);
-    transition: background 0.15s var(--ease-out-quart);
-    cursor: default;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--ink-muted);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--r);
+    padding: 3px var(--sp-2);
+    cursor: pointer;
+    font-variant-numeric: tabular-nums;
+    transition: background 0.13s var(--ease-out-quart), color 0.13s var(--ease-out-quart),
+      border-color 0.13s var(--ease-out-quart);
   }
 
-  .legend-item:hover {
-    background: rgba(255, 255, 255, 0.04);
+  .sb-chip:hover {
+    background: var(--surface-1);
+    color: var(--ink);
   }
 
-  .legend-dot {
-    width: 6px;
-    height: 6px;
+  .sb-chip[aria-pressed="true"] {
+    background: var(--surface-2);
+    border-color: var(--line-strong);
+    color: var(--ink);
+  }
+
+  .sb-chip:focus-visible {
+    outline: 2px solid var(--interactive);
+    outline-offset: 1px;
+  }
+
+  .sb-chip.zero {
+    opacity: 0.5;
+  }
+
+  .sb-dot {
+    width: 7px;
+    height: 7px;
     border-radius: 50%;
     flex-shrink: 0;
   }
 
-  .legend-label {
-    font-family: var(--font-mono);
-    font-size: var(--text-2xs);
-    color: var(--ink-muted);
-    text-transform: lowercase;
-    letter-spacing: var(--track-label);
+  .sb-label {
+    letter-spacing: 0.02em;
   }
 
-  /* ── Stats ── */
   .stats {
     margin-left: auto;
     font-family: var(--font-mono);
-    font-size: var(--text-xs);
+    font-size: var(--text-2xs);
     color: var(--ink-muted);
     font-variant-numeric: tabular-nums;
-    letter-spacing: var(--track-label);
+    letter-spacing: 0.02em;
     display: flex;
     align-items: center;
     gap: var(--sp-2);
@@ -422,48 +573,17 @@
     padding: 1px var(--sp-1);
   }
 
-  /* ── 多图选图器（v0.5.2 折叠任务栏）── */
-  .graph-tabbar {
+  /* ── 排 2：图 tab + 层级 + 搜索 ── */
+  .toolbar {
     display: flex;
     align-items: center;
-    gap: var(--sp-2);
+    gap: var(--sp-3);
     padding: var(--sp-1) var(--sp-4);
+    min-height: 34px;
     border-bottom: 1px solid var(--line);
-    background: var(--surface-1);
+    background: var(--bg-chrome);
     flex-shrink: 0;
-    min-height: 30px;
-  }
-
-  .tabbar-toggle {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-family: var(--font-mono);
-    font-size: var(--text-2xs);
-    font-weight: 700;
-    letter-spacing: var(--track-caps);
-    color: var(--ink-faint);
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: var(--r-sm);
-    padding: 2px var(--sp-1);
-    cursor: pointer;
-    text-transform: uppercase;
-    transition: color 0.15s var(--ease-out-quart);
-  }
-
-  .tabbar-toggle:hover {
-    color: var(--ink-muted);
-  }
-
-  .toggle-arrow {
-    display: inline-block;
-    transition: transform 0.15s var(--ease-out-quart);
-    font-size: 9px;
-  }
-
-  .toggle-arrow.open {
-    transform: rotate(90deg);
+    flex-wrap: wrap;
   }
 
   .graph-tabs {
@@ -478,16 +598,16 @@
     align-items: center;
     gap: var(--sp-1);
     font-family: var(--font-mono);
-    font-size: var(--text-xs);
+    font-size: var(--text-2xs);
     color: var(--ink-muted);
-    background: var(--surface-2);
+    background: transparent;
     border: 1px solid var(--line);
-    border-radius: var(--r-sm);
-    padding: 2px var(--sp-2);
+    border-radius: var(--r);
+    padding: 3px var(--sp-2);
     cursor: pointer;
     max-width: 220px;
-    transition: background 0.15s var(--ease-out-quart), color 0.15s var(--ease-out-quart),
-      border-color 0.15s var(--ease-out-quart);
+    transition: background 0.13s var(--ease-out-quart), color 0.13s var(--ease-out-quart),
+      border-color 0.13s var(--ease-out-quart);
   }
 
   .graph-tab:hover {
@@ -496,7 +616,7 @@
   }
 
   .graph-tab.active {
-    background: var(--surface-3);
+    background: var(--surface-2);
     color: var(--ink);
     border-color: var(--line-strong);
     font-weight: 600;
@@ -506,7 +626,7 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--status-ready);
+    border: 1.5px solid var(--ink-faint);
     flex-shrink: 0;
   }
 
@@ -519,41 +639,37 @@
   .tab-count {
     font-size: var(--text-2xs);
     color: var(--ink-faint);
-    background: var(--surface-3);
+    background: var(--surface-2);
     border-radius: var(--r-sm);
     padding: 0 var(--sp-1);
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
   }
 
-  /* ── Filter bar ── */
-  .filter-bar {
+  .toolbar-right {
+    margin-left: auto;
     display: flex;
     align-items: center;
-    gap: var(--sp-3);
-    padding: var(--sp-2) var(--sp-4);
-    border-bottom: 1px solid var(--line);
-    background: var(--surface-1);
-    flex-shrink: 0;
-    flex-wrap: wrap;
+    gap: var(--sp-2);
   }
 
   .level-chips {
     display: flex;
-    gap: var(--sp-1);
+    gap: 2px;
   }
 
   .level-chip {
     font-family: var(--font-mono);
     font-size: var(--text-2xs);
-    padding: 2px var(--sp-2);
-    border-radius: var(--r-sm);
+    padding: 3px var(--sp-2);
+    border-radius: var(--r);
     border: 1px solid var(--line);
     background: transparent;
     color: var(--ink-muted);
     cursor: pointer;
-    letter-spacing: var(--track-label);
-    transition: background 0.15s var(--ease-out-quart), color 0.15s var(--ease-out-quart), border-color 0.15s var(--ease-out-quart);
+    letter-spacing: 0.02em;
+    transition: background 0.13s var(--ease-out-quart), color 0.13s var(--ease-out-quart),
+      border-color 0.13s var(--ease-out-quart);
   }
 
   .level-chip:hover {
@@ -562,7 +678,7 @@
   }
 
   .level-chip.active {
-    background: var(--surface-3);
+    background: var(--surface-2);
     color: var(--ink);
     border-color: var(--line-strong);
   }
@@ -572,23 +688,33 @@
   }
 
   .search-input {
-    margin-left: auto;
-    background: var(--surface-2);
+    background: var(--surface-1);
     border: 1px solid var(--line);
-    border-radius: var(--r-sm);
+    border-radius: var(--r);
     color: var(--ink);
-    font-family: var(--font-mono);
+    font-family: var(--font-sans);
     font-size: var(--text-xs);
-    padding: var(--sp-1) var(--sp-2);
-    width: 200px;
+    padding: 4px var(--sp-2);
+    width: 210px;
     outline: none;
+    transition: border-color 0.13s var(--ease-out-quart), box-shadow 0.13s var(--ease-out-quart);
+  }
+
+  .search-input::placeholder {
+    color: var(--ink-faint);
   }
 
   .search-input:focus {
     border-color: var(--line-strong);
   }
 
-  /* ── Main ── */
+  /* 键盘焦点环 ≥3:1（PRODUCT.md a11y 承诺：2px 白环） */
+  .search-input:focus-visible {
+    outline: 2px solid var(--interactive);
+    outline-offset: 1px;
+  }
+
+  /* ── 主区 ── */
   .main {
     flex: 1 1 0%;
     min-height: 0;
@@ -596,84 +722,213 @@
     overflow: hidden;
   }
 
-  /* ── 左侧 map 勾选器（v0.5 透镜）── */
-  .map-selector {
+  /* ── 统一工具轨 ── */
+  .tool-rail {
     position: absolute;
-    left: var(--sp-3);
-    top: 50%;
-    transform: translateY(-50%);
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: var(--rail-w);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: var(--sp-2) 0;
+    background: var(--bg-chrome);
+    border-right: 1px solid var(--line);
+    z-index: var(--z-overlay);
+    transition: transform 0.22s var(--ease-out-quint), opacity 0.22s var(--ease-out-quint);
+  }
+
+  .rail-btn {
+    position: relative;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--r);
+    color: var(--ink-muted);
+    cursor: pointer;
+    transition: background 0.13s var(--ease-out-quart), color 0.13s var(--ease-out-quart),
+      border-color 0.13s var(--ease-out-quart);
+  }
+
+  .rail-btn:hover {
+    background: var(--surface-1);
+    color: var(--ink);
+  }
+
+  .rail-btn.active {
+    background: var(--surface-2);
+    border-color: var(--line-strong);
+    color: var(--ink);
+  }
+
+  .rail-btn:focus-visible {
+    outline: 2px solid var(--interactive);
+    outline-offset: 1px;
+  }
+
+  .rail-badge {
+    position: absolute;
+    top: 0;
+    right: 0;
+    min-width: 15px;
+    height: 15px;
+    border-radius: 8px;
+    background: var(--surface-3);
+    color: var(--ink);
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    line-height: 15px;
+    text-align: center;
+    padding: 0 3px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .rail-sep {
+    width: 20px;
+    height: 1px;
+    background: var(--line);
+    margin: var(--sp-1) 0;
+    flex-shrink: 0;
+  }
+
+  /* 工具轨 flyout（透镜） */
+  .rail-flyout {
+    position: absolute;
+    left: calc(var(--rail-w) + var(--sp-2));
+    bottom: var(--sp-3);
+    background: var(--surface-1);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    padding: var(--sp-3);
+    z-index: var(--z-panel);
+    min-width: 200px;
     display: flex;
     flex-direction: column;
     gap: var(--sp-1);
-    background: var(--surface-2);
-    border: 1px solid var(--line);
-    border-radius: var(--r);
-    padding: var(--sp-2);
-    z-index: var(--z-tooltip, 30);
-    min-width: 128px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
   }
 
-  .map-title {
-    font-family: var(--font-mono);
+  .lens-flyout {
+    bottom: auto;
+    top: var(--sp-3);
+  }
+
+  .flyout-title {
+    font-family: var(--font-sans);
     font-size: var(--text-2xs);
-    font-weight: 700;
-    letter-spacing: var(--track-caps);
+    font-weight: 650;
     color: var(--ink-faint);
-    text-transform: uppercase;
     padding: 0 var(--sp-1) var(--sp-1);
   }
 
-  .map-item {
+  .lens-item {
     display: flex;
     align-items: center;
     gap: var(--sp-2);
-    padding: var(--sp-1) var(--sp-2);
-    border-radius: var(--r-sm);
+    padding: var(--sp-2);
+    border-radius: var(--r);
     cursor: pointer;
-    transition: background 0.15s var(--ease-out-quart);
+    transition: background 0.13s var(--ease-out-quart);
     user-select: none;
   }
 
-  .map-item:hover {
-    background: rgba(255, 255, 255, 0.05);
+  .lens-item:hover {
+    background: var(--surface-2);
   }
 
-  .map-checkbox {
-    accent-color: var(--status-ready);
-    width: 13px;
-    height: 13px;
+  .lens-checkbox {
+    accent-color: var(--ink-muted);
+    width: 14px;
+    height: 14px;
     cursor: pointer;
     flex-shrink: 0;
     margin: 0;
   }
 
-  .map-name {
+  .lens-name {
     font-family: var(--font-sans);
     font-size: var(--text-xs);
     color: var(--ink);
     flex: 1;
   }
 
-  .map-count {
+  .lens-count {
     font-family: var(--font-mono);
     font-size: var(--text-2xs);
     color: var(--ink-faint);
-    background: var(--surface-3);
+    background: var(--surface-2);
     border-radius: var(--r-sm);
     padding: 1px var(--sp-1);
     font-variant-numeric: tabular-nums;
   }
 
-  /* ── Loading ── */
-  .loading-state {
+  /* ── 专注模式：chrome 退场，画布即一切 ── */
+  .focus-mode .header,
+  .focus-mode .toolbar {
+    display: none;
+  }
+
+  .focus-mode .tool-rail {
+    transform: translateX(-100%);
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  /* 工具轨的浮层面板一并退场（跨组件：global 穿透） */
+  .focus-mode :global(.adr-dock),
+  .focus-mode :global(.rail-flyout),
+  .focus-mode :global(.diff-panel) {
+    display: none;
+  }
+
+  .focus-exit {
+    position: absolute;
+    right: var(--sp-3);
+    bottom: var(--sp-3);
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    background: var(--surface-1);
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    color: var(--ink-muted);
+    font-family: var(--font-sans);
+    font-size: var(--text-2xs);
+    padding: var(--sp-2) var(--sp-3);
+    cursor: pointer;
+    z-index: var(--z-overlay);
+    transition: color 0.13s var(--ease-out-quart), border-color 0.13s var(--ease-out-quart);
+  }
+
+  .focus-exit:hover {
+    color: var(--ink);
+    border-color: var(--ink-faint);
+  }
+
+  .focus-kbd {
+    font-family: var(--font-mono);
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    padding: 0 4px;
+    color: var(--ink-faint);
+  }
+
+  /* ── 加载 / 空态 / 错误态 ── */
+  .loading-state,
+  .empty-state,
+  .error-state {
     position: absolute;
     inset: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: var(--sp-4);
+    gap: var(--sp-3);
     color: var(--ink-muted);
   }
 
@@ -689,7 +944,7 @@
     width: 40px;
     height: 40px;
     border-radius: 50%;
-    background: var(--surface-3);
+    background: var(--surface-2);
     border: 2px solid var(--line-strong);
     animation: skeleton-pulse 1.5s ease-in-out infinite;
   }
@@ -728,54 +983,71 @@
   }
 
   .loading-text {
-    font-family: var(--font-mono);
+    font-family: var(--font-sans);
     font-size: var(--text-sm);
     color: var(--ink-muted);
     margin: 0;
-    letter-spacing: var(--track-label);
   }
 
-  /* ── Empty state ── */
-  .empty-state {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: var(--sp-3);
+  .error-title {
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    font-weight: 650;
+    color: var(--ink);
+    margin: 0;
+  }
+
+  .error-hint {
+    font-family: var(--font-sans);
+    font-size: var(--text-xs);
     color: var(--ink-faint);
-    opacity: 0.6;
-    animation: fadeIn 0.4s var(--ease-out-quart);
+    margin: 0;
+    max-width: 44ch;
+    text-align: center;
+    line-height: 1.6;
+  }
+
+  .retry-btn {
+    background: var(--interactive);
+    color: #000000;
+    border: none;
+    border-radius: var(--r);
+    font-family: var(--font-sans);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    padding: var(--sp-2) var(--sp-4);
+    cursor: pointer;
+    transition: opacity 0.13s var(--ease-out-quart);
+  }
+
+  .retry-btn:hover {
+    opacity: 0.88;
   }
 
   .empty-title {
-    font-family: var(--font-mono);
+    font-family: var(--font-sans);
     font-size: var(--text-sm);
-    font-weight: 600;
+    font-weight: 650;
     margin: var(--sp-2) 0 0;
     color: var(--ink-muted);
-    text-transform: uppercase;
-    letter-spacing: var(--track-caps);
   }
 
   .empty-hint {
-    font-family: var(--font-mono);
+    font-family: var(--font-sans);
     font-size: var(--text-xs);
     margin: 0;
     color: var(--ink-faint);
-    letter-spacing: var(--track-label);
   }
 
   .empty-hint code {
-    background: var(--surface-2);
+    background: var(--surface-1);
     padding: 2px 6px;
     border-radius: var(--r-sm);
     color: var(--ink-muted);
     font-family: var(--font-mono);
   }
 
-  /* ── Animations ── */
+  /* ── 动效 ── */
   @keyframes fadeIn {
     from { opacity: 0; transform: translateY(8px); }
     to { opacity: 0.6; transform: translateY(0); }
@@ -783,20 +1055,40 @@
 
   /* ── Reduced motion ── */
   @media (prefers-reduced-motion: reduce) {
-    .legend-item { transition: none; }
-    .empty-state { animation: none; }
+    .sb-chip, .rail-btn, .tool-rail { transition: none; }
     .skeleton-node, .skeleton-edge { animation: none; opacity: 0.5; }
   }
 
-  /* ── Responsive ── */
+  /* ── Responsive：工具轨转底部横条 ── */
   @media (max-width: 768px) {
     .header {
       padding: var(--sp-2) var(--sp-3);
       gap: var(--sp-2);
     }
-    .legend { display: none; }
-    .status-bar { display: none; }
-    .title { font-size: var(--text-xs); }
-    .search-input { width: 120px; }
+    .stats { display: none; }
+    .title { font-size: var(--text-2xs); }
+    .search-input { width: 130px; }
+
+    .tool-rail {
+      top: auto;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      width: auto;
+      height: 52px;
+      flex-direction: row;
+      padding: 0 var(--sp-2);
+      border-right: none;
+      border-top: 1px solid var(--line);
+    }
+    .rail-btn { width: var(--tap); height: var(--tap); }
+    .rail-sep { width: 1px; height: 20px; margin: 0 var(--sp-1); }
+    .rail-flyout {
+      left: var(--sp-2);
+      bottom: calc(52px + var(--sp-2));
+      top: auto;
+    }
+    .lens-flyout { top: auto; }
+    .focus-exit { bottom: calc(52px + var(--sp-2)); }
   }
 </style>

@@ -87,11 +87,11 @@ describe("AdrDocument 决策文档抽屉", () => {
 			t.textContent!.trim(),
 		);
 		expect(titles).toEqual([
-			"▸DECISION",
-			"▸BACKGROUND",
-			"▸WHY",
-			"▸CONSEQUENCES",
-			"▸GOVERNS 0",
+			"决策",
+			"背景",
+			"为何",
+			"后果",
+			"管辖 0",
 		]);
 		// why 是纯文本也走 markdown-body 容器
 		const bodies = host.querySelectorAll(".section .markdown-body");
@@ -112,7 +112,7 @@ describe("AdrDocument 决策文档抽屉", () => {
 
 		const chips = host.querySelectorAll(".govern-chip");
 		expect(chips).toHaveLength(2);
-		expect(chips[0].querySelector(".govern-kind")?.textContent).toBe("◇ ctx");
+		expect(chips[0].querySelector(".govern-kind")?.textContent).toBe("ctx");
 
 		(chips[0] as HTMLButtonElement).click();
 		expect(graphState.selectedNode?.id).toBe("ctx_shared");

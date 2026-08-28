@@ -258,7 +258,7 @@ node $SCRIPTS/sp-report.mjs l1_register "注册功能完成" "dist/register.js,t
 ### 第 6 步：可视化与分享
 
 ```bash
-graph export --mermaid -o flow.mmd    # 导出 Mermaid 流程图
+graph export --mermaid -o flow.mmd    # 导出 Mermaid 流程图（知识顶点形状/配色 + 边样式区分，文件头含 entry/exit 与图例）
 graph serve                           # 打开 http://localhost:8934 看力导向图
 ```
 
@@ -293,7 +293,7 @@ graph serve                           # 打开 http://localhost:8934 看力导�
 | `graph rollback` | 回滚（自动备份当前状态） | `<snapshot-id>` `--confirm`；`--design-only` 保留执行进度只回卷设计 |
 | `graph events` | 查看事件日志（审计追溯） | `--node <id>` `--kind <k>` `--last <n>`；`--json` |
 | `graph rebuild` | 重建 `index/` 派生索引（graph.json + topology.dot） | — |
-| `graph export` | 导出 Mermaid 流程图；`--docs` 导出领域文档视图（图为真相源，md 是视图） | `--mermaid -o <file>`；`--docs`（ADR→docs/adr/，context→CONTEXT-MAP.md + docs/contexts/，可 `--adr-dir`/`--ctx-dir`） |
+| `graph export` | 导出 Mermaid 流程图（context 胶囊 teal 无状态行、ADR 六边形三态色、边样式按类型区分，文件头注释含 entry/exit 与图例）；`--docs` 导出领域文档视图（图为真相源，md 是视图） | `--mermaid -o <file>`；`--docs`（ADR→docs/adr/，context→CONTEXT-MAP.md + docs/contexts/，可 `--adr-dir`/`--ctx-dir`） |
 | `graph serve` | 启动 Web UI（自动打开浏览器） | `-p <port>`（默认 8934）；`--no-open` 不自动打开 |
 
 > 参数拿不准？每个命令都有 `--help`：`graph create-node --help`。

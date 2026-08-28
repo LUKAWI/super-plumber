@@ -1,0 +1,166 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-28T00:00:00Z",
+  "title": "Design System: Super Plumber Web UI",
+  "extensions": {
+    "colorMeta": {
+      "bg": { "role": "primary", "displayName": "Canvas Black", "canonical": "#000000", "tonalRamp": ["#0b0b0b", "#141414", "#1e1e1e", "#2a2a2a", "#3d3d3d", "#595959", "#7f7f7f", "#a6a6a6"] },
+      "bg-chrome": { "role": "neutral", "displayName": "Chrome Black", "canonical": "#0a0a0a", "tonalRamp": ["#0a0a0a", "#141414", "#1e1e1e", "#2a2a2a", "#3d3d3d", "#595959", "#808080", "#a8a8a8"] },
+      "surface-1": { "role": "neutral", "displayName": "Surface 1 / Panel", "canonical": "#141414", "tonalRamp": ["#141414", "#1a1a1a", "#1e1e1e", "#262626", "#333333", "#4d4d4d", "#737373", "#9e9e9e"] },
+      "surface-2": { "role": "neutral", "displayName": "Surface 2 / Inset", "canonical": "#1e1e1e", "tonalRamp": ["#1e1e1e", "#242424", "#2a2a2a", "#333333", "#454545", "#5c5c5c", "#8a8a8a", "#b3b3b3"] },
+      "surface-3": { "role": "neutral", "displayName": "Surface 3 / Badge", "canonical": "#2a2a2a", "tonalRamp": ["#2a2a2a", "#333333", "#3d3d3d", "#4d4d4d", "#666666", "#8c8c8c", "#b0b0b0", "#d4d4d4"] },
+      "ink": { "role": "primary", "displayName": "Ink 100", "canonical": "#ffffff", "tonalRamp": ["#ffffff", "#ffffff", "#ffffff", "#ffffff", "#ffffff", "#ffffff", "#ffffff", "#ffffff"] },
+      "ink-muted": { "role": "neutral", "displayName": "Ink 72", "canonical": "rgba(255, 255, 255, 0.72)", "tonalRamp": ["rgba(255,255,255,0.20)", "rgba(255,255,255,0.30)", "rgba(255,255,255,0.40)", "rgba(255,255,255,0.48)", "rgba(255,255,255,0.56)", "rgba(255,255,255,0.64)", "rgba(255,255,255,0.72)", "rgba(255,255,255,0.86)"] },
+      "ink-faint": { "role": "neutral", "displayName": "Ink 52", "canonical": "rgba(255, 255, 255, 0.52)", "tonalRamp": ["rgba(255,255,255,0.16)", "rgba(255,255,255,0.22)", "rgba(255,255,255,0.28)", "rgba(255,255,255,0.34)", "rgba(255,255,255,0.40)", "rgba(255,255,255,0.46)", "rgba(255,255,255,0.52)", "rgba(255,255,255,0.66)"] },
+      "line": { "role": "neutral", "displayName": "Hairline 09", "canonical": "rgba(255, 255, 255, 0.09)", "tonalRamp": ["rgba(255,255,255,0.04)", "rgba(255,255,255,0.06)", "rgba(255,255,255,0.09)", "rgba(255,255,255,0.11)", "rgba(255,255,255,0.13)", "rgba(255,255,255,0.16)", "rgba(255,255,255,0.20)", "rgba(255,255,255,0.26)"] },
+      "line-strong": { "role": "neutral", "displayName": "Hairline 16", "canonical": "rgba(255, 255, 255, 0.16)", "tonalRamp": ["rgba(255,255,255,0.09)", "rgba(255,255,255,0.11)", "rgba(255,255,255,0.13)", "rgba(255,255,255,0.16)", "rgba(255,255,255,0.20)", "rgba(255,255,255,0.26)", "rgba(255,255,255,0.34)", "rgba(255,255,255,0.45)"] },
+      "status-pending": { "role": "secondary", "displayName": "Pending Slate", "canonical": "#8a8f98", "tonalRamp": ["oklch(30% 0.015 260)", "oklch(38% 0.015 260)", "oklch(46% 0.015 260)", "oklch(54% 0.015 260)", "oklch(63% 0.015 260)", "oklch(72% 0.012 260)", "oklch(82% 0.010 260)", "oklch(93% 0.006 260)"] },
+      "status-ready": { "role": "secondary", "displayName": "Ready Blue", "canonical": "#4a93e8", "tonalRamp": ["oklch(28% 0.10 250)", "oklch(36% 0.12 250)", "oklch(44% 0.13 250)", "oklch(53% 0.14 250)", "oklch(64% 0.14 250)", "oklch(74% 0.11 250)", "oklch(83% 0.08 250)", "oklch(93% 0.04 250)"] },
+      "status-running": { "role": "secondary", "displayName": "Running Amber", "canonical": "#f0a73a", "tonalRamp": ["oklch(30% 0.09 75)", "oklch(40% 0.11 75)", "oklch(50% 0.13 75)", "oklch(60% 0.14 75)", "oklch(70% 0.14 75)", "oklch(78% 0.13 75)", "oklch(86% 0.10 75)", "oklch(94% 0.05 75)"] },
+      "status-passed": { "role": "secondary", "displayName": "Passed Green", "canonical": "#34c964", "tonalRamp": ["oklch(28% 0.10 150)", "oklch(37% 0.13 150)", "oklch(46% 0.15 150)", "oklch(56% 0.16 150)", "oklch(66% 0.16 150)", "oklch(75% 0.14 150)", "oklch(84% 0.11 150)", "oklch(93% 0.06 150)"] },
+      "status-failed": { "role": "secondary", "displayName": "Failed Red", "canonical": "#e5504f", "tonalRamp": ["oklch(26% 0.11 25)", "oklch(34% 0.14 25)", "oklch(42% 0.17 25)", "oklch(51% 0.18 25)", "oklch(60% 0.19 25)", "oklch(71% 0.16 25)", "oklch(82% 0.11 25)", "oklch(92% 0.05 25)"] },
+      "status-blocked": { "role": "secondary", "displayName": "Blocked Violet", "canonical": "#a574e6", "tonalRamp": ["oklch(28% 0.09 300)", "oklch(36% 0.11 300)", "oklch(45% 0.13 300)", "oklch(54% 0.14 300)", "oklch(64% 0.14 300)", "oklch(74% 0.11 300)", "oklch(83% 0.08 300)", "oklch(93% 0.04 300)"] },
+      "status-cancelled": { "role": "secondary", "displayName": "Cancelled Grey", "canonical": "#7e848d", "tonalRamp": ["oklch(28% 0.012 260)", "oklch(36% 0.012 260)", "oklch(44% 0.012 260)", "oklch(52% 0.012 260)", "oklch(60% 0.012 260)", "oklch(70% 0.010 260)", "oklch(81% 0.008 260)", "oklch(92% 0.005 260)"] },
+      "ctx-cyan": { "role": "tertiary", "displayName": "Hull Cyan", "canonical": "#4db8c9", "tonalRamp": ["oklch(28% 0.06 200)", "oklch(37% 0.07 200)", "oklch(47% 0.08 200)", "oklch(57% 0.08 200)", "oklch(68% 0.08 200)", "oklch(77% 0.07 200)", "oklch(86% 0.05 200)", "oklch(94% 0.03 200)"] },
+      "ctx-teal": { "role": "tertiary", "displayName": "Hull Teal", "canonical": "#4fb3a9", "tonalRamp": ["oklch(28% 0.05 180)", "oklch(37% 0.06 180)", "oklch(46% 0.07 180)", "oklch(56% 0.07 180)", "oklch(67% 0.07 180)", "oklch(76% 0.06 180)", "oklch(86% 0.05 180)", "oklch(94% 0.02 180)"] },
+      "ctx-yellow": { "role": "tertiary", "displayName": "Hull Yellow", "canonical": "#d4c25a", "tonalRamp": ["oklch(32% 0.07 105)", "oklch(42% 0.08 105)", "oklch(52% 0.09 105)", "oklch(62% 0.10 105)", "oklch(72% 0.10 105)", "oklch(80% 0.09 105)", "oklch(88% 0.07 105)", "oklch(95% 0.04 105)"] },
+      "ctx-rose": { "role": "tertiary", "displayName": "Hull Rose", "canonical": "#d47fa6", "tonalRamp": ["oklch(30% 0.07 350)", "oklch(39% 0.08 350)", "oklch(49% 0.09 350)", "oklch(59% 0.10 350)", "oklch(69% 0.10 350)", "oklch(78% 0.08 350)", "oklch(87% 0.06 350)", "oklch(94% 0.03 350)"] },
+      "ctx-lime": { "role": "tertiary", "displayName": "Hull Lime", "canonical": "#a8c95a", "tonalRamp": ["oklch(30% 0.07 125)", "oklch(40% 0.09 125)", "oklch(50% 0.10 125)", "oklch(60% 0.11 125)", "oklch(70% 0.11 125)", "oklch(79% 0.10 125)", "oklch(87% 0.08 125)", "oklch(94% 0.04 125)"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "节点详情标题，唯一出现处（28px/700，balance 换行）。" },
+      "headline": { "displayName": "Headline", "purpose": "边详情与决策文档标题（20px/700）。" },
+      "title": { "displayName": "Title", "purpose": "面板与 flyout 标题、小节标题（12px/650 sans；mono eyebrow 已废除）。" },
+      "body": { "displayName": "Body", "purpose": "正文与密排说明（根 14px/1.55；面板密排 13px/1.7 ink-muted）。" },
+      "label": { "displayName": "Label", "purpose": "chips、图例、kbd、zoom-hint（11px；EN-caps 结构位 +0.08em）。" },
+      "mono-data": { "displayName": "Mono Data", "purpose": "id、计数（tabular-nums）、命令、时间戳、kbd、EN-caps 徽标。" }
+    },
+    "shadows": [
+      { "name": "badge-drop", "value": "drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6))", "purpose": "仅叠加视图 ADR 徽章在彩色 hull 上的可读性微投影；体系内唯一 shadow。" },
+      { "name": "running-glow", "value": "feGaussianBlur stdDeviation 4（SVG filter #glow）", "purpose": "running 节点与琥珀流点的状态语义光晕，非装饰。" }
+    ],
+    "motion": [
+      { "name": "t-fast", "value": "130ms cubic-bezier(0.25, 1, 0.5, 1)", "purpose": "全部 UI 态过渡：hover、chips、tabs、颜色与边框。" },
+      { "name": "t-slide", "value": "220ms cubic-bezier(0.22, 1, 0.36, 1)", "purpose": "抽屉滑入/滑出、工具轨退场。" },
+      { "name": "t-locate", "value": "450ms cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "搜索定位平移居中。" },
+      { "name": "canvas-hover", "value": "150ms ease-out", "purpose": "画布节点/边 hover 过渡（d3 transition）。" },
+      { "name": "canvas-enter", "value": "400ms easeCubicOut, stagger ≤40×15ms", "purpose": "节点入场（仅首渲染，只跑一次）。" },
+      { "name": "canvas-fit", "value": "500ms easeCubicOut", "purpose": "fit 取景、双击重置、缩放步进 300ms。" },
+      { "name": "canvas-breath", "value": "1200ms easeSinInOut, opacity 0.3↔1.0", "purpose": "running 状态环呼吸；流点速度 ≈0.003-0.004/帧。" },
+      { "name": "skeleton-pulse", "value": "1500ms ease-in-out, opacity 0.3↔0.6", "purpose": "加载骨架。" }
+    ],
+    "breakpoints": [
+      { "name": "mobile", "value": "768px", "purpose": "工具轨转 52px 底轨、按钮 44px、抽屉全宽、stats 隐藏、zoom-hint 隐藏。" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "白底黑字实心钮：重试/主操作。唯一强调手段是 hover 明度（opacity 0.88），永不变色。",
+      "html": "<button class=\"ds-btn-primary\">重试</button>",
+      "css": ".ds-btn-primary { background: var(--interactive, #ffffff); color: #000000; border: none; border-radius: var(--r, 6px); font-family: var(--font-sans, system-ui); font-size: var(--text-xs, 12px); font-weight: 600; padding: 8px 16px; cursor: pointer; transition: opacity 0.13s var(--ease-out-quart, cubic-bezier(0.25,1,0.5,1)); } .ds-btn-primary:hover { opacity: 0.88; } .ds-btn-primary:focus-visible { outline: 2px solid var(--interactive, #fff); outline-offset: 1px; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "description": "透明底发丝线钮：清除过滤/重试/退出对比等面板内弱操作；hover 提文字与边线明度。",
+      "html": "<button class=\"ds-btn-ghost\">清除过滤</button>",
+      "css": ".ds-btn-ghost { background: transparent; border: 1px solid var(--line-strong, rgba(255,255,255,0.16)); border-radius: var(--r-sm, 3px); color: var(--ink-muted, rgba(255,255,255,0.72)); font-family: var(--font-sans, system-ui); font-size: var(--text-2xs, 11px); padding: 2px 8px; cursor: pointer; transition: color 0.13s var(--ease-out-quart, cubic-bezier(0.25,1,0.5,1)), border-color 0.13s var(--ease-out-quart, cubic-bezier(0.25,1,0.5,1)); } .ds-btn-ghost:hover { color: var(--ink, #fff); border-color: var(--ink-faint, rgba(255,255,255,0.52)); } .ds-btn-ghost:focus-visible { outline: 2px solid var(--interactive, #fff); outline-offset: 1px; }"
+    },
+    {
+      "name": "Rail Button",
+      "kind": "nav",
+      "description": "工具轨 36px 图标钮：16px 内联 SVG 描边 1.5、ink-muted；开启态 surface-2 + 强发丝线。",
+      "html": "<button class=\"ds-rail-btn ds-active\" aria-pressed=\"true\" aria-label=\"map 透镜\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" aria-hidden=\"true\"><circle cx=\"6\" cy=\"6\" r=\"4\"/><circle cx=\"10\" cy=\"10\" r=\"4\"/></svg></button>",
+      "css": ".ds-rail-btn { position: relative; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; background: transparent; border: 1px solid transparent; border-radius: var(--r, 6px); color: var(--ink-muted, rgba(255,255,255,0.72)); cursor: pointer; transition: background 0.13s var(--ease-out-quart, cubic-bezier(0.25,1,0.5,1)), color 0.13s var(--ease-out-quart, cubic-bezier(0.25,1,0.5,1)), border-color 0.13s var(--ease-out-quart, cubic-bezier(0.25,1,0.5,1)); } .ds-rail-btn:hover { background: var(--surface-1, #141414); color: var(--ink, #fff); } .ds-rail-btn.ds-active { background: var(--surface-2, #1e1e1e); border-color: var(--line-strong, rgba(255,255,255,0.16)); color: var(--ink, #fff); } .ds-rail-btn:focus-visible { outline: 2px solid var(--interactive, #fff); outline-offset: 1px; }"
+    },
+    {
+      "name": "Status Filter Chip",
+      "kind": "chip",
+      "refersTo": "chip-status",
+      "description": "计数即图例：状态圆点 + mono 计数 + 小写状态名；按下过滤（aria-pressed）；零计数 0.5 透明度。",
+      "html": "<button class=\"ds-chip-status\" aria-pressed=\"true\"><span class=\"ds-dot\" style=\"background: var(--status-running, #f0a73a)\"></span><span class=\"ds-n\">3</span><span>running</span></button>",
+      "css": ".ds-chip-status { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono, monospace); font-size: var(--text-2xs, 11px); color: var(--ink-muted, rgba(255,255,255,0.72)); background: var(--surface-2, #1e1e1e); border: 1px solid var(--line-strong, rgba(255,255,255,0.16)); border-radius: var(--r, 6px); padding: 3px 8px; cursor: pointer; font-variant-numeric: tabular-nums; transition: background 0.13s var(--ease-out-quart, cubic-bezier(0.25,1,0.5,1)), color 0.13s var(--ease-out-quart, cubic-bezier(0.25,1,0.5,1)), border-color 0.13s var(--ease-out-quart, cubic-bezier(0.25,1,0.5,1)); } .ds-chip-status:hover { color: var(--ink, #fff); } .ds-chip-status .ds-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; } .ds-chip-status .ds-n { color: var(--ink, #fff); font-weight: 600; } .ds-chip-status:focus-visible { outline: 2px solid var(--interactive, #fff); outline-offset: 1px; }"
+    },
+    {
+      "name": "Meta Chip",
+      "kind": "chip",
+      "refersTo": "chip-meta",
+      "description": "mono 数据芯片：id/type/层级/日期；surface-2 底 + 发丝线；状态 tag 以同色边框 + 圆点呈现。",
+      "html": "<span class=\"ds-chip-meta\">build.compile.yaml</span> <span class=\"ds-chip-meta ds-status\"><span class=\"ds-sdot\" style=\"background: var(--status-running, #f0a73a)\"></span>running</span>",
+      "css": ".ds-chip-meta { display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-mono, monospace); font-size: var(--text-2xs, 11px); padding: 4px 8px; border-radius: var(--r-sm, 3px); background: var(--surface-2, #1e1e1e); color: var(--ink-muted, rgba(255,255,255,0.72)); border: 1px solid var(--line, rgba(255,255,255,0.09)); font-weight: 500; letter-spacing: 0.02em; } .ds-chip-meta.ds-status { color: var(--ink, #fff); text-transform: lowercase; } .ds-chip-meta .ds-sdot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }"
+    },
+    {
+      "name": "Search Input",
+      "kind": "input",
+      "refersTo": "input-search",
+      "description": "210px 搜索框：surface-1 底 + 发丝线；focus 边线提档 + 键盘焦点 2px 白环。",
+      "html": "<input class=\"ds-search\" type=\"search\" placeholder=\"搜索 id / 标签，Enter 定位…\" aria-label=\"搜索节点\" />",
+      "css": ".ds-search { background: var(--surface-1, #141414); border: 1px solid var(--line, rgba(255,255,255,0.09)); border-radius: var(--r, 6px); color: var(--ink, #fff); font-family: var(--font-sans, system-ui); font-size: var(--text-xs, 12px); padding: 4px 8px; width: 210px; outline: none; transition: border-color 0.13s var(--ease-out-quart, cubic-bezier(0.25,1,0.5,1)), box-shadow 0.13s var(--ease-out-quart, cubic-bezier(0.25,1,0.5,1)); } .ds-search::placeholder { color: var(--ink-faint, rgba(255,255,255,0.52)); } .ds-search:focus { border-color: var(--line-strong, rgba(255,255,255,0.16)); } .ds-search:focus-visible { outline: 2px solid var(--interactive, #fff); outline-offset: 1px; }"
+    },
+    {
+      "name": "ADR Chip",
+      "kind": "custom",
+      "description": "决策目录条目：线型语义承载状态——proposed 虚线边框 / superseded 划题 + 接替链；选中 1.5px 白 outline。",
+      "html": "<button class=\"ds-adr-chip ds-st-proposed\"><svg class=\"ds-glyph\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"var(--status-pending, #8a8f98)\" stroke-width=\"1.4\" aria-hidden=\"true\"><path d=\"M8 3a5 5 0 1 1 0 10 5 5 0 0 1 0-10Z\" stroke-dasharray=\"2.4 2\"/></svg><span class=\"ds-body\"><span class=\"ds-top\"><span class=\"ds-id\">adr-001</span><span class=\"ds-st\">proposed</span></span><span class=\"ds-title\">缓存层淘汰策略</span></span></button> <button class=\"ds-adr-chip ds-st-superseded\"><svg class=\"ds-glyph\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"var(--status-passed, #34c964)\" stroke-width=\"1.4\" aria-hidden=\"true\"><path d=\"M8 3a5 5 0 1 1 0 10 5 5 0 0 1 0-10ZM4.8 11.2 11.2 4.8\"/></svg><span class=\"ds-body\"><span class=\"ds-top\"><span class=\"ds-id\">adr-002</span><span class=\"ds-st\">superseded</span></span><span class=\"ds-title ds-strike\">单进程执行器</span><span class=\"ds-chain\">→ 被 adr-003 接替</span></span></button>",
+      "css": ".ds-adr-chip { display: flex; align-items: flex-start; gap: 8px; width: 100%; text-align: left; background: transparent; border: 1px solid var(--line, rgba(255,255,255,0.09)); border-radius: var(--r, 6px); padding: 8px 12px; cursor: pointer; transition: border-color 0.13s var(--ease-out-quart, cubic-bezier(0.25,1,0.5,1)), background 0.13s var(--ease-out-quart, cubic-bezier(0.25,1,0.5,1)); } .ds-adr-chip.ds-st-proposed { border-style: dashed; } .ds-adr-chip:hover { background: var(--surface-2, #1e1e1e); border-color: var(--line-strong, rgba(255,255,255,0.16)); } .ds-adr-chip.ds-selected { outline: 1.5px solid var(--interactive, #fff); outline-offset: 1px; background: var(--surface-2, #1e1e1e); } .ds-adr-chip:focus-visible { outline: 2px solid var(--interactive, #fff); outline-offset: 1px; } .ds-adr-chip .ds-glyph { flex-shrink: 0; margin-top: 1px; } .ds-adr-chip .ds-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; } .ds-adr-chip .ds-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; } .ds-adr-chip .ds-id { font-family: var(--font-mono, monospace); font-size: var(--text-2xs, 11px); font-weight: 600; color: var(--ink, #fff); letter-spacing: 0.02em; } .ds-adr-chip .ds-st { font-family: var(--font-mono, monospace); font-size: var(--text-2xs, 11px); color: var(--ink-faint, rgba(255,255,255,0.52)); text-transform: lowercase; } .ds-adr-chip .ds-title { font-family: var(--font-sans, system-ui); font-size: var(--text-xs, 12px); font-weight: 500; color: var(--ink-muted, rgba(255,255,255,0.72)); line-height: 1.45; } .ds-adr-chip .ds-strike { text-decoration: line-through; text-decoration-color: var(--ink-faint, rgba(255,255,255,0.52)); color: var(--ink-faint, rgba(255,255,255,0.52)); } .ds-adr-chip .ds-chain { font-family: var(--font-mono, monospace); font-size: var(--text-2xs, 11px); color: var(--ink-faint, rgba(255,255,255,0.52)); }"
+    },
+    {
+      "name": "Panel Header",
+      "kind": "custom",
+      "description": "全部抽屉/浮层的 44px 头部模式：sans 650 标题 + mono“Esc 关闭”kbd 片 + 44px 关闭钮。",
+      "html": "<div class=\"ds-panel\"><div class=\"ds-header\"><span class=\"ds-title\">节点详情</span><span class=\"ds-kbd\">Esc 关闭</span><button class=\"ds-close\" aria-label=\"关闭\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 15 15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" aria-hidden=\"true\"><path d=\"M3.5 3.5l8 8M11.5 3.5l-8 8\" stroke-linecap=\"round\"/></svg></button></div><div class=\"ds-bodytext\">面板体：surface-1 底、发丝线边，内嵌块 surface-2，节间以顶部发丝线分隔。</div></div>",
+      "css": ".ds-panel { width: 320px; background: var(--surface-1, #141414); border: 1px solid var(--line, rgba(255,255,255,0.09)); border-radius: var(--r-lg, 10px); color: var(--ink, #fff); overflow: hidden; font-family: var(--font-sans, system-ui); } .ds-header { display: flex; align-items: center; gap: 8px; padding: 0 12px; min-height: 44px; border-bottom: 1px solid var(--line, rgba(255,255,255,0.09)); } .ds-title { font-size: var(--text-sm, 13px); font-weight: 650; flex: 1; } .ds-kbd { font-family: var(--font-mono, monospace); font-size: var(--text-2xs, 11px); color: var(--ink-faint, rgba(255,255,255,0.52)); border: 1px solid var(--line, rgba(255,255,255,0.09)); border-radius: var(--r-sm, 3px); padding: 1px 4px; } .ds-close { background: none; border: none; color: var(--ink-muted, rgba(255,255,255,0.72)); cursor: pointer; border-radius: var(--r, 6px); min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center; transition: background 0.13s var(--ease-out-quart, cubic-bezier(0.25,1,0.5,1)), color 0.13s var(--ease-out-quart, cubic-bezier(0.25,1,0.5,1)); } .ds-close:hover { background: var(--surface-2, #1e1e1e); color: var(--ink, #fff); } .ds-bodytext { padding: 20px; font-size: var(--text-sm, 13px); line-height: 1.7; color: var(--ink-muted, rgba(255,255,255,0.72)); }"
+    },
+    {
+      "name": "Tooltip",
+      "kind": "custom",
+      "description": "画布 tooltip：仅截断标签触发；surface-2 底 + mono 12px + 3px 圆角，pointer-events none。",
+      "html": "<div class=\"ds-tooltip\">编译与缓存（长标签截断全文…）</div>",
+      "css": ".ds-tooltip { display: inline-block; background: var(--surface-2, #1e1e1e); border: 1px solid var(--line, rgba(255,255,255,0.09)); color: var(--ink, #fff); font-family: var(--font-mono, monospace); font-size: var(--text-xs, 12px); padding: 4px 8px; border-radius: var(--r-sm, 3px); white-space: nowrap; letter-spacing: var(--track-label, 0.04em); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "终端观测台（The Terminal Observatory）",
+    "overview": "一块挂在开发者屏幕上、长明不灭的黑色观测仪。整个产品只有一位主角——d3 力导向画布（#000000 纯黑舞台），其余一切 chrome（顶栏、工具轨、抽屉、浮层）都是灰色阶的观测仪器外壳，可收纳、可退场（专注模式下整体让位）。视觉纪律只有一条主轴：色彩即状态，交互用明度——画布上唯一的彩色语义组是 7 个节点状态（外加 ADR 三态与簇色两个授权延伸），选中、hover、focus、开关等一切交互态全部用白色明度阶梯表达，绝不借色相。字面上保留终端血统：系统字体栈、mono 只用于数据（id/计数/命令/时间戳），11px 起步的紧凑字号，4pt 间距基。",
+    "keyCharacteristics": [
+      "纯黑画布 + 四级灰阶 chrome（0a/14/1e/2a），面差与 1px 发丝线替代一切阴影",
+      "白色 ink 阶梯 100/72/52%（正文下限 ≈4.6:1，全部 ≥ AA）",
+      "7 状态色是唯一彩色语义组；边线单色白阶梯（0.45/0.6）+ 线型语义",
+      "mono 只为数据；UI 句子一律 sans；图标全部内联 SVG 描边",
+      "圆角上限 10px；130/220/450ms 三档单一 ease-out 曲线族",
+      "z 五档：canvas 1 / overlay 10 / panel 100 / tooltip 1000（toast 预留未实现）",
+      "Esc 与画布空白点击是全局退出手势，每个状态都有出口"
+    ],
+    "rules": [
+      { "name": "色彩即状态 Rule", "body": "画布上唯一的彩色是 7 状态语义（及 ADR 三态、簇色两个授权延伸）。选中、hover、focus、开关、激活 tab 一律白明度表达；任何交互组件不得借用状态色相。已知偏差：画布边 hover 用白 0.9（preview.html 提案 0.75），finish review 接受——单载后 0.9 才稳过图形 3:1 线，此值已定档。", "section": "colors" },
+      { "name": "单载 Rule", "body": "边的明度只由 stroke-opacity 一层承载，严禁再叠 rgba alpha 值——双重衰减会把边线压到 1.6:1（finish review 实锤），0.45 是任何常驻线素的明度下限。", "section": "colors" },
+      { "name": "Legend Rule", "body": "簇色（及任何非状态分类色）必须与图例同屏才可出现（叠加视图左下/工具轨右侧常驻渲染）；颜色永不单独承担无图例的分类语义。", "section": "colors" },
+      { "name": "单色边 Rule", "body": "画布边线永不回到多色盘。EDGE_TYPE_COLORS 九色表是数据层遗物，无任何组件消费；边类型语义由 hover 标签（sans 11px 黑晕白字）与 EdgeDetail 抽屉承载。", "section": "colors" },
+      { "name": "Mono-Is-Data Rule", "body": "mono 只用于 id、数字、命令、时间戳、kbd、EN-caps 结构徽标；UI 句子、小节标题、正文、按钮文案一律 sans。10px 功能文本已废除，字号下限 11px。", "section": "typography" },
+      { "name": "Hairline Rule", "body": "面板之间只有边线没有影子。新增浮层先问 z 档位（五档不得越层），再用 surface 提亮一级 + 发丝线，禁止引入 box-shadow 体系。", "section": "elevation" }
+    ],
+    "dos": [
+      "Do 用白色明度阶梯表达一切交互态：hover 提面差、选中加白描边、focus 2px 白环（offset 1px）。",
+      "Do 保持边线单载：白 #fff + stroke-opacity 0.45/0.6，hover 0.9；线型（7 4 契约虚线）承担第二语义。",
+      "Do 为 ADR 三态保持线型语义：proposed 虚线 / accepted 勾 / superseded 划题 + mono 接替链——这是本世界最需保护的识别语汇。",
+      "Do 簇色出现必配图例；状态不得仅靠色相区分（线型/符号补位）。",
+      "Do 图标用 16px 内联 SVG 统一描边（1.3-1.6px），checkpoint/ADR 符号走状态色 12% 底 + 实色图标。",
+      "Do 新动效从 130/220/450ms 三档取值（画布内动画例外：150/400/500/1200ms 已定档），单一 ease-out 曲线族，reduced-motion 全量降级。",
+      "Do 每个状态给出口：Esc 逐层退出（面板→对比→专注→浮层）、画布空白点击清除选中、空态带命令或清除钮。",
+      "Do 触达目标 ≥44px；移动端（≤768px）工具轨转 52px 底轨并放大按钮。"
+    ],
+    "donts": [
+      "Don't 把状态色用于交互语义（选中/开关/复选框/hover 不借用七状态色相；accent-color 一律灰阶）。",
+      "Don't 使用彩色 side-stripe（左缘彩条标记状态已被废除；引用块用 2px ink-faint 中性左边线）。",
+      "Don't 使用 Unicode 字符图标（⊘●○✓✗◐⬡⚖ 已废除；一律 SVG 描边路径）。",
+      "Don't 用 mono 写 UI 句子或当小节头（mono 大写 eyebrow 已废除；mono 只进数据位）。",
+      "Don't 让画布边线回到多色盘或叠双层 alpha；EDGE_TYPE_COLORS 不进入任何视觉层。",
+      "Don't 越过 z 五档（canvas 1/overlay 10/panel 100/tooltip 1000，toast 档预留）；新增浮层先归档位。",
+      "Don't 用 diff 劫持状态色：增删改用白 0.95 纯形状编码（加粗实线/3 3 虚线/8 3 点划）。",
+      "Don't 引入 box-shadow 体系或字体/图标库依赖；深度靠 z 档 + 面差 + 发丝线，字体系统栈、图标内联 SVG。"
+    ]
+  }
+}

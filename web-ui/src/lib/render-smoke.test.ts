@@ -95,7 +95,7 @@ describe("App 渲染冒烟（S0-6 黑屏回归）", () => {
 		// 骨架真实渲染：无数据时 App 显示 loading 骨架屏（头部 getter 全部在
 		// derived 上下文求值——旧实现在这一步抛 state_unsafe_mutation 整页黑屏）
 		expect(document.querySelector(".loading-state .skeleton-graph")).not.toBeNull();
-		expect(document.body.textContent).toContain("connecting to topology service");
+		expect(document.body.textContent).toContain("正在连接拓扑服务");
 	});
 
 	it("RS-02 数据到达后节点标签真实渲染（applyFull → DOM 可见）", async () => {

@@ -26,15 +26,16 @@
     }
   });
 
+  // checkpoint 状态图标：统一描边 SVG（废除 ✓✗◐○ Unicode 字形）
   function cpIcon(status: string): string {
     const m: Record<string, string> = {
-      passed: "✓",
-      failed: "✗",
-      running: "◐",
-      pending: "○",
-      skipped: "–",
+      passed: "M2.5 6.5 5 9l4.5-5.5",
+      failed: "M3 3l6 6M9 3l-6 6",
+      running: "M6 1.5A4.5 4.5 0 1 1 1.5 6",
+      pending: "M6 2.5A3.5 3.5 0 1 1 2.5 6 3.5 3.5 0 0 1 6 2.5Z",
+      skipped: "M2.5 6h7",
     };
-    return m[status] ?? "○";
+    return m[status] ?? m.pending;
   }
 
   function cpClass(status: string): string {
@@ -48,7 +49,6 @@
 
   // v0.5：context 顶点以文档形态呈现；adr 一律走 AdrDocument 抽屉（根卫语句拦截）
   const isContext = $derived(graphState.selectedNode?.type === "context");
-  const isKnowledge = $derived(isContext);
 
   // adr_flags：superseded ADR 沿 decides 边传播的"决策依据已过时"警告（客户端预计算，纯只读展示）
   const adrFlags = $derived.by(() => {
@@ -70,10 +70,11 @@
 {#if graphState.selectedNode && graphState.selectedNode.type !== "adr"}
   <div class="detail-panel" class:visible>
     <div class="panel-header">
-      <span class="panel-title">NODE DETAIL</span>
+      <span class="panel-title">{isContext ? "上下文详情" : "节点详情"}</span>
+      <span class="panel-kbd">Esc 关闭</span>
       <button class="close-btn" onclick={() => graphState.selectNode(null)} aria-label="关闭">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M3 3l8 8M11 3l-8 8"/>
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M3.5 3.5l8 8M11.5 3.5l-8 8" stroke-linecap="round"/>
         </svg>
       </button>
     </div>
@@ -96,11 +97,16 @@
         {/if}
       </div>
 
-      <!-- adr_flags ⚠️：superseded ADR 沿 decides 边传播的"决策依据已过时"警告 -->
+      <!-- adr_flags：superseded ADR 沿 decides 边传播的"决策依据已过时"警告 -->
       {#if adrFlags.length > 0}
         <div class="adr-flags" role="alert">
           {#each adrFlags as f}
-            <p class="adr-flag-item">⚠️ {f}</p>
+            <p class="adr-flag-item">
+              <svg class="flag-icon" width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+                <path d="M6.5 1.5 12 11H1L6.5 1.5ZM6.5 5v3M6.5 9.6v.8" stroke-linejoin="round"/>
+              </svg>
+              {f}
+            </p>
           {/each}
         </div>
       {/if}
@@ -109,14 +115,15 @@
       {#if isContext}
         {#if graphState.selectedNode.boundary}
           <section class="section">
-            <h3 class="section-title"><span class="section-icon">▸</span>BOUNDARY</h3>
+            <h3 class="section-title">边界
+              <span class="section-count">boundary</span>
+            </h3>
             <p class="plan-desc">{graphState.selectedNode.boundary}</p>
           </section>
         {/if}
         {#if graphState.selectedNode.glossary && graphState.selectedNode.glossary.length > 0}
           <section class="section">
-            <h3 class="section-title">
-              <span class="section-icon">▸</span>GLOSSARY
+            <h3 class="section-title">术语表
               <span class="section-count">{graphState.selectedNode.glossary.length}</span>
             </h3>
             <dl class="glossary-list">
@@ -130,8 +137,7 @@
           </section>
         {/if}
         <section class="section">
-          <h3 class="section-title">
-            <span class="section-icon">▸</span>MEMBERS
+          <h3 class="section-title">成员
             <span class="section-count">{contextMembers.length}</span>
           </h3>
           {#if contextMembers.length > 0}
@@ -141,7 +147,7 @@
               {/each}
             </div>
           {:else}
-            <p class="plan-desc">(no members)</p>
+            <p class="plan-desc">暂无成员——用节点的 context 字段挂接到此上下文</p>
           {/if}
         </section>
       {/if}
@@ -151,10 +157,7 @@
       <!-- Build plan -->
       {#if graphState.selectedNode.plan?.description}
         <section class="section">
-          <h3 class="section-title">
-            <span class="section-icon">▸</span>
-            PLAN
-          </h3>
+          <h3 class="section-title">计划</h3>
           <Markdown text={graphState.selectedNode.plan.description} />
           {#if graphState.selectedNode.plan.output_to && graphState.selectedNode.plan.output_to.length > 0}
             <div class="sub-list">
@@ -170,10 +173,7 @@
       <!-- Definition of done -->
       {#if graphState.selectedNode.expected_outcome?.definition_of_done}
         <section class="section">
-          <h3 class="section-title">
-            <span class="section-icon">▸</span>
-            DONE CRITERIA
-          </h3>
+          <h3 class="section-title">完成标准</h3>
           <ul class="dod-list">
             {#each graphState.selectedNode.expected_outcome.definition_of_done as item}
               <li><Markdown inline text={item} /></li>
@@ -193,10 +193,7 @@
       <!-- Plan inputs / context -->
       {#if (graphState.selectedNode.plan?.input_from && graphState.selectedNode.plan.input_from.length > 0) || (graphState.selectedNode.plan?.required_context && graphState.selectedNode.plan.required_context.length > 0)}
         <section class="section">
-          <h3 class="section-title">
-            <span class="section-icon">▸</span>
-            INPUTS &amp; CONTEXT
-          </h3>
+          <h3 class="section-title">输入与上下文</h3>
           {#if graphState.selectedNode.plan?.input_from && graphState.selectedNode.plan.input_from.length > 0}
             <div class="sub-list">
               <span class="sub-label">input from:</span>
@@ -219,9 +216,7 @@
       <!-- Checkpoints -->
       {#if graphState.selectedNode.checkpoints && graphState.selectedNode.checkpoints.length > 0}
         <section class="section">
-          <h3 class="section-title">
-            <span class="section-icon">▸</span>
-            CHECKPOINTS
+          <h3 class="section-title">检查点
             <span class="section-count">
               {graphState.selectedNode.checkpoints.filter((c: Checkpoint) => c.status === 'passed').length}
               /
@@ -231,7 +226,11 @@
           <div class="cp-list">
             {#each graphState.selectedNode.checkpoints as cp}
               <div class="cp-item">
-                <span class="cp-icon {cpClass(cp.status)}">{cpIcon(cp.status)}</span>
+                <span class="cp-icon {cpClass(cp.status)}">
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                    <path d={cpIcon(cp.status)} stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </span>
                 <div class="cp-body">
                   <span class="cp-label"><Markdown inline text={cp.label} /></span>
                   <span class="cp-status {cpClass(cp.status)}">{cp.status}</span>
@@ -245,10 +244,7 @@
       <!-- Execution report（交接单，P4-3）-->
       {#if graphState.selectedNode.execution_report}
         <section class="section">
-          <h3 class="section-title">
-            <span class="section-icon">▸</span>
-            EXECUTION REPORT
-          </h3>
+          <h3 class="section-title">执行报告</h3>
           <Markdown text={graphState.selectedNode.execution_report.summary || '(no summary)'} />
 
           {#if graphState.selectedNode.execution_report.verification}
@@ -290,7 +286,7 @@
       {/if}
 
       <!-- Footer info（工作流顶点专属：attempts/时间戳对知识顶点无意义） -->
-      {#if !isKnowledge}
+      {#if !isContext}
       <div class="footer-info">
         <span>
           <span class="footer-label">attempts:</span>
@@ -324,7 +320,7 @@
   .detail-panel {
     position: fixed;
     right: 0;
-    top: 0;
+    top: var(--header-h);
     bottom: 0;
     width: 380px;
     background: var(--surface-1);
@@ -334,8 +330,7 @@
     flex-direction: column;
     z-index: var(--z-panel);
     transform: translateX(100%);
-    transition: transform 0.25s var(--ease-out-quart);
-    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.5);
+    transition: transform 0.22s var(--ease-out-quint);
   }
 
   .detail-panel.visible {
@@ -345,20 +340,29 @@
   .panel-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: var(--sp-3) var(--sp-4);
+    gap: var(--sp-2);
+    padding: 0 var(--sp-3);
+    min-height: 44px;
     border-bottom: 1px solid var(--line);
     flex-shrink: 0;
-    background: var(--surface-2);
+    background: var(--surface-1);
   }
 
   .panel-title {
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    font-weight: 650;
+    color: var(--ink);
+    flex: 1;
+  }
+
+  .panel-kbd {
     font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    font-weight: 600;
-    letter-spacing: var(--track-caps);
-    color: var(--ink-muted);
-    text-transform: uppercase;
+    font-size: var(--text-2xs);
+    color: var(--ink-faint);
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    padding: 1px var(--sp-1);
   }
 
   .close-btn {
@@ -366,23 +370,23 @@
     border: none;
     color: var(--ink-muted);
     cursor: pointer;
-    padding: var(--sp-1);
-    border-radius: var(--r-sm);
+    border-radius: var(--r);
     min-width: var(--tap);
     min-height: var(--tap);
+    margin-right: calc((var(--tap) - 32px) / -2);
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.15s var(--ease-out-quart), color 0.15s var(--ease-out-quart);
+    transition: background 0.13s var(--ease-out-quart), color 0.13s var(--ease-out-quart);
   }
 
   .close-btn:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--surface-2);
     color: var(--ink);
   }
 
   .close-btn:active {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--surface-3);
   }
 
   .panel-body {
@@ -397,8 +401,9 @@
     font-weight: 700;
     margin: 0 0 var(--sp-4);
     color: var(--ink);
-    line-height: 1.2;
-    letter-spacing: -0.015em;
+    line-height: 1.25;
+    letter-spacing: var(--track-tight);
+    text-wrap: balance;
   }
 
   /* Meta tags */
@@ -423,22 +428,13 @@
     display: inline-flex;
     align-items: center;
     gap: var(--sp-1);
-    letter-spacing: var(--track-label);
+    letter-spacing: 0.02em;
   }
 
   .id-tag {
     color: var(--ink);
     border-color: var(--line-strong);
-    background: var(--surface-3);
-  }
-
-  .type-tag {
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-
-  .level-tag {
-    color: var(--ink-muted);
+    background: var(--surface-2);
   }
 
   .status-tag {
@@ -456,12 +452,7 @@
     flex-shrink: 0;
   }
 
-  .assign-tag {
-    color: var(--ink);
-    border-color: var(--line-strong);
-  }
-
-  /* Sections */
+  /* Sections（sans 中文小节标题，废除 ▸ mono 大写 eyebrow）*/
   .section {
     margin-bottom: var(--sp-5);
     padding-top: var(--sp-3);
@@ -469,27 +460,21 @@
   }
 
   .section-title {
-    font-family: var(--font-mono);
+    font-family: var(--font-sans);
     font-size: var(--text-xs);
-    font-weight: 700;
+    font-weight: 650;
     margin: 0 0 var(--sp-3);
-    color: var(--ink-muted);
-    letter-spacing: var(--track-caps);
-    text-transform: uppercase;
+    color: var(--ink);
     display: flex;
-    align-items: center;
+    align-items: baseline;
     gap: var(--sp-2);
-  }
-
-  .section-icon {
-    color: var(--ink-faint);
-    font-size: 0.8em;
   }
 
   .section-count {
     margin-left: auto;
     color: var(--ink-faint);
     font-variant-numeric: tabular-nums;
+    font-family: var(--font-mono);
     font-size: var(--text-2xs);
   }
 
@@ -497,7 +482,7 @@
     font-family: var(--font-sans);
     font-size: var(--text-sm);
     line-height: 1.7;
-    color: var(--ink);
+    color: var(--ink-muted);
     margin: 0;
   }
 
@@ -520,13 +505,13 @@
 
   .sub-label {
     font-family: var(--font-mono);
-    font-size: var(--text-xs);
+    font-size: var(--text-2xs);
     color: var(--ink-faint);
   }
 
   .chip {
     font-family: var(--font-mono);
-    font-size: var(--text-xs);
+    font-size: var(--text-2xs);
     background: var(--surface-2);
     padding: var(--sp-1) var(--sp-2);
     border-radius: var(--r-sm);
@@ -547,16 +532,19 @@
 
   .dod-list li {
     margin-bottom: var(--sp-2);
-    padding-left: var(--sp-5);
+    padding-left: var(--sp-4);
     position: relative;
   }
 
   .dod-list li::before {
-    content: "▸";
+    content: "";
     position: absolute;
-    left: 0;
-    color: var(--ink-faint);
-    font-size: 0.9em;
+    left: 2px;
+    top: 0.62em;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--ink-faint);
   }
 
   /* Checkpoints */
@@ -574,17 +562,15 @@
     background: var(--surface-2);
     border-radius: var(--r);
     border: 1px solid var(--line);
-    transition: background 0.15s var(--ease-out-quart), border-color 0.15s var(--ease-out-quart);
+    transition: background 0.13s var(--ease-out-quart), border-color 0.13s var(--ease-out-quart);
   }
 
   .cp-item:hover {
-    background: var(--surface-3);
+    background: var(--surface-2);
     border-color: var(--line-strong);
   }
 
   .cp-icon {
-    font-family: var(--font-mono);
-    font-size: var(--text-base);
     width: 24px;
     height: 24px;
     display: flex;
@@ -592,7 +578,6 @@
     justify-content: center;
     flex-shrink: 0;
     border-radius: var(--r-sm);
-    font-weight: 600;
   }
 
   .cp-passed {
@@ -617,7 +602,7 @@
   }
 
   .cp-pending {
-    background: var(--surface-3);
+    background: var(--surface-2);
     color: var(--ink-faint);
   }
 
@@ -667,7 +652,7 @@
   }
 
   .cp-status.cp-pending {
-    background: var(--surface-3);
+    background: var(--surface-2);
     color: var(--ink-faint);
   }
 
@@ -678,8 +663,10 @@
     border-top: 1px solid var(--line);
     display: flex;
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--sp-1) var(--sp-3);
     font-family: var(--font-mono);
-    font-size: var(--text-xs);
+    font-size: var(--text-2xs);
     color: var(--ink-faint);
     font-variant-numeric: tabular-nums;
   }
@@ -687,7 +674,7 @@
   .footer-label {
     color: var(--ink-faint);
     margin-right: var(--sp-1);
-    opacity: 0.7;
+    opacity: 0.8;
   }
 
   /* Verdict（裁决徽标） */
@@ -727,7 +714,7 @@
   }
 
   .verdict-note {
-    font-family: var(--font-mono);
+    font-family: var(--font-sans);
     font-size: var(--text-xs);
     color: var(--ink-muted);
   }
@@ -737,7 +724,7 @@
     border-color: rgba(229, 80, 79, 0.4);
   }
 
-  /* adr_flags ⚠️ 警告区 */
+  /* adr_flags 警告区 */
   .adr-flags {
     display: flex;
     flex-direction: column;
@@ -755,6 +742,14 @@
     line-height: 1.6;
     color: var(--status-failed);
     margin: 0;
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sp-2);
+  }
+
+  .flag-icon {
+    flex-shrink: 0;
+    margin-top: 3px;
   }
 
   /* context glossary（节点即文档） */
@@ -777,7 +772,7 @@
     font-size: var(--text-xs);
     font-weight: 600;
     color: var(--ink);
-    letter-spacing: var(--track-label);
+    letter-spacing: 0.02em;
     margin: 0 0 var(--sp-1);
   }
 
@@ -812,6 +807,7 @@
     .detail-panel {
       width: 100%;
       max-width: 100%;
+      top: 0;
     }
     .footer-info {
       flex-direction: column;

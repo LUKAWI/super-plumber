@@ -1,6 +1,7 @@
 import type {
 	GraphIndex,
 	NodeSchema,
+	NodeStatus,
 	EdgeSchema,
 	GraphsListData,
 	GraphMeta,
@@ -8,6 +9,28 @@ import type {
 import { DEFAULT_ACTIVE_MAPS, type ActiveMaps, type MapKind } from "./maps";
 
 export type { ActiveMaps, MapKind };
+
+// ── UI 偏好持久化（刷新不丢透镜/折叠/当前图；v0.7 评审 P2）──
+const UI_KEY = "sp.ui.v1";
+interface UiPrefs {
+	currentName?: string | null;
+	activeMaps?: ActiveMaps;
+}
+function loadUiPrefs(): UiPrefs {
+	try {
+		return JSON.parse(localStorage.getItem(UI_KEY) ?? "{}") as UiPrefs;
+	} catch {
+		return {};
+	}
+}
+function saveUiPrefs(patch: UiPrefs) {
+	try {
+		localStorage.setItem(UI_KEY, JSON.stringify({ ...loadUiPrefs(), ...patch }));
+	} catch {
+		/* 隐私模式等：静默降级为不持久化 */
+	}
+}
+const _uiPrefs = loadUiPrefs();
 
 export interface DiffState {
 	from: string;
@@ -34,34 +57,54 @@ export interface SnapshotInfo {
 interface GraphBucket {
 	graph: GraphIndex | null;
 	loading: boolean;
+	/** 懒拉失败（网络/服务端错误）：区别于"空图"的错误态（v0.7 评审 P2） */
+	loadError: string | null;
 	selectedNode: NodeSchema | null;
 	selectedEdge: EdgeSchema | null;
 	lastPatched: NodeSchema | null;
 	levelFilter: number[] | null;
+	/** 状态过滤（可点状态 chips；null = 不过滤） */
+	statusFilter: NodeStatus[] | null;
 	query: string;
 	activeMaps: ActiveMaps;
 	diff: DiffState | null;
 	snapshots: SnapshotInfo[] | null;
 	snapshotsLoading: boolean;
+	snapshotsError: string | null;
+	diffError: string | null;
 }
 
 let _buckets = $state<Record<string, GraphBucket>>({});
 let _current = $state<string | null>(null);
 let _graphsList = $state<GraphsListData | null>(null);
+/** 全局 UI 态（不随图切换）：专注模式（瞬态，不持久化）/ 布局钉住 / 画布缩放与定位请求 */
+let _focusMode = $state(false);
+let _layoutPinned = $state(false);
+// ADR 目录默认展开：它是 ADR 在画布上的常驻目录形态（延续角落锚定的可发现性）
+let _adrDockOpen = $state(true);
+let _diffOpen = $state(false);
+let _lensOpen = $state(false);
+/** GraphCanvas 消费的命令令牌：缩放 / 定位节点 */
+let _zoomRequest = $state<{ kind: "in" | "out" | "fit"; token: number } | null>(null);
+let _locateRequest = $state<{ nodeId: string; token: number } | null>(null);
 
 function newBucket(): GraphBucket {
 	return {
 		graph: null,
 		loading: false,
+		loadError: null,
 		selectedNode: null,
 		selectedEdge: null,
 		lastPatched: null,
 		levelFilter: null,
+		statusFilter: null,
 		query: "",
-		activeMaps: { ...DEFAULT_ACTIVE_MAPS },
+		activeMaps: { ...( _uiPrefs.activeMaps ?? DEFAULT_ACTIVE_MAPS) },
 		diff: null,
 		snapshots: null,
 		snapshotsLoading: false,
+		snapshotsError: null,
+		diffError: null,
 	};
 }
 
@@ -121,13 +164,16 @@ export const graphState = {
 		return _graphsList?.graphs.find((g) => g.name === name)?.nodeCount ?? 0;
 	},
 
-	/** ws graphs:list：更新图列表；无当前图或当前图已被删 → 选中 active（初始选中） */
+	/** ws graphs:list：更新图列表；无当前图或当前图已被删 → 优先恢复上次查看的图，再退 active/首图 */
 	applyGraphsList(data: GraphsListData) {
 		_graphsList = data;
 		const names = data.graphs.map((g) => g.name);
 		if (_current === null || !names.includes(_current)) {
-			const pick =
-				data.active !== null && names.includes(data.active) ? data.active : (names[0] ?? null);
+			const remembered = _uiPrefs.currentName;
+			let pick: string | null = null;
+			if (remembered && names.includes(remembered)) pick = remembered;
+			else if (data.active !== null && names.includes(data.active)) pick = data.active;
+			else pick = names[0] ?? null;
 			if (pick !== null) this.selectGraph(pick);
 		}
 	},
@@ -167,7 +213,9 @@ export const graphState = {
 	/** 切换查看的图（纯审阅：仅本地状态 + 未加载时 GET 懒拉，不写任何服务端状态） */
 	selectGraph(name: string) {
 		_current = name;
+		saveUiPrefs({ currentName: name });
 		const b = bucketOf(name);
+		b.loadError = null;
 		if (b.graph === null && !b.loading) void this.fetchGraph(name);
 	},
 
@@ -176,23 +224,38 @@ export const graphState = {
 		const b = bucketOf(name);
 		if (b.loading || b.graph !== null) return;
 		b.loading = true;
+		b.loadError = null;
 		try {
 			const res = await fetch(`/api/graph?graph=${encodeURIComponent(name)}`);
 			if (res.ok) {
 				this.applyFull(name, (await res.json()) as GraphIndex);
+			} else {
+				b.loadError = `服务端返回 ${res.status}`;
 			}
 		} catch {
-			/* 离线：留待重连 full / 下次切换重试 */
+			b.loadError = "网络不可达——检查 graph serve 是否在运行";
 		} finally {
 			b.loading = false;
 		}
 	},
 
-	/** 测试辅助：清空全部多图状态 */
+	/** 测试辅助：清空全部多图状态 + 持久化偏好（隔离用例间泄漏）；全局 UI 态回到生产默认 */
 	resetAll() {
 		_buckets = {};
 		_current = null;
 		_graphsList = null;
+		_focusMode = false;
+		_layoutPinned = false;
+		_adrDockOpen = true;
+		_diffOpen = false;
+		_lensOpen = false;
+		_zoomRequest = null;
+		_locateRequest = null;
+		try {
+			localStorage.removeItem(UI_KEY);
+		} catch {
+			/* 非浏览器环境：忽略 */
+		}
 	},
 
 	// ── 单图兼容面（作用于当前桶；组件与既有测试零改动）──
@@ -213,8 +276,14 @@ export const graphState = {
 	get levelFilter() {
 		return curReadonly().levelFilter;
 	},
+	get statusFilter() {
+		return curReadonly().statusFilter;
+	},
 	get query() {
 		return curReadonly().query;
+	},
+	get loadError() {
+		return curReadonly().loadError;
 	},
 	get diff() {
 		return curReadonly().diff;
@@ -225,9 +294,78 @@ export const graphState = {
 	get snapshotsLoading() {
 		return curReadonly().snapshotsLoading;
 	},
+	get snapshotsError() {
+		return curReadonly().snapshotsError;
+	},
+	get diffError() {
+		return curReadonly().diffError;
+	},
 	/** 当前激活的 map 子集（workflow / domain） */
 	get activeMaps() {
 		return curReadonly().activeMaps;
+	},
+
+	// ── 全局 UI 态（v0.7 工具轨/专注模式/画布命令）──
+	get focusMode() {
+		return _focusMode;
+	},
+	setFocusMode(v: boolean) {
+		_focusMode = v;
+		if (v) {
+			// 专注模式 = 画布即一切：入口先收掉所有浮层，Esc 才能干净退出
+			_adrDockOpen = false;
+			_diffOpen = false;
+			_lensOpen = false;
+		}
+	},
+	get layoutPinned() {
+		return _layoutPinned;
+	},
+	setLayoutPinned(v: boolean) {
+		_layoutPinned = v;
+	},
+	get adrDockOpen() {
+		return _adrDockOpen;
+	},
+	toggleAdrDock() {
+		_adrDockOpen = !_adrDockOpen;
+		if (_adrDockOpen) _lensOpen = false;
+	},
+	get diffOpen() {
+		return _diffOpen;
+	},
+	toggleDiff() {
+		_diffOpen = !_diffOpen;
+		if (_diffOpen) {
+			_lensOpen = false;
+			void this.loadSnapshots();
+			void this.loadDiff();
+		} else {
+			this.clearDiff();
+		}
+	},
+	get lensOpen() {
+		return _lensOpen;
+	},
+	toggleLens() {
+		_lensOpen = !_lensOpen;
+		if (_lensOpen) {
+			_adrDockOpen = false;
+			_diffOpen = false;
+		}
+	},
+	get zoomRequest() {
+		return _zoomRequest;
+	},
+	requestZoom(kind: "in" | "out" | "fit") {
+		_zoomRequest = { kind, token: (_zoomRequest?.token ?? 0) + 1 };
+	},
+	get locateRequest() {
+		return _locateRequest;
+	},
+	/** 画布平移居中到指定节点（搜索 Enter 跳转） */
+	locateNode(nodeId: string) {
+		_locateRequest = { nodeId, token: (_locateRequest?.token ?? 0) + 1 };
 	},
 
 	setGraph(g: GraphIndex | null) {
@@ -240,8 +378,9 @@ export const graphState = {
 		this.applyNodeUpdate(curName(), nodeId, node);
 	},
 
+	/** 选中即纯数据快照：剥掉 d3 SimNode 附加字段（x/y/fx/index…），避免模拟对象泄漏进 UI 层 */
 	selectNode(n: NodeSchema | null) {
-		cur().selectedNode = n;
+		cur().selectedNode = n ? this.plainNode(n) : null;
 		if (n) cur().selectedEdge = null;
 	},
 
@@ -266,31 +405,58 @@ export const graphState = {
 		}
 	},
 
+	/** 状态过滤（顶栏可点状态 chips）：null = 不过滤；全部取消即回到不过滤 */
+	toggleStatus(status: NodeStatus) {
+		const b = cur();
+		if (b.statusFilter === null) {
+			b.statusFilter = [status];
+		} else if (b.statusFilter.includes(status)) {
+			const next = b.statusFilter.filter((s) => s !== status);
+			b.statusFilter = next.length > 0 ? next : null;
+		} else {
+			b.statusFilter = [...b.statusFilter, status];
+		}
+	},
+
+	clearStatusFilter() {
+		cur().statusFilter = null;
+	},
+
 	setQuery(q: string) {
 		cur().query = q;
 	},
 
-	/** map 透镜开关（任意子集叠加；两个都关 = 空视图，由画布提示） */
+	/** map 透镜开关（任意子集叠加；两个都关 = 空视图，由画布提示）；开关即持久化 */
 	toggleMap(kind: MapKind) {
 		const b = cur();
 		b.activeMaps = { ...b.activeMaps, [kind]: !b.activeMaps[kind] };
+		saveUiPrefs({ activeMaps: b.activeMaps });
 	},
 
 	setActiveMaps(maps: ActiveMaps) {
 		cur().activeMaps = { ...maps };
+		saveUiPrefs({ activeMaps: cur().activeMaps });
 	},
 
 	setDiff(d: DiffState | null) {
 		cur().diff = d;
+		cur().diffError = null;
 	},
 
 	async loadSnapshots() {
 		const b = cur();
 		b.snapshotsLoading = true;
+		b.snapshotsError = null;
 		try {
 			const res = await fetch(`/api/snapshots?graph=${encodeURIComponent(curName())}`);
+			if (!res.ok) {
+				b.snapshotsError = `服务端返回 ${res.status}`;
+				b.snapshots = [];
+				return;
+			}
 			b.snapshots = (await res.json()) as SnapshotInfo[];
 		} catch {
+			b.snapshotsError = "网络不可达，加载快照列表失败";
 			b.snapshots = [];
 		} finally {
 			b.snapshotsLoading = false;
@@ -301,20 +467,34 @@ export const graphState = {
 		const b = cur();
 		const params = new URLSearchParams({ graph: curName() });
 		if (against) params.set("against", against);
+		b.diffError = null;
 		try {
 			const res = await fetch(`/api/diff?${params.toString()}`);
 			const data = (await res.json()) as DiffState | { error: string };
 			if ("error" in data) {
 				b.diff = null;
+				b.diffError = data.error;
 			} else {
 				b.diff = data;
 			}
 		} catch {
 			b.diff = null;
+			b.diffError = "网络不可达，对比加载失败";
 		}
 	},
 
 	clearDiff() {
 		cur().diff = null;
+		cur().diffError = null;
+	},
+
+	/** 剥离 d3 模拟附加字段，输出纯 NodeSchema 视图 */
+	plainNode(n: NodeSchema): NodeSchema {
+		const {
+			x: _x, y: _y, vx: _vx, vy: _vy,
+			fx: _fx, fy: _fy, index: _index,
+			...rest
+		} = n as NodeSchema & Record<string, unknown>;
+		return rest as NodeSchema;
 	},
 };

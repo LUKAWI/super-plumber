@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>星图节点 demo — 星空模拟 · 单节点静态与动效</title>
+<style>
+  :root {
+    --bg: #000000;
+    --bg-chrome: #0a0a0a;
+    --surface-1: #141414;
+    --surface-2: #1e1e1e;
+    --ink: #ffffff;
+    --ink-muted: rgba(255, 255, 255, 0.72);
+    --ink-faint: rgba(255, 255, 255, 0.52);
+    --line: rgba(255, 255, 255, 0.09);
+    --line-strong: rgba(255, 255, 255, 0.16);
+    --interactive: #ffffff;
+    --st-pending: #8a8f98;
+    --st-ready: #4a93e8;
+    --st-running: #f0a73a;
+    --st-passed: #34c964;
+    --st-failed: #e5504f;
+    --st-blocked: #a574e6;
+    --st-cancelled: #7e848d;
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+    --font-data: ui-monospace, "SF Mono", "JetBrains Mono", Consolas, monospace;
+    --t-11: 0.6875rem; --t-12: 0.75rem; --t-13: 0.8125rem; --t-14: 0.875rem;
+    --t-16: 1rem; --t-20: 1.25rem; --t-24: 1.5rem;
+    --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px;
+    --sp-6: 24px; --sp-8: 32px; --sp-10: 40px; --sp-12: 48px;
+    --r-sm: 3px; --r: 6px; --r-lg: 10px;
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink-muted);
+    font-family: var(--font-ui);
+    font-size: var(--t-14);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: rgba(255,255,255,0.16); color: var(--ink); }
+  .page { max-width: 1120px; margin: 0 auto; padding: var(--sp-12) var(--sp-6) 120px; }
+  h1 { font-size: var(--t-24); font-weight: 700; color: var(--ink); letter-spacing: -0.01em; }
+  h2 { font-size: var(--t-20); font-weight: 700; color: var(--ink); margin: var(--sp-12) 0 var(--sp-2); letter-spacing: -0.01em; }
+  h3 { font-size: var(--t-14); font-weight: 650; color: var(--ink); margin: var(--sp-6) 0 var(--sp-2); }
+  .sub { color: var(--ink-faint); font-size: var(--t-13); margin-bottom: var(--sp-4); max-width: 72ch; }
+  p { max-width: 72ch; }
+  section { border-top: 1px solid var(--line); margin-top: var(--sp-10); padding-top: var(--sp-6); }
+  code { font-family: var(--font-data); font-size: var(--t-12); background: var(--surface-1); padding: 1px 6px; border-radius: var(--r-sm); color: var(--ink-muted); }
+  .board {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    position: relative;
+    overflow: hidden;
+  }
+  .board.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+  .cap { font-size: var(--t-12); color: var(--ink-faint); margin-top: var(--sp-2); }
+  .num { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+  table { width: 100%; border-collapse: collapse; font-size: var(--t-13); margin-top: var(--sp-4); }
+  th { text-align: left; font-size: var(--t-12); color: var(--ink-faint); font-weight: 600; padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--line-strong); }
+  td { padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--line); color: var(--ink-muted); vertical-align: top; }
+  td:first-child { font-family: var(--font-data); font-size: var(--t-12); color: var(--ink); }
+
+  /* ══════════ 星体部件（SVG 内联，token 同源） ══════════ */
+
+  /* 闪烁：halo 呼吸 + 芒针微颤；每颗星用不同 phase（animation-delay）去同步 */
+  @keyframes star-breathe {
+    0%, 100% { opacity: 0.82; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.06); }
+  }
+  @keyframes star-sparkle {
+    0%, 100% { opacity: 0.9; }
+    42% { opacity: 0.55; }
+    58% { opacity: 0.95; }
+  }
+  @keyframes core-glint {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.86; }
+  }
+  /* 变体：脉冲回环（running 语义的回声环） */
+  @keyframes pulse-ring {
+    0% { transform: scale(0.4); opacity: 0.7; }
+    80% { opacity: 0; }
+    100% { transform: scale(1.25); opacity: 0; }
+  }
+  /* 变体：像素星的数字眨眼（steps 硬切，terminal 味） */
+  @keyframes pixel-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
+  @keyframes pixel-sparkle {
+    0%, 92%, 100% { opacity: 0.9; }
+    94% { opacity: 0.2; }
+    97% { opacity: 1; }
+  }
+  /* 变体：棱星色差微颤 */
+  @keyframes prism-shift {
+    0%, 100% { transform: translate(0, 0); opacity: 0.5; }
+    50% { transform: translate(0.6px, -0.4px); opacity: 0.32; }
+  }
+
+  .pulse-ring { animation: pulse-ring 2.6s cubic-bezier(0.22, 1, 0.36, 1) infinite; transform-origin: center; transform-box: fill-box; }
+  .pixel-plus { animation: pixel-blink 2.4s steps(2, jump-none) infinite; }
+  .pixel-corner { animation: pixel-sparkle 3.8s steps(3, jump-none) infinite; }
+  .prism-r { animation: prism-shift 2.2s ease-in-out infinite; }
+  .prism-b { animation: prism-shift 2.2s ease-in-out -1.1s infinite; }
+
+  .star-halo { animation: star-breathe 3.6s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
+  .star-spikes { animation: star-sparkle 5.2s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
+  .star-core { animation: core-glint 2.8s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
+
+  /* hover 显形：星芒收拢、halo 收紧，节点形态（状态环/标签/检查点）浮现 */
+  .star-stage .node-body { opacity: 0; transition: opacity 0.22s var(--ease); }
+  .star-stage .star-sky { transition: opacity 0.22s var(--ease), transform 0.22s var(--ease); transform-origin: center; transform-box: fill-box; }
+  .star-stage:hover .star-sky { opacity: 0.22; transform: scale(0.82); }
+  .star-stage:hover .node-body { opacity: 1; }
+  .star-stage { cursor: pointer; }
+  .star-stage:focus-visible { outline: 2px solid var(--interactive); outline-offset: 4px; border-radius: var(--r-lg); }
+
+  /* 微缩星空语境 */
+  .sky-edge { stroke: rgba(255, 255, 255, 0.45); stroke-opacity: 0.35; stroke-width: 1; }
+  .dust { fill: rgba(255, 255, 255, 0.35); }
+
+  footer { margin-top: var(--sp-12); border-top: 1px solid var(--line); padding-top: var(--sp-6); color: var(--ink-faint); font-size: var(--t-12); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .star-halo, .star-spikes, .star-core { animation: none; }
+    .star-stage .node-body, .star-stage .star-sky { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <h1>星图节点 · 单节点静态与动效 demo</h1>
+    <p class="sub">提案：整张拓扑 = 一片星空。未交互时每个节点是一颗按状态着色的星（halo 光晕 + 四向衍射星芒 + 微闪烁，北极星式）；hover 时星芒收拢、节点形态（状态环 / 标签 / 检查点条）浮现。零新依赖——SVG 滤镜 + CSS 动画，与现有 d3-force/缩放/拾取/无障碍管线完全同构。</p>
+    <p class="sub">配色全部取自 DESIGN.md 状态色正本；本页即提案自演示。</p>
+  </header>
+
+  <!-- ══════════ 共享 defs：七状态 halo 渐变 + 星芒渐变 ══════════ -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <!-- 每状态一个 radialGradient：中心色浓 → 透明 -->
+      <radialGradient id="halo-pending"><stop offset="0%" stop-color="#8a8f98" stop-opacity="0.55"/><stop offset="45%" stop-color="#8a8f98" stop-opacity="0.12"/><stop offset="100%" stop-color="#8a8f98" stop-opacity="0"/></radialGradient>
+      <radialGradient id="halo-ready"><stop offset="0%" stop-color="#4a93e8" stop-opacity="0.6"/><stop offset="45%" stop-color="#4a93e8" stop-opacity="0.14"/><stop offset="100%" stop-color="#4a93e8" stop-opacity="0"/></radialGradient>
+      <radialGradient id="halo-running"><stop offset="0%" stop-color="#f0a73a" stop-opacity="0.65"/><stop offset="45%" stop-color="#f0a73a" stop-opacity="0.16"/><stop offset="100%" stop-color="#f0a73a" stop-opacity="0"/></radialGradient>
+      <radialGradient id="halo-passed"><stop offset="0%" stop-color="#34c964" stop-opacity="0.55"/><stop offset="45%" stop-color="#34c964" stop-opacity="0.13"/><stop offset="100%" stop-color="#34c964" stop-opacity="0"/></radialGradient>
+      <radialGradient id="halo-failed"><stop offset="0%" stop-color="#e5504f" stop-opacity="0.62"/><stop offset="45%" stop-color="#e5504f" stop-opacity="0.15"/><stop offset="100%" stop-color="#e5504f" stop-opacity="0"/></radialGradient>
+      <radialGradient id="halo-blocked"><stop offset="0%" stop-color="#a574e6" stop-opacity="0.58"/><stop offset="45%" stop-color="#a574e6" stop-opacity="0.14"/><stop offset="100%" stop-color="#a574e6" stop-opacity="0"/></radialGradient>
+      <radialGradient id="halo-cancelled"><stop offset="0%" stop-color="#7e848d" stop-opacity="0.45"/><stop offset="45%" stop-color="#7e848d" stop-opacity="0.1"/><stop offset="100%" stop-color="#7e848d" stop-opacity="0"/></radialGradient>
+      <!-- 星芒：沿芒针方向渐隐 -->
+      <linearGradient id="spike-v" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#fff" stop-opacity="0"/><stop offset="50%" stop-color="#fff" stop-opacity="0.85"/><stop offset="100%" stop-color="#fff" stop-opacity="0"/></linearGradient>
+      <linearGradient id="spike-h" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#fff" stop-opacity="0"/><stop offset="50%" stop-color="#fff" stop-opacity="0.85"/><stop offset="100%" stop-color="#fff" stop-opacity="0"/></linearGradient>
+    </defs>
+  </svg>
+
+  <!-- ══════════ §1 一颗星的解剖 ══════════ -->
+  <section>
+    <h2>一颗星的解剖</h2>
+    <p class="sub">四层结构，全部矢量：白色炽心（core，1.5px 级）→ 状态色 halo（radialGradient，半径≈3×星等）→ 四向衍射星芒（spikes，细菱形渐隐，北极星式）→ 微尘星点（天空语境层）。亮度（星等）映射节点层级 L0–L5，颜色映射状态。</p>
+    <div class="board grid2">
+      <div style="display:flex; align-items:center; justify-content:center; min-height:360px">
+        <svg width="340" height="340" viewBox="0 0 340 340" role="img" aria-label="单颗星的解剖图">
+          <!-- 微尘 -->
+          <circle class="dust" cx="46" cy="60" r="0.8"/><circle class="dust" cx="290" cy="42" r="0.6"/>
+          <circle class="dust" cx="70" cy="290" r="0.7"/><circle class="dust" cx="310" cy="250" r="0.8"/>
+          <circle class="dust" cx="40" cy="180" r="0.5"/><circle class="dust" cx="180" cy="30" r="0.6"/>
+          <!-- 注释引线 -->
+          <g font-family="var(--font-ui)" font-size="11" fill="rgba(255,255,255,0.52)">
+            <line x1="170" y1="52" x2="170" y2="112" stroke="rgba(255,255,255,0.16)"/>
+            <text x="178" y="108">halo · 状态色 radialGradient</text>
+            <line x1="256" y1="170" x2="216" y2="170" stroke="rgba(255,255,255,0.16)"/>
+            <text x="200" y="158" text-anchor="end">spikes · 四向衍射</text>
+            <line x1="84" y1="170" x2="130" y2="170" stroke="rgba(255,255,255,0.16)"/>
+            <text x="60" y="158" text-anchor="start">炽心</text>
+          </g>
+          <!-- 星体（running 示例）-->
+          <g transform="translate(170,170)">
+            <g class="star-sky">
+              <circle class="star-halo" r="86" fill="url(#halo-running)"/>
+              <g class="star-spikes" stroke="url(#spike-v)">
+                <path d="M0,-74 L2.2,0 L0,74 L-2.2,0 Z" fill="url(#spike-v)"/>
+                <path d="M-74,0 L0,-2.2 L74,0 L0,2.2 Z" fill="url(#spike-h)"/>
+              </g>
+              <circle class="star-core" r="3.2" fill="#ffffff"/>
+              <circle r="6.5" fill="none" stroke="#f0a73a" stroke-opacity="0.5" stroke-width="1"/>
+            </g>
+          </g>
+        </svg>
+      </div>
+      <div style="padding: var(--sp-5); border-left: 1px solid var(--line)">
+        <h3 style="margin-top:0">映射规则（提案）</h3>
+        <table>
+          <thead><tr><th>星体属性</th><th>数据映射</th></tr></thead>
+          <tbody>
+            <tr><td>颜色</td><td>节点状态（七色正本，与现状一致）</td></tr>
+            <tr><td>星等 / halo 半径 / 芒长</td><td>层级 L0 最亮 → L5 最暗（亮度 = 责任半径）</td></tr>
+            <tr><td>闪烁相位</td><td>按节点 id 哈希取 phase——同一图每次加载星空不同，同星相位稳定</td></tr>
+            <tr><td>呼吸幅度</td><td>running 幅度最大（0.82↔1.0 + 光点流保留），pending 最轻</td></tr>
+            <tr><td>hover</td><td>星芒收拢 0.82×、halo 收暗至 22% → 节点形态浮现（右例）</td></tr>
+            <tr><td>选中</td><td>白色描边环（现行交互语言不变）</td></tr>
+          </tbody>
+        </table>
+        <p style="font-size: var(--t-12); color: var(--ink-faint); margin-top: var(--sp-3)">rAF 成本：闪烁用 CSS animation（合成器走 opacity/transform），不做逐帧 JS；整片星空的辉光不逐帧重算。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ §2 七状态星图鉴 ══════════ -->
+  <section>
+    <h2>七状态星图鉴</h2>
+    <p class="sub">同一星等（L2）下的七种状态色。注意区分度：相隔的色相在缩小后仍可辨——这正是"色彩即状态"在星图里的延续。每颗星闪烁相位错开（animation-delay 取自 id 哈希的示意值）。</p>
+    <div class="board" style="display:flex; flex-wrap:wrap; gap:var(--sp-2); padding: var(--sp-6); justify-content:center">
+      <!-- 每格：star + 状态名 -->
+      <div style="width:132px; text-align:center">
+        <svg width="132" height="132" viewBox="0 0 132 132"><g transform="translate(66,66)"><g class="star-sky"><circle class="star-halo" style="animation-delay:-0.3s" r="52" fill="url(#halo-pending)"/><g class="star-spikes" style="animation-delay:-1.1s"><path d="M0,-44 L1.8,0 L0,44 L-1.8,0 Z" fill="url(#spike-v)" opacity="0.7"/><path d="M-44,0 L0,-1.8 L44,0 L0,1.8 Z" fill="url(#spike-h)" opacity="0.7"/></g><circle class="star-core" style="animation-delay:-0.6s" r="2.6" fill="#fff"/></g></g></svg>
+        <div class="cap num">pending · #8a8f98</div>
+      </div>
+      <div style="width:132px; text-align:center">
+        <svg width="132" height="132" viewBox="0 0 132 132"><g transform="translate(66,66)"><g class="star-sky"><circle class="star-halo" style="animation-delay:-1.7s" r="52" fill="url(#halo-ready)"/><g class="star-spikes" style="animation-delay:-2.4s"><path d="M0,-44 L1.8,0 L0,44 L-1.8,0 Z" fill="url(#spike-v)" opacity="0.7"/><path d="M-44,0 L0,-1.8 L44,0 L0,1.8 Z" fill="url(#spike-h)" opacity="0.7"/></g><circle class="star-core" style="animation-delay:-1.2s" r="2.6" fill="#fff"/></g></g></svg>
+        <div class="cap num">ready · #4a93e8</div>
+      </div>
+      <div style="width:132px; text-align:center">
+        <svg width="132" height="132" viewBox="0 0 132 132"><g transform="translate(66,66)"><g class="star-sky"><circle class="star-halo" style="animation-delay:-0.9s" r="56" fill="url(#halo-running)"/><g class="star-spikes" style="animation-delay:-3.1s"><path d="M0,-48 L2,0 L0,48 L-2,0 Z" fill="url(#spike-v)"/><path d="M-48,0 L0,-2 L48,0 L0,2 Z" fill="url(#spike-h)"/></g><circle class="star-core" style="animation-delay:-2.0s" r="2.8" fill="#fff"/></g></g></svg>
+        <div class="cap num">running · #f0a73a（芒最长）</div>
+      </div>
+      <div style="width:132px; text-align:center">
+        <svg width="132" height="132" viewBox="0 0 132 132"><g transform="translate(66,66)"><g class="star-sky"><circle class="star-halo" style="animation-delay:-2.6s" r="52" fill="url(#halo-passed)"/><g class="star-spikes" style="animation-delay:-0.5s"><path d="M0,-44 L1.8,0 L0,44 L-1.8,0 Z" fill="url(#spike-v)" opacity="0.7"/><path d="M-44,0 L0,-1.8 L44,0 L0,1.8 Z" fill="url(#spike-h)" opacity="0.7"/></g><circle class="star-core" style="animation-delay:-2.9s" r="2.6" fill="#fff"/></g></g></svg>
+        <div class="cap num">passed · #34c964</div>
+      </div>
+      <div style="width:132px; text-align:center">
+        <svg width="132" height="132" viewBox="0 0 132 132"><g transform="translate(66,66)"><g class="star-sky"><circle class="star-halo" style="animation-delay:-3.4s" r="54" fill="url(#halo-failed)"/><g class="star-spikes" style="animation-delay:-1.9s"><path d="M0,-46 L2,0 L0,46 L-2,0 Z" fill="url(#spike-v)"/><path d="M-46,0 L0,-2 L46,0 L0,2 Z" fill="url(#spike-h)"/></g><circle class="star-core" style="animation-delay:-0.2s" r="2.7" fill="#fff"/></g></g></svg>
+        <div class="cap num">failed · #e5504f</div>
+      </div>
+      <div style="width:132px; text-align:center">
+        <svg width="132" height="132" viewBox="0 0 132 132"><g transform="translate(66,66)"><g class="star-sky"><circle class="star-halo" style="animation-delay:-1.4s" r="53" fill="url(#halo-blocked)"/><g class="star-spikes" style="animation-delay:-2.8s"><path d="M0,-45 L1.8,0 L0,45 L-1.8,0 Z" fill="url(#spike-v)" opacity="0.75"/><path d="M-45,0 L0,-1.8 L45,0 L0,1.8 Z" fill="url(#spike-h)" opacity="0.75"/></g><circle class="star-core" style="animation-delay:-3.3s" r="2.6" fill="#fff"/></g></g></svg>
+        <div class="cap num">blocked · #a574e6</div>
+      </div>
+      <div style="width:132px; text-align:center">
+        <svg width="132" height="132" viewBox="0 0 132 132"><g transform="translate(66,66)"><g class="star-sky"><circle class="star-halo" style="animation-delay:-2.1s" r="44" fill="url(#halo-cancelled)"/><g class="star-spikes" style="animation-delay:-3.7s"><path d="M0,-34 L1.4,0 L0,34 L-1.4,0 Z" fill="url(#spike-v)" opacity="0.45"/><path d="M-34,0 L0,-1.4 L34,0 L0,1.4 Z" fill="url(#spike-h)" opacity="0.45"/></g><circle class="star-core" style="animation-delay:-1.6s" r="2.2" fill="rgba(255,255,255,0.8)"/></g></g></svg>
+        <div class="cap num">cancelled · #7e848d（最暗）</div>
+      </div>
+    </div>
+    <p class="cap">星等递减示意：cancelled 最低亮度；running 最亮且保留呼吸+光点流（四重通道里前两重的星化版）。</p>
+  </section>
+
+  <!-- ══════════ §2.5 样式变体画廊 ══════════ -->
+  <section>
+    <h2>样式变体画廊（六种 CSS/SVG 技法）</h2>
+    <p class="sub">同一颗 RUNNING 星（#f0a73a）的六种画法。§2 的"菱形星芒"是现役默认；以下变体各有取舍——小尺寸可读性、动效成本、与 terminal 世界的契合度都列在表里。全部零依赖、纯 SVG/CSS。（2026-08-28 更新：V4 已拍板为星芒正本并落入 GraphCanvas，见 §5 表格标注。）</p>
+    <div class="board" style="display:flex; flex-wrap:wrap; gap:var(--sp-2); padding: var(--sp-6); justify-content:center">
+      <!-- V1 弥散光斑（bokeh） -->
+      <div style="width:150px; text-align:center">
+        <svg width="150" height="150" viewBox="0 0 150 150">
+          <g transform="translate(75,75)">
+            <circle class="star-halo" r="62" fill="url(#halo-running)"/>
+            <circle r="18" fill="url(#halo-running)"/>
+            <circle class="star-core" r="3" fill="#fff"/>
+          </g>
+        </svg>
+        <div class="cap num">V1 弥散光斑</div>
+        <div class="cap">双层 radialGradient，无芒</div>
+      </div>
+      <!-- V2 十字线芒（衍射仪 Precise） -->
+      <div style="width:150px; text-align:center">
+        <svg width="150" height="150" viewBox="0 0 150 150">
+          <defs>
+            <filter id="soft-blur" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="1.1"/></filter>
+          </defs>
+          <g transform="translate(75,75)">
+            <circle class="star-halo" r="46" fill="url(#halo-running)"/>
+            <g transform="translate(-75,-75)">
+              <g filter="url(#soft-blur)" opacity="0.85">
+                <line x1="75" y1="24" x2="75" y2="126" stroke="#f0a73a" stroke-width="1.6"/>
+                <line x1="24" y1="75" x2="126" y2="75" stroke="#f0a73a" stroke-width="1.6"/>
+              </g>
+              <line x1="75" y1="30" x2="75" y2="120" stroke="rgba(255,255,255,0.9)" stroke-width="0.8"/>
+              <line x1="30" y1="75" x2="120" y2="75" stroke="rgba(255,255,255,0.9)" stroke-width="0.8"/>
+            </g>
+            <circle class="star-core" r="3" fill="#fff"/>
+          </g>
+        </svg>
+        <div class="cap num">V2 十字线芒</div>
+        <div class="cap">1px 线 + 高斯模糊副像，最"望远镜"</div>
+      </div>
+      <!-- V3 像素十字（terminal 原生） -->
+      <div style="width:150px; text-align:center">
+        <svg width="150" height="150" viewBox="0 0 150 150">
+          <g transform="translate(75,75)">
+            <circle class="star-halo" r="40" fill="url(#halo-running)" opacity="0.55"/>
+            <g class="pixel-plus" fill="#f0a73a">
+              <rect x="-2" y="-22" width="4" height="44"/>
+              <rect x="-22" y="-2" width="44" height="4"/>
+            </g>
+            <g class="pixel-corner" fill="#ffffff">
+              <rect x="-1.5" y="-10" width="3" height="20"/>
+              <rect x="-10" y="-1.5" width="20" height="3"/>
+              <rect x="-1.5" y="-1.5" width="3" height="3"/>
+            </g>
+            <rect x="-2.5" y="-2.5" width="5" height="5" fill="#fff"/>
+          </g>
+        </svg>
+        <div class="cap num">V3 像素十字</div>
+        <div class="cap">硬边矩形 + steps() 数字眨眼，最 terminal</div>
+      </div>
+      <!-- V4 八向棱星（色差微颤） -->
+      <div style="width:150px; text-align:center">
+        <svg width="150" height="150" viewBox="0 0 150 150">
+          <g transform="translate(75,75)">
+            <circle class="star-halo" r="48" fill="url(#halo-running)"/>
+            <g class="prism-r" fill="#e5504f" opacity="0.5">
+              <path d="M0,-44 L1.6,0 L0,44 L-1.6,0 Z" transform="translate(0.8,0)"/>
+              <path d="M-44,0 L0,-1.6 L44,0 L0,1.6 Z" transform="translate(0,-0.8)"/>
+            </g>
+            <g class="prism-b" fill="#4a93e8" opacity="0.5">
+              <path d="M0,-44 L1.6,0 L0,44 L-1.6,0 Z" transform="translate(-0.8,0)"/>
+              <path d="M-44,0 L0,-1.6 L44,0 L0,1.6 Z" transform="translate(0,0.8)"/>
+            </g>
+            <g fill="rgba(255,255,255,0.95)">
+              <path d="M0,-46 L1.8,0 L0,46 L-1.8,0 Z"/>
+              <path d="M-46,0 L0,-1.8 L46,0 L0,1.8 Z"/>
+              <path d="M0,-26 L1.2,0 L0,26 L-1.2,0 Z" transform="rotate(45)" opacity="0.55"/>
+              <path d="M0,-26 L1.2,0 L0,26 L-1.2,0 Z" transform="rotate(-45)" opacity="0.55"/>
+            </g>
+            <circle class="star-core" r="3" fill="#fff"/>
+          </g>
+        </svg>
+        <div class="cap num">V4 八向棱星</div>
+        <div class="cap">斜向短芒 + 红蓝错位色差（棱镜感）</div>
+      </div>
+      <!-- V5 脉冲回环（running 专用语义） -->
+      <div style="width:150px; text-align:center">
+        <svg width="150" height="150" viewBox="0 0 150 150">
+          <g transform="translate(75,75)">
+            <circle class="star-halo" r="42" fill="url(#halo-running)"/>
+            <circle class="pulse-ring" r="34" fill="none" stroke="#f0a73a" stroke-width="1.2"/>
+            <circle class="pulse-ring" style="animation-delay:-1.3s" r="34" fill="none" stroke="#f0a73a" stroke-width="1.2"/>
+            <circle class="pulse-ring" style="animation-delay:-2.2s" r="30" fill="none" stroke="rgba(240,167,58,0.5)" stroke-width="1"/>
+            <circle class="star-core" r="3.2" fill="#fff"/>
+            <circle r="7" fill="none" stroke="#f0a73a" stroke-opacity="0.55" stroke-width="1"/>
+          </g>
+        </svg>
+        <div class="cap num">V5 脉冲回环</div>
+        <div class="cap">回声环外扩——建议只给 running 专用</div>
+      </div>
+      <!-- V6 幻环透镜（lens ghost） -->
+      <div style="width:150px; text-align:center">
+        <svg width="150" height="150" viewBox="0 0 150 150">
+          <g transform="translate(75,75)">
+            <circle class="star-halo" r="52" fill="url(#halo-running)"/>
+            <circle cx="5" cy="-4" r="24" fill="none" stroke="rgba(240,167,58,0.45)" stroke-width="1"/>
+            <circle cx="-3" cy="3" r="15" fill="none" stroke="rgba(240,167,58,0.3)" stroke-width="0.8"/>
+            <g class="star-spikes" opacity="0.6">
+              <path d="M0,-38 L1.5,0 L0,38 L-1.5,0 Z" fill="url(#spike-v)"/>
+              <path d="M-38,0 L0,-1.5 L38,0 L0,1.5 Z" fill="url(#spike-h)"/>
+            </g>
+            <circle class="star-core" r="3" fill="#fff"/>
+          </g>
+        </svg>
+        <div class="cap num">V6 幻环透镜</div>
+        <div class="cap">偏心细环=镜头鬼影，最"摄影味"</div>
+      </div>
+    </div>
+
+    <h3>变体对比（图可读性优先）</h3>
+    <table>
+      <thead><tr><th>变体</th><th>小尺寸可读性</th><th>动效成本</th><th>terminal 契合</th><th>建议用途</th></tr></thead>
+      <tbody>
+        <tr><td>现役 菱形星芒</td><td>好（芒即锚点）</td><td>低</td><td>好</td><td>默认款</td></tr>
+        <tr><td>V1 弥散光斑</td><td>弱（无锚线，缩小后成一团）</td><td>最低</td><td>一般</td><td>微尘层/极小节点</td></tr>
+        <tr><td>V2 十字线芒</td><td>好（1px 线锐利）</td><td>低（一次 blur）</td><td>好</td><td>L0/L1 大星（精密感）</td></tr>
+        <tr><td>V3 像素十字</td><td>好（硬边不糊）</td><td>最低（无滤镜）</td><td>最强</td><td>缩小态 LOD / 挂屏远距</td></tr>
+        <tr><td>V4 八向棱星</td><td>中（细节多，缩小易糊）</td><td>中（色差双层）</td><td>中</td><td>✅ 已采纳（2026-08-28 拍板）——星芒正本，星态旁常显任务摘要</td></tr>
+        <tr><td>V5 脉冲回环</td><td>好（运动即吸引）</td><td>中（3 环持续动画）</td><td>好</td><td>仅 running 专用语义</td></tr>
+        <tr><td>V6 幻环透镜</td><td>中（环与节点环混淆风险）</td><td>低</td><td>中</td><td>备选，不建议默认</td></tr>
+      </tbody>
+    </table>
+    <p class="cap">工具箱备注：以上用到的 CSS/SVG 手段——radialGradient/linearGradient、feGaussianBlur、steps() 动画、transform-box: fill-box、mix-blend-mode（V4 备选实现）、@property（渐变角动画，未用）。zoom 缩小时所有变体可统一切到 V3 像素十字做 LOD（硬边在低倍率下最不糊）。</p>
+  </section>
+
+  <!-- ══════════ §3 hover 显形交互 ══════════ -->
+  <section>
+    <h2>hover 显形：星 → 节点形态</h2>
+    <p class="sub">鼠标未接触时它是 RUNNING 状态的一颗星；悬停（或键盘 Tab 聚焦）时星芒收拢、halo 收暗，节点形态淡入——状态环、标签、检查点条，与现行节点视觉同构。点击行为不变（进节点详情）。</p>
+    <div class="board" style="display:flex; gap: var(--sp-6); padding: var(--sp-8); flex-wrap:wrap; justify-content:center">
+      <div class="star-stage" tabindex="0" role="button" aria-label="节点：组装 zcode 插件组件（running）—悬停显示节点形态">
+        <svg width="360" height="360" viewBox="0 0 360 360">
+          <g transform="translate(180,180)">
+            <!-- 星空态 -->
+            <g class="star-sky">
+              <circle class="star-halo" r="110" fill="url(#halo-running)"/>
+              <g class="star-spikes">
+                <path d="M0,-96 L2.4,0 L0,96 L-2.4,0 Z" fill="url(#spike-v)"/>
+                <path d="M-96,0 L0,-2.4 L96,0 L0,2.4 Z" fill="url(#spike-h)"/>
+              </g>
+              <circle class="star-core" r="3.4" fill="#fff"/>
+            </g>
+            <!-- 节点形态（hover 浮现）：与现行 GraphCanvas 节点同构 -->
+            <g class="node-body">
+              <circle r="20" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.6)" stroke-width="2.5"/>
+              <circle r="23" fill="none" stroke="#f0a73a" stroke-width="3"/>
+              <text y="4" text-anchor="middle" font-family="var(--font-sans)" font-size="11" font-weight="600" fill="#fff">组装中</text>
+              <text y="-30" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="#f0a73a">agent_e12…</text>
+              <rect x="-14" y="32" width="28" height="3" rx="1.5" fill="rgba(255,255,255,0.1)"/>
+              <rect x="-14" y="32" width="17" height="3" rx="1.5" fill="#34c964"/>
+              <text y="52" text-anchor="middle" font-family="var(--font-sans)" font-size="11" font-weight="600" fill="var(--ink)">组装 zcode 插件组件</text>
+            </g>
+          </g>
+        </svg>
+      </div>
+      <div style="align-self:center; max-width:320px">
+        <h3 style="margin-top:0">交互时序</h3>
+        <p style="font-size: var(--t-13); color: var(--ink-2, var(--ink-muted))">220ms ease-out：星态不消失（保留 22% 亮度 + 0.82× 缩放作背景），节点形态在同位置浮现——"星星显形"而不是"星星消失"。移开后 220ms 回到星态。触屏长按 = hover 语义；键盘 Tab 聚焦即显形。</p>
+        <p style="font-size: var(--t-12); color: var(--ink-faint); margin-top: var(--sp-2)">星空态下无文字（整片天空干净可挂屏）；一切文字只在显形态与选中详情里出现。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ §4 微缩星空语境 ══════════ -->
+  <section>
+    <h2>微缩星空语境（15 节点示意）</h2>
+    <p class="sub">力导向坐标不变，只换皮肤：节点=星、边=座标星座线（白 0.45 → 0.35 视觉档）。星点大小按层级，颜色按状态，相位按 id。感受"整片天空"的密度与可读性。</p>
+    <div class="board" style="padding: 0">
+      <svg viewBox="0 0 1080 420" width="100%" style="display:block" role="img" aria-label="15 颗状态星组成的微缩星空，星座线为依赖边">
+        <!-- 微尘背景 -->
+        <g class="dust">
+          <circle cx="60" cy="40" r="0.7"/><circle cx="210" cy="90" r="0.5"/><circle cx="330" cy="30" r="0.8"/>
+          <circle cx="520" cy="60" r="0.5"/><circle cx="700" cy="25" r="0.7"/><circle cx="920" cy="70" r="0.6"/>
+          <circle cx="1020" cy="140" r="0.5"/><circle cx="90" cy="330" r="0.6"/><circle cx="260" cy="380" r="0.5"/>
+          <circle cx="480" cy="390" r="0.7"/><circle cx="660" cy="360" r="0.5"/><circle cx="860" cy="395" r="0.8"/>
+          <circle cx="1000" cy="330" r="0.5"/><circle cx="150" cy="210" r="0.4"/><circle cx="590" cy="220" r="0.4"/>
+        </g>
+        <!-- 座标星座线（依赖边，单色阶梯） -->
+        <g class="sky-edge">
+          <line x1="180" y1="120" x2="330" y2="180"/><line x1="330" y1="180" x2="300" y2="300"/>
+          <line x1="330" y1="180" x2="480" y2="140"/><line x1="480" y1="140" x2="620" y2="210"/>
+          <line x1="300" y1="300" x2="450" y2="320"/><line x1="620" y1="210" x2="760" y2="120"/>
+          <line x1="760" y1="120" x2="900" y2="180"/><line x1="450" y1="320" x2="620" y2="210"/>
+          <line x1="760" y1="120" x2="830" y2="300"/><line x1="180" y1="120" x2="120" y2="250"/>
+          <line x1="120" y1="250" x2="300" y2="300"/><line x1="900" y1="180" x2="830" y2="300"/>
+        </g>
+        <!-- 星（大小=层级，颜色=状态，相位错开） -->
+        <!-- L0 双星：最亮 -->
+        <g transform="translate(760,120)"><circle class="star-halo" r="60" fill="url(#halo-running)"/><g class="star-spikes"><path d="M0,-52 L2.2,0 L0,52 L-2.2,0 Z" fill="url(#spike-v)"/><path d="M-52,0 L0,-2.2 L52,0 L0,2.2 Z" fill="url(#spike-h)"/></g><circle class="star-core" r="3.2" fill="#fff"/></g>
+        <g transform="translate(480,140)"><circle class="star-halo" style="animation-delay:-1.8s" r="54" fill="url(#halo-passed)"/><g class="star-spikes" style="animation-delay:-0.7s"><path d="M0,-47 L2,0 L0,47 L-2,0 Z" fill="url(#spike-v)" opacity="0.8"/><path d="M-47,0 L0,-2 L47,0 L0,2 Z" fill="url(#spike-h)" opacity="0.8"/></g><circle class="star-core" style="animation-delay:-1.3s" r="3" fill="#fff"/></g>
+        <!-- L1/L2 主群 -->
+        <g transform="translate(180,120)"><circle class="star-halo" style="animation-delay:-2.2s" r="46" fill="url(#halo-failed)"/><g class="star-spikes" style="animation-delay:-1.1s"><path d="M0,-38 L1.8,0 L0,38 L-1.8,0 Z" fill="url(#spike-v)"/><path d="M-38,0 L0,-1.8 L38,0 L0,1.8 Z" fill="url(#spike-h)"/></g><circle class="star-core" style="animation-delay:-2.6s" r="2.7" fill="#fff"/></g>
+        <g transform="translate(330,180)"><circle class="star-halo" style="animation-delay:-0.4s" r="44" fill="url(#halo-passed)"/><g class="star-spikes" style="animation-delay:-2.9s"><path d="M0,-36 L1.6,0 L0,36 L-1.6,0 Z" fill="url(#spike-v)" opacity="0.8"/><path d="M-36,0 L0,-1.6 L36,0 L0,1.6 Z" fill="url(#spike-h)" opacity="0.8"/></g><circle class="star-core" style="animation-delay:-0.8s" r="2.6" fill="#fff"/></g>
+        <g transform="translate(620,210)"><circle class="star-halo" style="animation-delay:-1.5s" r="46" fill="url(#halo-running)"/><g class="star-spikes" style="animation-delay:-3.4s"><path d="M0,-40 L2,0 L0,40 L-2,0 Z" fill="url(#spike-v)"/><path d="M-40,0 L0,-2 L40,0 L0,2 Z" fill="url(#spike-h)"/></g><circle class="star-core" style="animation-delay:-1.9s" r="2.8" fill="#fff"/></g>
+        <g transform="translate(900,180)"><circle class="star-halo" style="animation-delay:-2.7s" r="44" fill="url(#halo-passed)"/><g class="star-spikes" style="animation-delay:-0.2s"><path d="M0,-36 L1.6,0 L0,36 L-1.6,0 Z" fill="url(#spike-v)" opacity="0.8"/><path d="M-36,0 L0,-1.6 L36,0 L0,1.6 Z" fill="url(#spike-h)" opacity="0.8"/></g><circle class="star-core" style="animation-delay:-2.2s" r="2.6" fill="#fff"/></g>
+        <g transform="translate(300,300)"><circle class="star-halo" style="animation-delay:-3.1s" r="42" fill="url(#halo-passed)"/><g class="star-spikes" style="animation-delay:-1.6s"><path d="M0,-34 L1.6,0 L0,34 L-1.6,0 Z" fill="url(#spike-v)" opacity="0.7"/><path d="M-34,0 L0,-1.6 L34,0 L0,1.6 Z" fill="url(#spike-h)" opacity="0.7"/></g><circle class="star-core" style="animation-delay:-2.8s" r="2.5" fill="#fff"/></g>
+        <g transform="translate(450,320)"><circle class="star-halo" style="animation-delay:-0.6s" r="40" fill="url(#halo-ready)"/><g class="star-spikes" style="animation-delay:-2.1s"><path d="M0,-32 L1.5,0 L0,32 L-1.5,0 Z" fill="url(#spike-v)" opacity="0.75"/><path d="M-32,0 L0,-1.5 L32,0 L0,1.5 Z" fill="url(#spike-h)" opacity="0.75"/></g><circle class="star-core" style="animation-delay:-1.1s" r="2.4" fill="#fff"/></g>
+        <g transform="translate(830,300)"><circle class="star-halo" style="animation-delay:-1.2s" r="42" fill="url(#halo-blocked)"/><g class="star-spikes" style="animation-delay:-3.6s"><path d="M0,-34 L1.6,0 L0,34 L-1.6,0 Z" fill="url(#spike-v)" opacity="0.75"/><path d="M-34,0 L0,-1.6 L34,0 L0,1.6 Z" fill="url(#spike-h)" opacity="0.75"/></g><circle class="star-core" style="animation-delay:-0.5s" r="2.5" fill="#fff"/></g>
+        <!-- L3 边缘小星 -->
+        <g transform="translate(120,250)"><circle class="star-halo" style="animation-delay:-2.4s" r="30" fill="url(#halo-pending)"/><circle class="star-core" style="animation-delay:-1.7s" r="1.8" fill="rgba(255,255,255,0.9)"/></g>
+        <g transform="translate(980,270)"><circle class="star-halo" style="animation-delay:-0.9s" r="28" fill="url(#halo-pending)"/><circle class="star-core" style="animation-delay:-2.5s" r="1.7" fill="rgba(255,255,255,0.85)"/></g>
+        <g transform="translate(560,90)"><circle class="star-halo" style="animation-delay:-3.2s" r="26" fill="url(#halo-cancelled)"/><circle class="star-core" style="animation-delay:-0.3s" r="1.5" fill="rgba(255,255,255,0.7)"/></g>
+        <g transform="translate(390,70)"><circle class="star-halo" style="animation-delay:-1.9s" r="28" fill="url(#halo-pending)"/><circle class="star-core" style="animation-delay:-2.7s" r="1.7" fill="rgba(255,255,255,0.85)"/></g>
+        <g transform="translate(700,320)"><circle class="star-halo" style="animation-delay:-0.1s" r="26" fill="url(#halo-cancelled)"/><circle class="star-core" style="animation-delay:-1.4s" r="1.5" fill="rgba(255,255,255,0.7)"/></g>
+      </svg>
+    </div>
+    <p class="cap">缩放行为不变：zoom in 时星等半径随之放大（自然显形为节点），zoom out 时缩为纯星点——LOD 天然成立。整屏无文字，挂屏语义成立。</p>
+  </section>
+
+  <!-- ══════════ §5 技术选型结论 ══════════ -->
+  <section>
+    <h2>技术选型（调研结论）</h2>
+    <table>
+      <thead><tr><th>方案</th><th>结论</th><th>理由</th></tr></thead>
+      <tbody>
+        <tr><td>SVG + CSS 动画（本 demo）</td><td>✅ 推荐</td><td>与现有 d3-force/zoom/拖拽/无障碍/标签管线零冲突；halo=radialGradient、星芒=渐变菱形、闪烁=CSS animation（合成器路径）；零新依赖，符合 DESIGN.md 矢量世界与零依赖纪律</td></tr>
+        <tr><td>Threlte（three.js）+ &lt;Stars&gt; + Bloom</td><td>❌ 已否决（2026-08-28 实测）</td><td>两点实锤：① 上游发布链断裂——core@8.6.0 的产物不含 createRawEventDispatcher，而已发布的全部 extras（8.9–9.21）都在 import 它，版本无法对齐，需自行 fork/patch；② 原型实拍判定过重（用户裁决）：真 3D 景深+泛光对"图可读性"是负资产，且需整体替换拾取/缩放/标签/a11y 管线、打破零依赖纪律</td></tr>
+        <tr><td>tsParticles（@tsparticles/svelte）</td><td>❌ 不采</td><td>定位是装饰性粒子背景，无节点语义/拾取/状态绑定；为微尘层引入整库不值</td></tr>
+        <tr><td>Canvas 2D 底层微尘（可选增强）</td><td>🟡 备选</td><td>若几百节点后 SVG 微尘层性能吃紧，可加一层 canvas 画微尘+辉光（globalCompositeOperation: lighter）；节点本体仍留 SVG</td></tr>
+      </tbody>
+    </table>
+    <p style="font-size: var(--t-12); color: var(--ink-faint); margin-top: var(--sp-3)">实现落点（若批准）：GraphCanvas renderNodeLayer 的节点 g 内加 star-sky 组（halo/spikes/core），现有 node-circle/status-ring/label/cp 组整体包进 node-body 做 hover 交叉淡入；闪烁相位 = hash(node.id) % 3600ms；prefers-reduced-motion 关闪烁只留静态辉光。</p>
+  </section>
+
+  <footer>
+    星图节点 demo · 2026-08-28 · 单文件自包含 · token 与 DESIGN.md 同源 · 支持 prefers-reduced-motion ·
+    批准后进入 GraphCanvas 集成排期（改动集中在 renderNodeLayer 与 defs，交互/选中/详情路径不动）。
+  </footer>
+</div>
+</body>
+</html>

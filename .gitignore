@@ -12,3 +12,7 @@ web-ui/.npm-cache/
 # 公众号推文草稿（不入库）
 wechat-*.md
 .zcode/
+
+# 浏览器调试会话产物（非资产）
+.playwright-mcp/
+web-ui/.impeccable/live/

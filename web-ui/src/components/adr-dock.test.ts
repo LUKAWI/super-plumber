@@ -76,11 +76,12 @@ describe("AdrDock 左下角 ADR 座", () => {
 		expect(chips[1].classList.contains("st-accepted")).toBe(true);
 		expect(chips[2].classList.contains("st-superseded")).toBe(true);
 
-		// 菱形本体 + 状态色内联变量
+		// 状态符号（SVG）+ 状态色随三态着色（v0.7：色彩移到 glyph stroke，
+		// 不再经 --adr-color 内联变量注入彩色边条）
 		for (const chip of chips) {
-			expect(chip.querySelector(".diamond path")).not.toBeNull();
-			const style = (chip as HTMLElement).style.getPropertyValue("--adr-color");
-			expect(style).toMatch(/^#/);
+			const glyph = chip.querySelector(".diamond");
+			expect(glyph).not.toBeNull();
+			expect(glyph!.getAttribute("stroke")).toMatch(/^var\(--status-|^#/);
 		}
 
 		// superseded：标题划线 + 接替者提示
@@ -103,14 +104,15 @@ describe("AdrDock 左下角 ADR 座", () => {
 		expect(host.querySelector(".adr-chip.active")).not.toBeNull();
 	});
 
-	it("AD-04 折叠：芯片堆收起只剩 ⚖ 计数，再点展开", async () => {
+	it("AD-04 折叠：芯片堆收起只剩目录头计数，再点展开", async () => {
 		graphState.setGraph(graphWith([adrNode("adr_0001", "proposed")], []));
 		const host = mountDock();
 
 		(host.querySelector(".dock-toggle") as HTMLButtonElement).click();
 		await tick();
 		expect(host.querySelector(".dock-stack")).toBeNull();
-		expect(host.querySelector(".dock-toggle")!.textContent).toContain("1");
+		// 计数固定显示在目录头，折叠后仍可见
+		expect(host.querySelector(".dock-count")!.textContent).toContain("1");
 
 		(host.querySelector(".dock-toggle") as HTMLButtonElement).click();
 		await tick();

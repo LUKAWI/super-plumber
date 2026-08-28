@@ -5,7 +5,7 @@
     "en": "Super Plumber workflow orchestration plugin: design task graphs as agent-native topologies, then execute them node by node.",
     "zh-CN": "面向 Claude Code 与 ZCode 的 Super Plumber 工作流编排插件：将任务文档设计为 agent 可原生理解的拓扑图，再逐节点执行。"
   },
-  "version": "0.6.1",
+  "version": "0.6.2",
   "author": {
     "name": "lukawi",
     "url": "https://www.npmjs.com/package/@lukawi/super-plumber"

@@ -155,7 +155,7 @@ describe("contextColors", () => {
 	it("超出调色板长度时取模循环", () => {
 		const ids = Array.from({ length: 10 }, (_, i) => `c${i}`);
 		const colors = contextColors(ids);
-		expect(colors.get("c0")).toBe(colors.get("c8")); // 8 色循环
+		expect(colors.get("c0")).toBe(colors.get("c5")); // 5 色循环
 	});
 });
 

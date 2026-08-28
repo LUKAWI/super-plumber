@@ -72,16 +72,14 @@ export function contextHullGroups(nodes: NodeSchema[]): Map<string, NodeSchema[]
 	return groups;
 }
 
-// context 着色调色板（与 EDGE_TYPE_COLORS 协调但独立，避免语义混淆）
+// context 着色调色板（v0.7：避开全部 7 个状态色相角选取；画布叠加视图必须
+// 搭配簇色图例使用——颜色不再承担无图例的分类语义）
 export const CONTEXT_PALETTE: readonly string[] = [
-	"#f0a73a", // 琥珀
-	"#4a93e8", // 蓝
-	"#34c964", // 绿
-	"#a574e6", // 紫
-	"#06b6d4", // 青
-	"#ec4899", // 粉
-	"#eab308", // 黄
-	"#2dd4bf", // 蓝绿
+	"#4db8c9", // 青（180-200°，避开 ready 蓝 250°）
+	"#4fb3a9", // 水鸭绿
+	"#d4c25a", // 黄（100°，避开 running 橙 70°）
+	"#d47fa6", // 玫红（340°，避开 failed 红 25°）
+	"#a8c95a", // 黄绿（120°，避开 passed 绿 150°）
 ];
 
 /** context 稳定着色：按 context id 排序后取模分配（节点增删不跳色） */

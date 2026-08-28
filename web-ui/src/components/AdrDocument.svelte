@@ -1,6 +1,6 @@
 <script lang="ts">
   // ADR 决策文档抽屉（左侧）：ADR 在本产品的唯一详情呈现——状态横幅 +
-  // Markdown 五段 + GOVERNS 管辖清单。任何路径选中 adr 节点都路由到这里
+  // Markdown 五段 + 管辖清单。任何路径选中 adr 节点都路由到这里
   // （NodeDetail 已对 adr 设卫语句），保证决策文档只有一种打开方式。
   import { graphState } from "../lib/store.svelte";
   import Markdown from "../lib/components/Markdown.svelte";
@@ -37,10 +37,10 @@
     const n = adr;
     if (!n) return [];
     const out: { title: string; text: string }[] = [];
-    if (n.background) out.push({ title: "BACKGROUND", text: n.background });
-    if (n.considered_options) out.push({ title: "CONSIDERED OPTIONS", text: n.considered_options });
-    if (n.why) out.push({ title: "WHY", text: n.why });
-    if (n.consequences) out.push({ title: "CONSEQUENCES", text: n.consequences });
+    if (n.background) out.push({ title: "背景", text: n.background });
+    if (n.considered_options) out.push({ title: "备选方案", text: n.considered_options });
+    if (n.why) out.push({ title: "为何", text: n.why });
+    if (n.consequences) out.push({ title: "后果", text: n.consequences });
     return out;
   });
 
@@ -57,27 +57,37 @@
     const full = g.nodes.find((m) => m.id === target.nodeId);
     if (full) graphState.selectNode(full);
   }
+
+  /** 三态符号（统一描边 SVG）：proposed 虚线圆 / accepted 圆+勾 / superseded 圆+斜线 */
+  const bannerGlyph = $derived.by(() => {
+    if (adrStatus === "accepted") return { d: "M8 2.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11ZM5.6 8.3 7.4 10l3.2-4", dash: null as string | null };
+    if (adrStatus === "superseded") return { d: "M8 2.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11ZM4.6 11.4 11.4 4.6", dash: null as string | null };
+    return { d: "M8 2.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11Z", dash: "2.6 2.2" as string | null };
+  });
 </script>
 
 {#if adr}
   <aside class="adr-doc" class:visible>
     <div class="panel-header">
-      <span class="panel-title">ADR DOCUMENT</span>
+      <span class="panel-title">决策文档</span>
+      <span class="panel-kbd">Esc 关闭</span>
       <button class="close-btn" onclick={() => graphState.selectNode(null)} aria-label="关闭">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M3 3l8 8M11 3l-8 8"/>
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M3.5 3.5l8 8M11.5 3.5l-8 8" stroke-linecap="round"/>
         </svg>
       </button>
     </div>
 
     <div class="doc-body">
-      <!-- 状态横幅：三态三色（proposed 虚线 / superseded 划题） -->
+      <!-- 状态横幅：三态三色 + 线型语义（proposed 虚线 / superseded 划题） -->
       <div
         class="status-banner st-{adr.status}"
         style="--adr-color: {statusColorOf(adr.status)}"
         role="status"
       >
-        <span class="banner-mark">{ADR_STATUS_META[adrStatus].mark}</span>
+        <svg class="banner-mark" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+          <path d={bannerGlyph.d} stroke-linecap="round" stroke-linejoin="round" stroke-dasharray={bannerGlyph.dash ?? undefined}/>
+        </svg>
         <span class="banner-text">
           <span class="banner-en">{ADR_STATUS_META[adrStatus].en}</span>
           <span class="banner-zh">{ADR_STATUS_META[adrStatus].zh}</span>
@@ -101,29 +111,28 @@
       <!-- 决策正文：引言块放大（阅读主位） -->
       {#if adr.decision}
         <section class="section">
-          <h3 class="section-title"><span class="section-icon">▸</span>DECISION</h3>
+          <h3 class="section-title">决策</h3>
           <blockquote class="decision-quote"><Markdown text={adr.decision} /></blockquote>
         </section>
       {/if}
 
       {#each sections as s (s.title)}
         <section class="section">
-          <h3 class="section-title"><span class="section-icon">▸</span>{s.title}</h3>
+          <h3 class="section-title">{s.title}</h3>
           <Markdown text={s.text} />
         </section>
       {/each}
 
       <!-- 管辖范围：decides 出边反查，可点击跳转被管辖对象 -->
       <section class="section">
-        <h3 class="section-title">
-          <span class="section-icon">▸</span>GOVERNS
+        <h3 class="section-title">管辖
           <span class="section-count">{governs.length}</span>
         </h3>
         {#if governs.length > 0}
           <div class="governs-list">
             {#each governs as t (t.nodeId)}
               <button class="govern-chip" onclick={() => jump(t)} title="跳转到 {t.nodeId}">
-                <span class="govern-kind">{t.isContext ? "◇ ctx" : "● node"}</span>
+                <span class="govern-kind">{t.isContext ? "ctx" : "node"}</span>
                 <span class="govern-label">{t.label}</span>
                 <span class="govern-id">{t.nodeId}</span>
               </button>
@@ -141,7 +150,7 @@
   .adr-doc {
     position: fixed;
     left: 0;
-    top: 0;
+    top: var(--header-h);
     bottom: 0;
     width: min(440px, 92vw);
     background: var(--surface-1);
@@ -149,12 +158,10 @@
     color: var(--ink);
     display: flex;
     flex-direction: column;
-    /* 全屏左侧抽屉：盖过画布 Chrome（map-selector/dock 在 tooltip 层 1000，
-       --z-panel 只有 100——历史层级倒挂，这里取 tooltip 上一级） */
-    z-index: calc(var(--z-tooltip) + 1);
+    /* v0.7：z 体系归位——工具轨/浮层在 --z-overlay(10)，面板层 100 足以覆盖 */
+    z-index: var(--z-panel);
     transform: translateX(-100%);
-    transition: transform 0.25s var(--ease-out-quart);
-    box-shadow: 8px 0 24px rgba(0, 0, 0, 0.5);
+    transition: transform 0.22s var(--ease-out-quint);
   }
 
   .adr-doc.visible {
@@ -164,20 +171,29 @@
   .panel-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: var(--sp-3) var(--sp-4);
+    gap: var(--sp-2);
+    padding: 0 var(--sp-3);
+    min-height: 44px;
     border-bottom: 1px solid var(--line);
     flex-shrink: 0;
-    background: var(--surface-2);
+    background: var(--surface-1);
   }
 
   .panel-title {
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    font-weight: 650;
+    color: var(--ink);
+    flex: 1;
+  }
+
+  .panel-kbd {
     font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    font-weight: 600;
-    letter-spacing: var(--track-caps);
-    color: var(--ink-muted);
-    text-transform: uppercase;
+    font-size: var(--text-2xs);
+    color: var(--ink-faint);
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    padding: 1px var(--sp-1);
   }
 
   .close-btn {
@@ -185,14 +201,14 @@
     border: none;
     color: var(--ink-muted);
     cursor: pointer;
-    padding: var(--sp-1);
-    border-radius: var(--r-sm);
+    border-radius: var(--r);
     min-width: var(--tap);
     min-height: var(--tap);
+    margin-right: calc((var(--tap) - 32px) / -2);
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.15s var(--ease-out-quart), color 0.15s var(--ease-out-quart);
+    transition: background 0.13s var(--ease-out-quart), color 0.13s var(--ease-out-quart);
   }
 
   .close-btn:hover {
@@ -215,9 +231,10 @@
     align-items: center;
     gap: var(--sp-2);
     padding: var(--sp-2) var(--sp-3);
-    border-radius: var(--r-sm);
+    border-radius: var(--r);
     border: 1px solid var(--adr-color);
     background: color-mix(in srgb, var(--adr-color) 12%, transparent);
+    color: var(--adr-color);
   }
 
   .status-banner.st-proposed {
@@ -225,9 +242,7 @@
   }
 
   .banner-mark {
-    color: var(--adr-color);
-    font-size: var(--text-md);
-    line-height: 1;
+    flex-shrink: 0;
   }
 
   .banner-text {
@@ -262,10 +277,11 @@
 
   .doc-title {
     margin: 0;
-    font-size: var(--text-lg, 18px);
+    font-size: var(--text-lg);
     font-weight: 700;
     line-height: 1.35;
     color: var(--ink);
+    text-wrap: balance;
   }
 
   .doc-title.strike {
@@ -300,32 +316,31 @@
 
   .section-title {
     display: flex;
-    align-items: center;
-    gap: var(--sp-1);
-    font-family: var(--font-mono);
+    align-items: baseline;
+    gap: var(--sp-2);
+    font-family: var(--font-sans);
     font-size: var(--text-xs);
-    font-weight: 600;
-    letter-spacing: var(--track-caps);
-    color: var(--ink-muted);
-    text-transform: uppercase;
+    font-weight: 650;
+    color: var(--ink);
     margin: 0 0 var(--sp-1);
   }
 
   .section-count {
     font-size: var(--text-2xs);
     color: var(--ink-faint);
+    font-family: var(--font-mono);
   }
 
-  /* ── DECISION 引言块 ── */
+  /* ── 决策引言块（中性引用线：2px ink 阶梯，非彩色边条） ── */
   .decision-quote {
     margin: 0;
     padding: var(--sp-2) var(--sp-3);
-    border-left: 3px solid var(--ink-faint);
+    border-left: 2px solid var(--ink-faint);
     background: var(--surface-2);
-    border-radius: 0 var(--r-sm) var(--r-sm) 0;
+    border-radius: 0 var(--r) var(--r) 0;
   }
 
-  /* ── GOVERNS ── */
+  /* ── 管辖 ── */
   .governs-list {
     display: flex;
     flex-direction: column;
@@ -342,16 +357,21 @@
     border-radius: var(--r-sm);
     padding: var(--sp-1) var(--sp-2);
     cursor: pointer;
-    transition: border-color 0.15s var(--ease-out-quart);
+    transition: border-color 0.13s var(--ease-out-quart);
   }
 
   .govern-chip:hover {
     border-color: var(--ink-faint);
   }
 
+  .govern-chip:focus-visible {
+    outline: 2px solid var(--interactive);
+    outline-offset: 1px;
+  }
+
   .govern-kind {
     font-family: var(--font-mono);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     color: var(--ink-faint);
     white-space: nowrap;
   }
@@ -378,5 +398,18 @@
     font-size: var(--text-xs);
     color: var(--ink-faint);
     font-style: italic;
+  }
+
+  @media (max-width: 768px) {
+    .adr-doc {
+      top: 0;
+      width: 100vw;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .adr-doc {
+      transition: none;
+    }
   }
 </style>

@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>星空定稿 demo — 无氛围光 · 声纳环 hover · E1+E3 边 · 银河带 · 领域星云</title>
+<style>
+  :root {
+    --bg: #000000;
+    --bg-chrome: #0a0a0a;
+    --surface-1: #141414;
+    --surface-2: #1e1e1e;
+    --ink: #ffffff;
+    --ink-muted: rgba(255, 255, 255, 0.72);
+    --ink-faint: rgba(255, 255, 255, 0.52);
+    --line: rgba(255, 255, 255, 0.09);
+    --line-strong: rgba(255, 255, 255, 0.16);
+    --st-pending: #8a8f98;
+    --st-ready: #4a93e8;
+    --st-running: #f0a73a;
+    --st-passed: #34c964;
+    --st-failed: #e5504f;
+    --st-blocked: #a574e6;
+    --st-cancelled: #7e848d;
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+    --font-data: ui-monospace, "SF Mono", "JetBrains Mono", Consolas, monospace;
+    --t-11: 0.6875rem; --t-12: 0.75rem; --t-13: 0.8125rem; --t-14: 0.875rem;
+    --t-16: 1rem; --t-20: 1.25rem; --t-24: 1.5rem;
+    --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px;
+    --sp-6: 24px; --sp-8: 32px; --sp-10: 40px; --sp-12: 48px;
+    --r-sm: 3px; --r: 6px; --r-lg: 10px;
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink-muted);
+    font-family: var(--font-ui);
+    font-size: var(--t-14);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: rgba(255,255,255,0.16); color: var(--ink); }
+  .page { max-width: 1120px; margin: 0 auto; padding: var(--sp-12) var(--sp-6) 120px; }
+  h1 { font-size: var(--t-24); font-weight: 700; color: var(--ink); letter-spacing: -0.01em; }
+  h2 { font-size: var(--t-20); font-weight: 700; color: var(--ink); margin: var(--sp-12) 0 var(--sp-2); letter-spacing: -0.01em; }
+  h3 { font-size: var(--t-14); font-weight: 650; color: var(--ink); margin: var(--sp-6) 0 var(--sp-2); }
+  .sub { color: var(--ink-faint); font-size: var(--t-13); margin-bottom: var(--sp-4); max-width: 76ch; }
+  p { max-width: 76ch; }
+  section { border-top: 1px solid var(--line); margin-top: var(--sp-10); padding-top: var(--sp-6); }
+  code { font-family: var(--font-data); font-size: var(--t-12); background: var(--surface-1); padding: 1px 6px; border-radius: var(--r-sm); color: var(--ink-muted); }
+  .board {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    position: relative;
+    overflow: hidden;
+  }
+  .cap { font-size: var(--t-12); color: var(--ink-faint); margin-top: var(--sp-2); }
+  .num { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+  .row { display: flex; flex-wrap: wrap; gap: var(--sp-4); }
+  table { width: 100%; border-collapse: collapse; font-size: var(--t-13); margin-top: var(--sp-4); }
+  th { text-align: left; font-size: var(--t-12); color: var(--ink-faint); font-weight: 600; padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--line-strong); }
+  td { padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--line); color: var(--ink-muted); vertical-align: top; }
+  td:first-child { font-family: var(--font-data); font-size: var(--t-12); color: var(--ink); }
+  footer { margin-top: var(--sp-12); border-top: 1px solid var(--line); padding-top: var(--sp-6); color: var(--ink-faint); font-size: var(--t-12); }
+
+  /* ═══ 星体动画：V4 正本（光环呼吸 + 星芒闪烁 + 色差微颤） ═══ */
+  @keyframes star-breathe {
+    0%, 100% { opacity: 0.82; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.06); }
+  }
+  @keyframes star-sparkle { 0%, 100% { opacity: 0.9; } 42% { opacity: 0.55; } 58% { opacity: 0.95; } }
+  @keyframes core-glint { 0%, 100% { opacity: 1; } 50% { opacity: 0.86; } }
+  @keyframes prism-shift {
+    0%, 100% { transform: translate(0, 0); opacity: 0.45; }
+    50% { transform: translate(0.4px, -0.3px); opacity: 0.28; }
+  }
+  .star-halo { animation: star-breathe 3.6s ease-in-out infinite; transform-origin: center; transform-box: fill-box; transition: filter 0.2s var(--ease); }
+  .star-spikes { animation: star-sparkle 5.2s ease-in-out infinite; transform-origin: center; transform-box: fill-box; transition: filter 0.14s var(--ease), transform 0.14s var(--ease); }
+  .star-core { animation: core-glint 2.8s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
+  .prism-r { animation: prism-shift 2.2s ease-in-out infinite; }
+  .prism-b { animation: prism-shift 2.2s ease-in-out -1.1s infinite; }
+
+  /* ═══ hover：声呐环（单次扩散）+ 白炽脉冲 + 星芒增亮 ═══ */
+  @keyframes ring-bloom {
+    0% { opacity: 0.9; transform: scale(0.5); }
+    100% { opacity: 0; transform: scale(1.7); }
+  }
+  @keyframes flash-pulse {
+    0% { opacity: 0; }
+    18% { opacity: 0.6; }
+    100% { opacity: 0; }
+  }
+  .hover-flash { opacity: 0; transform-origin: center; transform-box: fill-box; }
+  .hover-ring { opacity: 0; transform: scale(0.5); transform-origin: center; transform-box: fill-box; }
+  .tile:hover .hover-ring { animation: ring-bloom 0.8s var(--ease); }
+  .tile:hover .hover-flash { animation: flash-pulse 0.4s var(--ease); }
+  .tile:hover .star-spikes { filter: brightness(1.35); }
+  .tile { cursor: pointer; }
+
+  /* ═══ 背景：微尘 + 银河带 ═══ */
+  @keyframes dust-tw { 0%, 100% { opacity: 0.14; } 50% { opacity: 0.5; } }
+  .dust { fill: rgba(255, 255, 255, 0.32); }
+  .dust-tw { animation: dust-tw 4.5s ease-in-out infinite; }
+  .bg-layer { pointer-events: none; }
+
+  /* ═══ 领域视图：星云斑（无虚线框） ═══ */
+  .nebula-cloud { pointer-events: none; }
+
+  /* 方向流光（E2）已拍板退役：保留作为参考不被激活 */
+  @keyframes edge-drift { to { stroke-dashoffset: -8.5; } }
+  .edge-drift { animation: edge-drift 1.8s linear infinite; stroke-dasharray: 1.5 7; stroke-linecap: round; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .star-spikes, .star-core, .prism-r, .prism-b, .dust-tw, .edge-drift { animation: none; }
+    .tile:hover .hover-ring, .tile:hover .hover-flash { animation: none; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <h1>星空定稿 · demo（2026-08-28 拍板版）</h1>
+    <p class="sub">按你的决定改版：<strong>星体去掉氛围晕</strong>（原状态色 halo 即光污染源——保留星芒形态 + hover 声呐环；状态色下沉到「炽心微尘 + 状态微环」）；<strong>hover = 声呐环</strong>；<strong>边 = E1 渐隐星座线 + E3 running 能量流</strong>（E2 方向流光退役）；<strong>背景 = 银河带 + 微尘</strong>。最后是新增的<strong>领域视图星云候选</strong>：把虚线彩色框换成按上下文着色的星云斑。</p>
+  </header>
+
+  <!-- 共享 defs -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <!-- 炽心微尘：状态色紧贴核心（r≈3.4×core），无外溢光场 -->
+      <!-- 状态色 halo 七档（V4 正本，同 star-node-demo）：中心 0.55-0.65，45% 处 0.12-0.16 -->
+      <radialGradient id="halo-pending"><stop offset="0%" stop-color="#8a8f98" stop-opacity="0.55"/><stop offset="45%" stop-color="#8a8f98" stop-opacity="0.12"/><stop offset="100%" stop-color="#8a8f98" stop-opacity="0"/></radialGradient>
+      <radialGradient id="halo-ready"><stop offset="0%" stop-color="#4a93e8" stop-opacity="0.6"/><stop offset="45%" stop-color="#4a93e8" stop-opacity="0.14"/><stop offset="100%" stop-color="#4a93e8" stop-opacity="0"/></radialGradient>
+      <radialGradient id="halo-running"><stop offset="0%" stop-color="#f0a73a" stop-opacity="0.65"/><stop offset="45%" stop-color="#f0a73a" stop-opacity="0.16"/><stop offset="100%" stop-color="#f0a73a" stop-opacity="0"/></radialGradient>
+      <radialGradient id="halo-passed"><stop offset="0%" stop-color="#34c964" stop-opacity="0.55"/><stop offset="45%" stop-color="#34c964" stop-opacity="0.13"/><stop offset="100%" stop-color="#34c964" stop-opacity="0"/></radialGradient>
+      <radialGradient id="halo-failed"><stop offset="0%" stop-color="#e5504f" stop-opacity="0.62"/><stop offset="45%" stop-color="#e5504f" stop-opacity="0.15"/><stop offset="100%" stop-color="#e5504f" stop-opacity="0"/></radialGradient>
+      <radialGradient id="halo-blocked"><stop offset="0%" stop-color="#a574e6" stop-opacity="0.58"/><stop offset="45%" stop-color="#a574e6" stop-opacity="0.14"/><stop offset="100%" stop-color="#a574e6" stop-opacity="0"/></radialGradient>
+      <radialGradient id="halo-cancelled"><stop offset="0%" stop-color="#7e848d" stop-opacity="0.45"/><stop offset="45%" stop-color="#7e848d" stop-opacity="0.1"/><stop offset="100%" stop-color="#7e848d" stop-opacity="0"/></radialGradient>
+      <linearGradient id="spike-v" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#fff" stop-opacity="0"/><stop offset="50%" stop-color="#fff" stop-opacity="0.85"/><stop offset="100%" stop-color="#fff" stop-opacity="0"/></linearGradient>
+      <linearGradient id="spike-h" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#fff" stop-opacity="0"/><stop offset="50%" stop-color="#fff" stop-opacity="0.85"/><stop offset="100%" stop-color="#fff" stop-opacity="0"/></linearGradient>
+      <radialGradient id="flash-grad"><stop offset="0%" stop-color="#fff" stop-opacity="0.85"/><stop offset="45%" stop-color="#fff" stop-opacity="0.18"/><stop offset="100%" stop-color="#fff" stop-opacity="0"/></radialGradient>
+      <!-- 银河带 -->
+      <linearGradient id="band-grad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#cfd8ff" stop-opacity="0"/><stop offset="42%" stop-color="#cfd8ff" stop-opacity="0.05"/><stop offset="55%" stop-color="#e8ecff" stop-opacity="0.035"/><stop offset="100%" stop-color="#cfd8ff" stop-opacity="0"/>
+      </linearGradient>
+      <!-- 领域星云（上下文着色，云内 0.05-0.12 级） -->
+      <radialGradient id="ctx-neb-a"><stop offset="0%" stop-color="#4db8c9" stop-opacity="0.12"/><stop offset="55%" stop-color="#4db8c9" stop-opacity="0.05"/><stop offset="100%" stop-color="#4db8c9" stop-opacity="0"/></radialGradient>
+      <radialGradient id="ctx-neb-b"><stop offset="0%" stop-color="#d4c25a" stop-opacity="0.12"/><stop offset="55%" stop-color="#d4c25a" stop-opacity="0.05"/><stop offset="100%" stop-color="#d4c25a" stop-opacity="0"/></radialGradient>
+    </defs>
+  </svg>
+
+  <!-- ══════════ §1 星体正本：与 star-node-demo V4 一致 ══════════ -->
+  <section>
+    <h2>§1 星体正本（已改回 star-node-demo 的 V4）</h2>
+    <p class="sub">修正两处差异：中间多余的状态微环/炽心微尘<strong>已删除</strong>；星芒补回<strong>正本长度</strong>（主芒 44-48、斜芒 0.565×，与 star-node-demo 七状态图鉴同值）。状态色 = 贴芒 halo（r ≈ 1.04×芒长，不再是 32-44 的游离光球——光污染源于光球脱芒，贴芒后即星体气质）。</p>
+    <div class="row" style="justify-content:center; margin-top: var(--sp-4)">
+      <div style="text-align:center">
+        <div class="board"><svg id="v4-run" width="180" height="180" viewBox="0 0 180 180"></svg></div>
+        <div class="cap num">running · V4 正本</div>
+      </div>
+      <div style="text-align:center">
+        <div class="board"><svg id="v4-passed" width="180" height="180" viewBox="0 0 180 180"></svg></div>
+        <div class="cap num">passed</div>
+      </div>
+      <div style="text-align:center">
+        <div class="board"><svg id="v4-failed" width="180" height="180" viewBox="0 0 180 180"></svg></div>
+        <div class="cap num">failed</div>
+      </div>
+    </div>
+    <p class="cap">几何核对：主芒长 46（running 48）、半宽 1.8、斜芒 26、白炽心 r3、色差残像 ±0.8——与 star-node-demo.html 单个节点逐参数一致。</p>
+  </section>
+
+  <!-- ══════════ §2 hover 光晕：声呐环 ══════════ -->
+  <section>
+    <h2>§2 hover = 声呐环（单次扩散）</h2>
+    <p class="sub">悬停时：白炽脉冲一闪（0.4s）+ 声呐环单次扩散（0.8s）+ 芒针微张，然后不再出现圆形节点形态——声呐环即唯一 hover 反馈（正式版同步）。悬停体验。</p>
+    <div class="row" style="justify-content:center">
+      <div style="text-align:center">
+        <div class="board"><svg id="hv-sonar" width="240" height="240" viewBox="0 0 240 240"></svg></div>
+        <div class="cap num">声呐环 + 白炽脉冲</div>
+      </div>
+    </div>
+    <p class="cap">ring 元素进 star-sky 组；morph 的收暗 transition-delay 0.1s，让光晕先读完整帧。</p>
+  </section>
+
+  <!-- ══════════ §3 边 = E1 + E3 ══════════ -->
+  <section>
+    <h2>§3 边定稿：E1 渐隐星座线 + E3 running 能量流</h2>
+    <p class="sub">全部边两端渐隐溶进星晕（E1）；running 星的出边为琥珀能量通道 + 光点（E3，与现行 flow dots 合并）。E2 方向流光不采用——方向语义保留在「点开详情面板」与光点流。</p>
+    <div class="row">
+      <div>
+        <div class="board"><svg id="eg-final" width="440" height="330" viewBox="0 0 480 340"></svg></div>
+        <div class="cap num">E1 + E3（琥珀 = running 出边）</div>
+      </div>
+      <div>
+        <div class="board"><svg id="eg-white" width="440" height="330" viewBox="0 0 480 340"></svg></div>
+        <div class="cap num">E1 单独（无 running 时）</div>
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>层</th><th>状态</th><th>视觉</th><th>参数</th></tr></thead>
+      <tbody>
+        <tr><td>E1 星座线</td><td>✅ 采纳</td><td>白线两端渐隐，中段 0.5</td><td>每边一条 userSpaceOnUse 线性渐变；0% / 22% / 78% / 100% = 0 / 0.5 / 0.5 / 0</td></tr>
+        <tr><td>E3 能量流</td><td>✅ 采纳</td><td>running 出边琥珀渐变（近端亮 0.7 → 远端 0.15）+ 光点</td><td>仅 running 源的出边；与现行 flow dots 合并</td></tr>
+        <tr><td>E2 流光</td><td>退役</td><td>—</td><td>方向语义不入 hover 级动效（信息密度平衡）</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ══════════ §4 全景组合 ══════════ -->
+  <section>
+    <h2>§4 全景（推荐配置，可交互）</h2>
+    <p class="sub">银河带 + 微尘 + 无氛围星星 + E1/E3 边 + 声呐环 hover + 任务摘要。悬停任意星看声呐；琥珀星是 running。</p>
+    <div class="board"><svg id="panorama" width="100%" viewBox="0 0 880 420" style="display:block"></svg></div>
+  </section>
+
+  <!-- ══════════ §5 领域视图：星云斑候选 ══════════ -->
+  <section>
+    <h2>§5 领域视图：虚线色框 → 彩色星云（候选）</h2>
+    <p class="sub">左边是现状：context 以虚线圆环 + 填充呈现。右边是提案：换成按上下文着色的<strong>星云斑</strong>——云内 alpha 0.05-0.12（与背景预算同级，不构成光污染，且是语义色），虚线框退役，context 顶点以云心微尘点呈现。两个 context 之间的契约边仍是虚线（契约语言不变）。</p>
+    <div class="row">
+      <div>
+        <div class="board"><svg id="dom-old" width="430" height="310" viewBox="0 0 400 280"></svg></div>
+        <div class="cap num">现行：虚线 + 色框</div>
+      </div>
+      <div>
+        <div class="board"><svg id="dom-new" width="430" height="310" viewBox="0 0 400 280"></svg></div>
+        <div class="cap num">提案：彩色星云斑（云心微尘点）</div>
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>项</th><th>现行</th><th>星云提案</th></tr></thead>
+      <tbody>
+        <tr><td>边界</td><td>虚线圆环（Catmull hull）</td><td>退役——云即边界（软边，无硬轮廓）</td></tr>
+        <tr><td>着色</td><td>簇色描边 + 0.07 填充</td><td>径向渐变云 0.12 → 0（云心色浓）</td></tr>
+        <tr><td>context 顶点</td><td>隐藏（成员星 + 簇壳）</td><td>云心微尘点（r 3，簇色）——云由谁而生可寻</td></tr>
+        <tr><td>标签</td><td>「label · N」在壳顶</td><td>保留同格式，移至云心上缘</td></tr>
+        <tr><td>图例</td><td>左下 ctx-legend</td><td>不变</td></tr>
+      </tbody>
+    </table>
+    <p class="cap">实现：hullGeometry 的质心/半径直接换成 radialGradient userSpaceOnUse 云（零新依赖）；云随成员移动呼吸式微调（alpha 0.9-1 慢循环，reduced-motion 关）。</p>
+  </section>
+
+  <!-- ══════════ §6 实现落点 ══════════ -->
+  <section>
+    <h2>§6 实现落点（GraphCanvas）</h2>
+    <table>
+      <thead><tr><th>项</th><th>落点</th><th>成本</th></tr></thead>
+      <tbody>
+        <tr><td>星体去晕</td><td>删除 halo 圆与 7 个 halo 渐变；新增 ember 径向渐变（7）+ 微环加强（stroke-width 1.6 / opacity 0.9）</td><td>低</td></tr>
+        <tr><td>hover 声呐</td><td>star-sky 内加 ring/flash 元素（现 flash 逻辑已在）；收暗 delay 0.1s</td><td>低</td></tr>
+        <tr><td>边渐变</td><td>每边 userSpaceOnUse linearGradient；tick 更新 x1/y1/x2/y2；running 源切琥珀档</td><td>低；备选黑盘遮罩</td></tr>
+        <tr><td>银河带背景</td><td>wrapper 下屏幕固定层（CSS 渐变带 + 静态微尘 SVG），不随 zoom</td><td>低</td></tr>
+        <tr><td>领域星云</td><td>renderHullLayer 改为 radialGradient userSpaceOnUse 云（质心 + 成员包围半径）</td><td>低；hull 几何可复用</td></tr>
+        <tr><td>无障碍</td><td>新动效全入 prefers-reduced-motion 关停清单</td><td>—</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <footer>星空定稿 demo · 2026-08-28 · 拍板：无氛围光 / 声纳环 hover / E1+E3 / 银河带 / 领域星云候选 · 配套 star-node-demo.html（V4 棱星正本）</footer>
+</div>
+
+<script>
+  // ── 工具 ──
+  const NS = "http://www.w3.org/2000/svg";
+  const STATUS = {
+    pending: "#8a8f98", ready: "#4a93e8", running: "#f0a73a", passed: "#34c964",
+    failed: "#e5504f", blocked: "#a574e6", cancelled: "#7e848d",
+  };
+  // V4 正本（与 star-node-demo 七状态图鉴同值）：主芒 44-48 / 斜芒 0.565× / 半宽 0.041×
+  const STAR_SPEC = {
+    pending:   { spike: 44, glow: 0.7,  core: 2.6 },
+    ready:     { spike: 44, glow: 0.7,  core: 2.6 },
+    running:   { spike: 48, glow: 1,    core: 2.8 },
+    passed:    { spike: 44, glow: 0.7,  core: 2.6 },
+    failed:    { spike: 46, glow: 0.9,  core: 2.7 },
+    blocked:   { spike: 45, glow: 0.75, core: 2.6 },
+    cancelled: { spike: 34, glow: 0.45, core: 2.2 },
+  };
+  function svgEl(name, attrs = {}, parent = null) {
+    const el = document.createElementNS(NS, name);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    if (parent) parent.appendChild(el);
+    return el;
+  }
+  function mulberry32(seed) {
+    let a = seed >>> 0;
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // ── 星体：V4 正本（光环贴芒 + 白芒 + 白炽心；无圈无环无尘）──
+  function drawStar(parent, x, y, status, s, opts = {}) {
+    const spec = STAR_SPEC[status];
+    const L = spec.spike * s;
+    const D = spec.spike * 0.565 * s;
+    const w1 = Math.max(1, L * 0.041);
+    const w2 = Math.max(0.8, D * 0.046);
+    const g = svgEl("g", { transform: `translate(${x},${y})`, class: opts.cls || "" }, parent);
+    const sky = svgEl("g", { class: "star-sky" }, g);
+    // hover 元素（默认不可见）
+    if (opts.flash) svgEl("circle", { class: "hover-flash", r: L * 1.1, fill: "url(#flash-grad)" }, sky);
+    if (opts.ring) svgEl("circle", { class: "hover-ring", r: L * 0.95, fill: "none", stroke: "#fff", "stroke-width": 1, "stroke-opacity": 0.9 }, sky);
+    // status halo（贴芒：r ≈ 1.04×芒长，同 V4 正本）
+    svgEl("circle", { class: "star-halo", r: L * 1.04, fill: `url(#halo-${status})` }, sky);
+    // 色差残像（V4 正本：±0.8 错位）
+    const pg1 = svgEl("g", { class: "prism-r", fill: "#e5504f", opacity: 0.5 }, sky);
+    svgEl("path", { d: `M0,${-L} L${w1},0 L0,${L} L${-w1},0 Z`, transform: "translate(0.8,0)" }, pg1);
+    svgEl("path", { d: `M${-L},0 L0,${-w1} L${L},0 L0,${w1} Z`, transform: "translate(0,-0.8)" }, pg1);
+    const pg2 = svgEl("g", { class: "prism-b", fill: "#4a93e8", opacity: 0.5 }, sky);
+    svgEl("path", { d: `M0,${-L} L${w1},0 L0,${L} L${-w1},0 Z`, transform: "translate(-0.8,0)" }, pg2);
+    svgEl("path", { d: `M${-L},0 L0,${-w1} L${L},0 L0,${w1} Z`, transform: "translate(0,0.8)" }, pg2);
+    // 八向星芒（白渐变主芒 + 斜短芒）
+    const spikes = svgEl("g", { class: "star-spikes", opacity: spec.glow }, sky);
+    svgEl("path", { d: `M0,${-L} L${w1},0 L0,${L} L${-w1},0 Z`, fill: "url(#spike-v)" }, spikes);
+    svgEl("path", { d: `M${-L},0 L0,${-w1} L${L},0 L0,${w1} Z`, fill: "url(#spike-h)" }, spikes);
+    svgEl("path", { d: `M0,${-D} L${w2},0 L0,${D} L${-w2},0 Z`, transform: "rotate(45)", fill: "rgba(255,255,255,0.95)", "fill-opacity": 0.55 }, spikes);
+    svgEl("path", { d: `M0,${-D} L${w2},0 L0,${D} L${-w2},0 Z`, transform: "rotate(-45)", fill: "rgba(255,255,255,0.95)", "fill-opacity": 0.55 }, spikes);
+    // 白炽心（无圈）
+    svgEl("circle", { class: "star-core", r: spec.core * s, fill: "#fff" }, sky);
+    return g;
+  }
+
+  // ── 背景：银河带 + 微尘 ──
+  function drawBackground(svg, W, H, seed) {
+    const rnd = mulberry32(seed);
+    const layer = svgEl("g", { class: "bg-layer" }, svg);
+    const bandG = svgEl("g", { transform: `rotate(-18 ${W / 2} ${H / 2})` }, layer);
+    svgEl("rect", { x: -40, y: H / 2 - 58, width: W + 80, height: 116, fill: "url(#band-grad)" }, bandG);
+    svgEl("rect", { x: -40, y: H / 2 - 24, width: W + 80, height: 48, fill: "url(#band-grad)", opacity: 0.7 }, bandG);
+    for (let i = 0; i < 40; i++) {
+      svgEl("circle", {
+        cx: (rnd() * W).toFixed(1), cy: (rnd() * H).toFixed(1),
+        r: (rnd() < 0.7 ? 0.5 + rnd() * 0.5 : 1.0 + rnd() * 0.4).toFixed(2),
+        class: rnd() < 0.2 ? "dust dust-tw" : "dust",
+        style: rnd() < 0.2 ? `animation-delay:${(-rnd() * 4.5).toFixed(2)}s` : null,
+      }, layer);
+    }
+    const rad = (-18 * Math.PI) / 180;
+    const dx = Math.cos(rad), dy = Math.sin(rad);
+    for (let i = 0; i < 28; i++) {
+      const t = (rnd() - 0.5) * W * 1.3;
+      const off = (rnd() + rnd() - 1) * 34;
+      svgEl("circle", {
+        cx: (W / 2 + dx * t - dy * off).toFixed(1), cy: (H / 2 + dy * t + dx * off).toFixed(1),
+        r: (0.4 + rnd() * 0.6).toFixed(2), class: "dust", opacity: 0.75,
+      }, layer);
+    }
+    return layer;
+  }
+
+  // ── 边：E1 基底（+ E3 running 能量）──
+  function drawEdges(svg, defs, uid, opts = {}) {
+    const layer = svgEl("g", { class: "edge-layer" }, svg);
+    EDGES.forEach(([ai, bi], i) => {
+      const a = NODES[ai], b = NODES[bi];
+      const energy = opts.energy && NODES[ai].s === "running";
+      const gid = `eg-${uid}-${i}`;
+      const grad = svgEl("linearGradient", { id: gid, gradientUnits: "userSpaceOnUse", x1: a.x, y1: a.y, x2: b.x, y2: b.y }, defs);
+      if (energy) {
+        svgEl("stop", { offset: "0%", "stop-color": STATUS.running, "stop-opacity": 0.7 }, grad);
+        svgEl("stop", { offset: "70%", "stop-color": STATUS.running, "stop-opacity": 0.15 }, grad);
+        svgEl("stop", { offset: "100%", "stop-color": STATUS.running, "stop-opacity": 0 }, grad);
+      } else {
+        svgEl("stop", { offset: "0%", "stop-color": "#fff", "stop-opacity": 0 }, grad);
+        svgEl("stop", { offset: "22%", "stop-color": "#fff", "stop-opacity": 0.5 }, grad);
+        svgEl("stop", { offset: "78%", "stop-color": "#fff", "stop-opacity": 0.5 }, grad);
+        svgEl("stop", { offset: "100%", "stop-color": "#fff", "stop-opacity": 0 }, grad);
+      }
+      svgEl("line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: `url(#${gid})`, "stroke-width": energy ? 1.6 : 1.2 }, layer);
+      if (energy) {
+        const dot = svgEl("circle", { r: 1.8, fill: STATUS.running, opacity: 0.9 }, layer);
+        svgEl("animateMotion", { dur: "2.6s", repeatCount: "indefinite", path: `M${a.x},${a.y} L${b.x},${b.y}` }, dot);
+      }
+    });
+    return layer;
+  }
+
+  // ── §1 V4 正本确认板 ──
+  function buildV4Confirm() {
+    const cfg = [["v4-run", "running"], ["v4-passed", "passed"], ["v4-failed", "failed"]];
+    for (const [id, status] of cfg) {
+      const svg = document.getElementById(id);
+      const rnd = mulberry32(17);
+      for (let i = 0; i < 8; i++) {
+        svgEl("circle", { cx: 12 + rnd() * 160, cy: 12 + rnd() * 160, r: (0.4 + rnd() * 0.6).toFixed(2), class: "dust" }, svg);
+      }
+      const g = drawStar(svg, 90, 90, status, 1.05, { flash: true, ring: true, cls: "tile" });
+      g.setAttribute("data-v4", "yes");
+    }
+    return cfg;
+  }
+
+  // ── §2 声呐 hover ──
+  function buildSonar() {
+    const svg = document.getElementById("hv-sonar");
+    const rnd = mulberry32(13);
+    for (let i = 0; i < 8; i++) {
+      svgEl("circle", { cx: rnd() * 240, cy: rnd() * 240, r: (0.4 + rnd() * 0.6).toFixed(2), class: "dust" }, svg);
+    }
+    const g = drawStar(svg, 120, 120, "running", 1.15, { flash: true, ring: true, cls: "tile" });
+    return g;
+  }
+
+  // ── §3 边定稿板 ──
+  const NODES = [
+    { x: 60,  y: 62,  s: "passed",  n: "装配冒烟" },
+    { x: 152, y: 40,  s: "passed",  n: "包组件" },
+    { x: 252, y: 72,  s: "running", n: "分发接线" },
+    { x: 362, y: 50,  s: "passed",  n: "扫描实测" },
+    { x: 432, y: 122, s: "pending", n: "回归收口" },
+    { x: 88,  y: 152, s: "failed",  n: "迁移切换" },
+    { x: 200, y: 162, s: "passed",  n: "提示词瘦身" },
+    { x: 322, y: 172, s: "passed",  n: "清单底座" },
+    { x: 150, y: 252, s: "passed",  n: "同步脚本" },
+    { x: 262, y: 272, s: "blocked", n: "手册正文" },
+    { x: 382, y: 262, s: "passed",  n: "双语对照" },
+  ];
+  const EDGES = [
+    [0, 1], [1, 2], [2, 3], [2, 7], [3, 4], [5, 6], [6, 2],
+    [6, 7], [8, 9], [9, 10], [5, 8], [7, 10], [1, 6],
+  ];
+
+  function buildEdgeBoards() {
+    for (const [id, energy] of [["eg-final", true], ["eg-white", false]]) {
+      const svg = document.getElementById(id);
+      const defs = svgEl("defs", {}, svg);
+      drawEdges(svg, defs, id, { energy });
+      const stars = svgEl("g", {}, svg);
+      NODES.forEach((n) => drawStar(stars, n.x, n.y, n.s, 0.52));
+    }
+  }
+
+  // ── §4 全景 ──
+  function buildPanorama() {
+    const svg = document.getElementById("panorama");
+    const defs = svgEl("defs", {}, svg);
+    // 全景用放大坐标系：平移到 880×420
+    const SCALE = 1.74, OX = 24, OY = 24;
+    const pts = NODES.map((n) => ({ x: OX + n.x * SCALE, y: OY + n.y * SCALE, s: n.s, n: n.n }));
+    drawBackground(svg, 880, 420, 57);
+    // 边（E1+E3）
+    const layer = svgEl("g", { class: "edge-layer" }, svg);
+    EDGES.forEach(([ai, bi], i) => {
+      const a = pts[ai], b = pts[bi];
+      const energy = pts[ai].s === "running";
+      const gid = `eg-pano-${i}`;
+      const grad = svgEl("linearGradient", { id: gid, gradientUnits: "userSpaceOnUse", x1: a.x, y1: a.y, x2: b.x, y2: b.y }, defs);
+      if (energy) {
+        svgEl("stop", { offset: "0%", "stop-color": STATUS.running, "stop-opacity": 0.7 }, grad);
+        svgEl("stop", { offset: "70%", "stop-color": STATUS.running, "stop-opacity": 0.15 }, grad);
+        svgEl("stop", { offset: "100%", "stop-color": STATUS.running, "stop-opacity": 0 }, grad);
+      } else {
+        svgEl("stop", { offset: "0%", "stop-color": "#fff", "stop-opacity": 0 }, grad);
+        svgEl("stop", { offset: "22%", "stop-color": "#fff", "stop-opacity": 0.5 }, grad);
+        svgEl("stop", { offset: "78%", "stop-color": "#fff", "stop-opacity": 0.5 }, grad);
+        svgEl("stop", { offset: "100%", "stop-color": "#fff", "stop-opacity": 0 }, grad);
+      }
+      svgEl("line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: `url(#${gid})`, "stroke-width": energy ? 1.7 : 1.3 }, layer);
+      if (energy) {
+        const dot = svgEl("circle", { r: 2, fill: STATUS.running, opacity: 0.9 }, layer);
+        svgEl("animateMotion", { dur: "2.6s", repeatCount: "indefinite", path: `M${a.x},${a.y} L${b.x},${b.y}` }, dot);
+      }
+    });
+    const stars = svgEl("g", {}, svg);
+    pts.forEach((n) => {
+      const g = drawStar(stars, n.x, n.y, n.s, 0.6, { flash: true, ring: true, cls: "tile" });
+      svgEl("rect", { x: -6, y: -2, width: 80, height: 20, fill: "#000", opacity: 0 }, g);
+    });
+    // 标签
+    pts.forEach((n) => {
+      const spec = STAR_SPEC[n.s];
+      svgEl("text", {
+        x: n.x + spec.spike * 0.6 + 9, y: n.y + 0.5,
+        "font-family": "var(--font-ui)", "font-size": 12, fill: "rgba(255,255,255,0.8)",
+        "paint-order": "stroke", stroke: "#000", "stroke-width": 3.5, "stroke-linejoin": "round",
+        "dominant-baseline": "central",
+      }, stars).textContent = n.n;
+    });
+    return pts;
+  }
+
+  // ── §5 领域视图 ──
+  const DOM_CTX = [
+    { id: "ctx-a", label: "web-ui 上下文", color: "#4db8c9", neb: "ctx-neb-a",
+      members: [[70, 90], [110, 152], [52, 202]] },
+    { id: "ctx-b", label: "构建上下文", color: "#d4c25a", neb: "ctx-neb-b",
+      members: [[272, 84], [332, 150], [298, 210]] },
+  ];
+
+  function domLayout() {
+    return DOM_CTX.map((c) => {
+      let cx = 0, cy = 0;
+      for (const [x, y] of c.members) { cx += x; cy += y; }
+      cx /= c.members.length; cy /= c.members.length;
+      let r = 0;
+      for (const [x, y] of c.members) r = Math.max(r, Math.hypot(x - cx, y - cy));
+      return { ...c, cx, cy, r: r + 30 };
+    });
+  }
+
+  function buildDomain() {
+    const ctxs = domLayout();
+    // 现行：虚线 + 色框
+    const oldSvg = document.getElementById("dom-old");
+    const oldLayer = svgEl("g", {}, oldSvg);
+    for (const c of ctxs) {
+      svgEl("circle", {
+        cx: c.cx, cy: c.cy, r: c.r,
+        fill: c.color, "fill-opacity": 0.07,
+        stroke: c.color, "stroke-opacity": 0.45, "stroke-width": 1.5, "stroke-dasharray": "6 4",
+      }, oldLayer);
+      svgEl("text", {
+        x: c.cx, y: c.cy - c.r - 4, "text-anchor": "middle",
+        "font-family": "var(--font-ui)", "font-size": 11, "font-weight": 600,
+        fill: c.color, "paint-order": "stroke", stroke: "#000", "stroke-width": 3, "stroke-linejoin": "round",
+      }, oldLayer).textContent = `${c.label} · ${c.members.length}`;
+    }
+    svgEl("line", { x1: 110, y1: 152, x2: 272, y2: 84, stroke: "#fff", "stroke-opacity": 0.5, "stroke-width": 1.3, "stroke-dasharray": "7 4" }, oldLayer);
+    const oldStars = svgEl("g", {}, oldSvg);
+    for (const c of ctxs) {
+      c.members.forEach(([x, y], i) => {
+        drawStar(oldStars, x, y, i === 0 ? "passed" : i === 1 ? "running" : "pending", 0.42);
+      });
+    }
+    // 提案：星云斑
+    const newSvg = document.getElementById("dom-new");
+    const newLayer = svgEl("g", {}, newSvg);
+    for (const c of ctxs) {
+      svgEl("circle", {
+        cx: c.cx, cy: c.cy, r: c.r,
+        fill: `url(#${c.neb})`, class: "nebula-cloud",
+      }, newLayer);
+      svgEl("text", {
+        x: c.cx, y: c.cy - c.r - 4, "text-anchor": "middle",
+        "font-family": "var(--font-ui)", "font-size": 11, "font-weight": 600,
+        fill: c.color, "paint-order": "stroke", stroke: "#000", "stroke-width": 3, "stroke-linejoin": "round",
+      }, newLayer).textContent = `${c.label} · ${c.members.length}`;
+    }
+    svgEl("line", { x1: 110, y1: 152, x2: 272, y2: 84, stroke: "#fff", "stroke-opacity": 0.5, "stroke-width": 1.3, "stroke-dasharray": "7 4" }, newLayer);
+    const newStars = svgEl("g", {}, newSvg);
+    for (const c of ctxs) {
+      // 云心微尘点（context 顶点化身）
+      svgEl("circle", { cx: c.cx, cy: c.cy, r: 2.6, fill: c.color, opacity: 0.95 }, newLayer);
+      svgEl("circle", { cx: c.cx, cy: c.cy, r: 5.2, fill: "none", stroke: c.color, "stroke-opacity": 0.5, "stroke-width": 1 }, newLayer);
+      c.members.forEach(([x, y], i) => {
+        drawStar(newStars, x, y, i === 0 ? "passed" : i === 1 ? "running" : "pending", 0.42);
+      });
+    }
+    // 图例
+    for (const svgId of ["dom-old", "dom-new"]) {
+      const svg = document.getElementById(svgId);
+      const legend = svgEl("g", { "font-family": "var(--font-ui)", "font-size": 10.5, fill: "rgba(255,255,255,0.52)" }, svg);
+      ctxs.forEach((c, i) => {
+        const y = 268 + i * 18;
+        svgEl("circle", { cx: 16, cy: y - 4, r: 4, fill: c.color }, legend);
+        svgEl("text", { x: 27, y, "dominant-baseline": "central" }, legend).textContent = c.label;
+      });
+    }
+    return ctxs;
+  }
+
+  // ── 装配 ──
+  buildV4Confirm();
+  buildSonar();
+  buildEdgeBoards();
+  buildPanorama();
+  buildDomain();
+</script>
+</body>
+</html>

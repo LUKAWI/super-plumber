@@ -1,6 +1,6 @@
 <script lang="ts">
   import { graphState } from "../lib/store.svelte";
-  import { EDGE_TYPE_COLORS, EDGE_TYPE_LABELS, type EdgeType } from "../lib/types";
+  import { EDGE_TYPE_LABELS, type EdgeType } from "../lib/types";
 
   let visible = $state(false);
   let prevId: string | undefined;
@@ -35,26 +35,26 @@
 {#if graphState.selectedEdge}
   <div class="detail-panel edge-panel" class:visible>
     <div class="panel-header">
-      <span class="panel-title">EDGE DETAIL</span>
+      <span class="panel-title">边详情</span>
+      <span class="panel-kbd">Esc 关闭</span>
       <button class="close-btn" onclick={() => graphState.selectEdge(null)} aria-label="关闭">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M3 3l8 8M11 3l-8 8"/>
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M3.5 3.5l8 8M11.5 3.5l-8 8" stroke-linecap="round"/>
         </svg>
       </button>
     </div>
 
     <div class="panel-body">
-      <h2 class="edge-label-title">{graphState.selectedEdge.id}</h2>
+      <!-- 人类可读标题 = 类型名；边 id 是数据 → meta chip -->
+      <h2 class="edge-title">{EDGE_TYPE_LABELS[graphState.selectedEdge.type]}</h2>
 
       <div class="meta-grid">
-        <span class="meta-tag id-tag">
-          <span class="edge-dot" style="background: {EDGE_TYPE_COLORS[graphState.selectedEdge.type]}"></span>
-          {graphState.selectedEdge.type}
-        </span>
+        <span class="meta-tag id-tag">{graphState.selectedEdge.id}</span>
+        <span class="meta-tag type-tag">{graphState.selectedEdge.type}</span>
       </div>
 
       <section class="section">
-        <h3 class="section-title"><span class="section-icon">▸</span>SEMANTICS</h3>
+        <h3 class="section-title">语义</h3>
         <p class="plan-desc">{EDGE_SEMANTICS[graphState.selectedEdge.type]}</p>
         {#if graphState.selectedEdge.type === "relates" && graphState.selectedEdge.rel_kind}
           <div class="sub-list">
@@ -65,7 +65,7 @@
       </section>
 
       <section class="section">
-        <h3 class="section-title"><span class="section-icon">▸</span>ENDPOINTS</h3>
+        <h3 class="section-title">端点</h3>
         <div class="endpoint-row">
           <span class="endpoint-label">source</span>
           <button class="endpoint-link" onclick={() => {
@@ -90,7 +90,7 @@
 
       {#if graphState.selectedEdge.contract}
         <section class="section">
-          <h3 class="section-title"><span class="section-icon">▸</span>CONTRACT</h3>
+          <h3 class="section-title">契约</h3>
           {#if graphState.selectedEdge.contract.produces}
             <div class="sub-list">
               <span class="sub-label">produces:</span>
@@ -121,7 +121,7 @@
   .detail-panel {
     position: fixed;
     right: 0;
-    top: 0;
+    top: var(--header-h);
     bottom: 0;
     width: 340px;
     background: var(--surface-1);
@@ -131,8 +131,7 @@
     flex-direction: column;
     z-index: var(--z-panel);
     transform: translateX(100%);
-    transition: transform 0.25s var(--ease-out-quart);
-    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.5);
+    transition: transform 0.22s var(--ease-out-quint);
   }
 
   .detail-panel.visible {
@@ -142,20 +141,29 @@
   .panel-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: var(--sp-3) var(--sp-4);
+    gap: var(--sp-2);
+    padding: 0 var(--sp-3);
+    min-height: 44px;
     border-bottom: 1px solid var(--line);
     flex-shrink: 0;
-    background: var(--surface-2);
+    background: var(--surface-1);
   }
 
   .panel-title {
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    font-weight: 650;
+    color: var(--ink);
+    flex: 1;
+  }
+
+  .panel-kbd {
     font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    font-weight: 600;
-    letter-spacing: var(--track-caps);
-    color: var(--ink-muted);
-    text-transform: uppercase;
+    font-size: var(--text-2xs);
+    color: var(--ink-faint);
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    padding: 1px var(--sp-1);
   }
 
   .close-btn {
@@ -163,18 +171,18 @@
     border: none;
     color: var(--ink-muted);
     cursor: pointer;
-    padding: var(--sp-1);
-    border-radius: var(--r-sm);
+    border-radius: var(--r);
     min-width: var(--tap);
     min-height: var(--tap);
+    margin-right: calc((var(--tap) - 32px) / -2);
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.15s var(--ease-out-quart), color 0.15s var(--ease-out-quart);
+    transition: background 0.13s var(--ease-out-quart), color 0.13s var(--ease-out-quart);
   }
 
   .close-btn:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--surface-2);
     color: var(--ink);
   }
 
@@ -184,13 +192,13 @@
     flex: 1;
   }
 
-  .edge-label-title {
-    font-family: var(--font-mono);
+  .edge-title {
+    font-family: var(--font-sans);
     font-size: var(--text-lg);
     font-weight: 700;
     margin: 0 0 var(--sp-4);
     color: var(--ink);
-    word-break: break-all;
+    line-height: 1.3;
   }
 
   .meta-grid {
@@ -214,20 +222,13 @@
     display: inline-flex;
     align-items: center;
     gap: var(--sp-1);
-    letter-spacing: var(--track-label);
+    letter-spacing: 0.02em;
   }
 
   .id-tag {
     color: var(--ink);
     border-color: var(--line-strong);
-    background: var(--surface-3);
-  }
-
-  .edge-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    flex-shrink: 0;
+    background: var(--surface-2);
   }
 
   .section {
@@ -237,25 +238,16 @@
   }
 
   .section-title {
-    font-family: var(--font-mono);
+    font-family: var(--font-sans);
     font-size: var(--text-xs);
-    font-weight: 700;
+    font-weight: 650;
     margin: 0 0 var(--sp-3);
-    color: var(--ink-muted);
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    letter-spacing: var(--track-caps);
-  }
-
-  .section-icon {
-    color: var(--ink-faint);
-    font-size: var(--text-2xs);
+    color: var(--ink);
   }
 
   .plan-desc {
     font-size: var(--text-sm);
-    line-height: 1.6;
+    line-height: 1.7;
     color: var(--ink-muted);
     margin: 0;
   }
@@ -272,12 +264,12 @@
     font-size: var(--text-2xs);
     color: var(--ink-faint);
     text-transform: lowercase;
-    letter-spacing: var(--track-label);
+    letter-spacing: 0.02em;
   }
 
   .chip {
     font-family: var(--font-mono);
-    font-size: var(--text-xs);
+    font-size: var(--text-2xs);
     color: var(--ink-muted);
     background: var(--surface-2);
     border: 1px solid var(--line);
@@ -298,7 +290,7 @@
     font-size: var(--text-2xs);
     color: var(--ink-faint);
     text-transform: lowercase;
-    letter-spacing: var(--track-label);
+    letter-spacing: 0.02em;
     width: 44px;
     flex-shrink: 0;
   }
@@ -307,21 +299,26 @@
     background: none;
     border: none;
     padding: 0;
-    color: var(--status-ready);
+    color: var(--ink);
     font-family: var(--font-mono);
     font-size: var(--text-sm);
     cursor: pointer;
     text-align: left;
+    text-decoration: underline;
+    text-decoration-color: var(--line-strong);
+    text-underline-offset: 3px;
+    transition: text-decoration-color 0.13s var(--ease-out-quart);
   }
 
   .endpoint-link:hover {
-    text-decoration: underline;
+    text-decoration-color: var(--ink);
   }
 
   @media (max-width: 768px) {
     .detail-panel {
       width: 100%;
       max-width: 100%;
+      top: 0;
     }
   }
 

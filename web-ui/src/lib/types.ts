@@ -173,7 +173,9 @@ export type WsMessage =
 	  }
 	| { type: "graphs:list"; graph: "*"; data: GraphsListData };
 
-// 边类型 → 基础色相（默认状态下微妙差异，hover 时增强）
+// 边类型 → 基础色相。v0.7 设计系统已将画布边线退为单色阶梯
+// （依赖/契约/hover 三档白），类型语义由 hover 标签与 EdgeDetail 承载；
+// 本表仅剩 EdgeDetail 的类型圆点等非画布场景使用，不再与状态色同屏。
 export const EDGE_TYPE_COLORS: Record<EdgeType, string> = {
 	depends_on: "#3b82f6",      // 蓝：顺序依赖
 	validates: "#22c55e",       // 绿：验证
@@ -201,7 +203,7 @@ export const EDGE_TYPE_LABELS: Record<EdgeType, string> = {
 
 // 状态色单一来源（与 web-ui/index.html 的 CSS 变量、CLI export-mermaid 保持一致）：
 // pending #8a8f98 | ready #4a93e8 | running #f0a73a | passed #34c964
-// failed #e5504f | blocked #a574e6 | cancelled #5b5f66
+// failed #e5504f | blocked #a574e6 | cancelled #7e848d（v0.7 提亮：原 #5b5f66 仅 3.27:1）
 export const STATUS_COLORS: Record<NodeStatus, string> = {
 	pending: "#8a8f98",
 	ready: "#4a93e8",
@@ -209,7 +211,7 @@ export const STATUS_COLORS: Record<NodeStatus, string> = {
 	passed: "#34c964",
 	failed: "#e5504f",
 	blocked: "#a574e6",
-	cancelled: "#5b5f66",
+	cancelled: "#7e848d",
 };
 
 // ADR 三态色（与状态色体系同源：proposed 中性 / accepted 绿 / superseded 红）

@@ -257,7 +257,7 @@ node $SCRIPTS/sp-report.mjs l1_register "Registration done" "dist/register.js,te
 ### Step 6 — Visualize and share
 
 ```bash
-graph export --mermaid -o flow.mmd    # export a Mermaid flow diagram
+graph export --mermaid -o flow.mmd    # export a Mermaid flow diagram (knowledge vertex shapes/colors + per-type edge styles, header carries entry/exit + legend)
 graph serve                           # open http://localhost:8934 for the force-directed view
 ```
 
@@ -292,7 +292,7 @@ graph serve                           # open http://localhost:8934 for the force
 | `graph rollback` | Rollback (auto-backup first) | `<snapshot-id>` `--confirm` (required); `--design-only` keeps execution progress |
 | `graph events` | Read the append-only event log (audit trail) | `--node <id>` `--kind <k>` `--last <n>`; `--json` |
 | `graph rebuild` | Rebuild `index/` derived indexes (graph.json + meta.json + topology.dot) | — |
-| `graph export` | Export a Mermaid diagram; `--docs` exports domain docs views (graph is the source of truth, md is a view) | `--mermaid -o <file>`; `--docs` (ADRs → docs/adr/, contexts → CONTEXT-MAP.md + docs/contexts/; `--adr-dir`/`--ctx-dir`) |
+| `graph export` | Export a Mermaid diagram (contexts as teal pills without status lines, ADRs as hexagons colored by three states, edge styles per type, header comment with entry/exit + legend); `--docs` exports domain docs views (graph is the source of truth, md is a view) | `--mermaid -o <file>`; `--docs` (ADRs → docs/adr/, contexts → CONTEXT-MAP.md + docs/contexts/; `--adr-dir`/`--ctx-dir`) |
 | `graph serve` | Start the Web UI (auto-opens browser) | `-p <port>` (default 8934); `--no-open` to skip |
 
 > Not sure about flags? Every command has `--help`: `graph create-node --help`.

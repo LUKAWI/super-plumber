@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.6.2] — 2026-08-28（导出表达升级 + web-ui 星空化重构）
+
+### web-ui 星空化重构（2026-08-28 拍板，impeccable 工作流交付）
+
+- **设计系统 v0.7（terminal-native monochrome）**：画布纯黑舞台 + 灰阶层差 chrome、白阶梯 ink（全文 ≥AA）、状态七色为唯一彩色语义、交互一律明度表达（focus/选中/开关）；两行头部（品牌行 + 状态芯片行，芯片即过滤器）、统一工具轨（透镜 / 决策+badge / 版本 / 缩放 / 布局固定 / 专注模式）、键盘可达整改（节点 Tab 聚焦 + Enter/Space 选中、Esc 优先级链、搜索 Enter 定位、画布空态可清除过滤）。
+- **星空隐喻（starfield）**：节点 = V4 八向棱星（白渐变主芒 44-48 + 斜短芒 0.565× + 红蓝错位色差残像，与 docs/design-system/star-node-demo.html 正本逐参数一致）；状态色 = 贴芒 halo（r = 1.04×芒长——光污染源于光球脱芒，贴芒即星体气质）；闪烁相位按节点 id 哈希（同图稳定、星间去同步），running 呼吸幅度最大；星芒旁常显任务摘要（截 20 字，hover tooltip 全文）。
+- **交互反馈去图标化**：hover / 键盘焦点 / 选中 / 边高亮一律「声呐环单次扩散 + 白炽脉冲 + 星芒增亮」，圆形节点形态（node-circle / status-ring / node-body）整体退役；检查点进度条移除（颜色系统承载状态与进度）；对比模式 diff 编码改落星芒外细环（diff-ring，仅对比模式显现），边侧保持加粗/虚线/点线语言。
+- **边 E1 渐隐星座线 + E3 running 能量流**：每边内嵌 userSpaceOnUse 线性渐变（tick 逐帧同步端点坐标）——两端渐隐溶进星晕；running 源的出边切琥珀能量档（与光点流同源同语义）；契约边保留虚线 + 中段略亮；箭头随星座语言退役，方向语义由能量流与详情面板承载。
+- **领域视图星云**：叠加视图中 context 由虚线色框改为按上下文着色的星云斑（radialGradient 云，云内 0.12 → 0），context 顶点化为云心微尘点（云由谁而生可寻）；契约边虚线语言不变；ADR 徽章锚点迁至云缘；云体渐变走 objectBoundingBox，免逐帧坐标同步。
+- **银河带背景**：屏幕固定层（CSS 双光带 + 按画布面积生成的微尘、20% 极慢闪烁），不随缩放平移（4× 不穿帮）；微尘/闪烁/声呐全入 prefers-reduced-motion 关停清单。
+- 溯源：设计走 impeccable 工作流（PRODUCT.md / DESIGN.md / surface brief + 三轮 finish review 裁决）；提案与定稿 demo 在 docs/design-system/（star-node-demo.html = V4 棱星正本 + 样式变体画廊，star-atmosphere-demo.html = 定稿配置 + 领域星云候选）；web-ui 86 测试全绿 + svelte-check 0 错 + 生产构建通过。
+
+### 导出表达升级（2026-08-27）
+
+- **知识顶点视觉区分**（此前 context 顶点被染成 pending 灰——误导，context 顶点本无状态；ADR 与工作流节点造型无异）：`graph export --mermaid` 与 `graph rebuild`（topology.dot）中 context 顶点改胶囊/椭圆（teal 填充、不显示状态行），ADR 顶点改六边形并按三态着色（proposed 橙 / accepted 绿 / superseded 灰）；DOT 工作流顶点补七态填充色，与 Mermaid 同一调色板。
+- **边样式语义区分**（此前 9 种边类型全为实线箭头，"参与排序/门控的硬边"与"语义/文档性软边"无法肉眼区分）：depends_on/validates/fan_out/fan_in 保持实线箭头；decides 与 fallback/iterates 改虚线箭头；relates 改点线无箭头；shares_context 改无箭头开线——Mermaid 与 DOT 两格式映射一致。
+- **entry/exit 入图**（此前图级字段在静态导出物中不可见）：导出文件头以注释呈现 entry/exit 描述与逐条验收标准 + 边样式图例（不造顶点，防拓扑语义污染）。
+- **兼容性**：label 转义纯函数零改动，既有转义回归全绿；导出仍为纯文本格式（.mmd/.dot），渲染交给外部工具（mermaid.live / Graphviz），不内置位图渲染。
+- 溯源说明：本版本为小步快改，未立拓扑图——主线程直接派工两名 subagent 并行施工（代码/文档互斥边界），第三名 subagent 独立交叉质检（规格符合性 + 全量回归 + 双格式冒烟）通过后发布。
+
 ## [0.6.1] — 2026-08-27（多工具集成重构：一套工作流资产——pi 直用＋单插件包双工具通用）
 
 > 本版本把工作流资产（角色提示词 / 阶段 skill / 执行脚本 / Operations 手册）重组为可分发集成：

@@ -130,7 +130,7 @@
 	}
 	:global(.markdown-body input[type="checkbox"]) {
 		margin-right: var(--sp-2);
-		accent-color: var(--status-ready);
+		accent-color: var(--ink-muted);
 		vertical-align: -2px;
 	}
 

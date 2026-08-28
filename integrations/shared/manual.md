@@ -116,11 +116,28 @@ graph adr list -s proposed                                # -s proposed|accepted
 ```bash
 graph snapshot -m "<定稿说明>"      # 快照即定稿点：自动导出 CONTEXT-MAP.md + docs/contexts/ + docs/adr/
 graph export --docs [--adr-dir docs/adr] [--ctx-dir docs/contexts]   # 手动补导出
-graph export --mermaid -o topology.mmd                # 默认 Mermaid 流程图
+graph export --mermaid -o topology.mmd                # 默认 Mermaid 流程图（表达约定见下）
 graph snapshots [--json]; graph diff [--from id] [--to id]; graph rollback <snapshot-id> --confirm [--design-only]
 ```
 
 真相源是 YAML 字段，markdown 只是导出视图——别在图里存 markdown。rollback 必须显式 `--confirm`（自动备份当前状态）；`--design-only` 只回滚设计态、保留执行进度。
+
+**导出表达约定（v0.6.2；Mermaid 与 DOT 同一映射——`graph export --mermaid` 与 `graph rebuild` 产出的 topology.dot 表达一致；导出仍为纯文本 .mmd/.dot，渲染交给外部工具 mermaid.live / Graphviz）**：
+
+| 顶点 | 形状/配色 |
+|------|-----------|
+| 工作流节点 | 矩形 + 七态填充色 |
+| context | 胶囊/椭圆，teal 填充，不显示状态行（context 本无状态） |
+| ADR | 六边形，三态着色：proposed 橙 `#ffb74d` / accepted 绿 `#81c784` / superseded 灰 `#bdbdbd` |
+
+| 边样式 | 类型 |
+|--------|------|
+| 实线箭头（参与排序/门控的硬边） | depends_on / validates / fan_out / fan_in |
+| 虚线箭头 | decides / fallback / iterates |
+| 点线无箭头 | relates |
+| 无箭头开线 | shares_context |
+
+entry/exit 描述与逐条验收标准 + 边样式图例以**导出文件头注释**呈现（不造顶点，防拓扑语义污染）。
 
 ### 2.6 validate + doctor（体检）
 
@@ -315,7 +332,7 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 | `get-node` / `gn` | 读节点全文+合法转换+门禁 | `-i --json --neighbors up/down/none` |
 | `add-edge` / `ae` | 建边（校验端点存在） | `-i -s -t --type --rel-kind --contract` |
 | `status` / `s` | 图状态总览 | `--json` |
-| `export` / `x` | 导出（Mermaid/领域文档） | `--mermaid --docs --adr-dir --ctx-dir -o`〔已校：--docs 及目录参数〕 |
+| `export` / `x` | 导出（Mermaid/领域文档；顶点形状/边样式/文件头约定见 §2.5） | `--mermaid --docs --adr-dir --ctx-dir -o`〔已校：--docs 及目录参数〕 |
 | `serve` / `sv` | Web UI 预览 | `-p`（默认 8934）`--no-open` |
 | `delete-node` / `dn` | 软删除节点 | `-i --cascade` |
 | `delete-edge` / `de` | 软删除边 | `-i` |

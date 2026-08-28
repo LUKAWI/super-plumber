@@ -3,6 +3,9 @@ import { cliGraphDir } from "./graph-ctx.js";
 import { readGraph } from "../core/parser.js";
 import { buildGraphIndex } from "../core/graph.js";
 import { toGraphDir } from "../core/graph-dir.js";
+import type { GraphExportMeta } from "./export-mermaid.js";
+import { vertexColors, EDGE_STYLE_LEGEND, commentSafe } from "./export-mermaid.js";
+import type { EdgeSchema, NodeSchema } from "../core/types.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -14,6 +17,61 @@ export function escapeDotLabel(label: string): string {
     .replace(/\\/g, "\\\\")
     .replace(/"/g, '\\"')
     .replace(/\n/g, "\\n");
+}
+
+// ── 0.6.2 导出表达升级：DOT 侧形状/配色与 Mermaid 语义对齐 ──
+// 配色/图例真相源在 export-mermaid.ts（vertexColors / EDGE_STYLE_LEGEND）。
+
+/** 边类型 → DOT 属性串：decides/fallback/iterates=虚线；relates=点线无向；
+ * shares_context=无向实线；depends_on/validates/fan_out/fan_in 及未知类型=默认实线箭头。
+ * label 与 Mermaid 侧同款（下划线转空格），经 escapeDotLabel 转义。 */
+export function dotEdgeAttrs(type: string): string {
+  const label = escapeDotLabel(type.replace("_", " "));
+  if (type === "relates") return `label="${label}", style=dotted, dir=none`;
+  if (type === "shares_context") return `label="${label}", dir=none`;
+  if (type === "decides" || type === "fallback" || type === "iterates") {
+    return `label="${label}", style=dashed`;
+  }
+  return `label="${label}"`;
+}
+
+/** 0.6.2：拼 DOT 文本的纯函数（I/O 在 action 里做），形状/配色/头注释可单测锁定 */
+export function buildDotTopology(
+  nodes: NodeSchema[],
+  edges: EdgeSchema[],
+  meta?: GraphExportMeta,
+): string {
+  const lines: string[] = [];
+
+  // 头注释：entry/exit 图例（缺省跳过对应行）+ 边样式一行图例
+  if (meta?.entry?.description) lines.push(`// entry: ${commentSafe(meta.entry.description)}`);
+  if (meta?.exit?.description) lines.push(`// exit: ${commentSafe(meta.exit.description)}`);
+  lines.push(`// 边样式: ${EDGE_STYLE_LEGEND}`);
+
+  lines.push("digraph topology {");
+  for (const n of nodes) {
+    const c = vertexColors(n);
+    if (n.type === "context") {
+      // 知识顶点：无工作流状态 → label 不带状态行
+      lines.push(
+        `  "${n.id}" [label="${escapeDotLabel(n.label)}", shape=ellipse, style=filled, fillcolor="${c.fill}", color="${c.stroke}"];`,
+      );
+    } else if (n.type === "adr") {
+      // 知识顶点：六边形，label 带 adr 状态行
+      lines.push(
+        `  "${n.id}" [label="${escapeDotLabel(n.label)}\\n${n.status}", shape=hexagon, style=filled, fillcolor="${c.fill}", color="${c.stroke}"];`,
+      );
+    } else {
+      lines.push(
+        `  "${n.id}" [label="${escapeDotLabel(n.label)}\\n${n.status}", shape=box, style=filled, fillcolor="${c.fill}", color="${c.stroke}"];`,
+      );
+    }
+  }
+  for (const e of edges) {
+    lines.push(`  "${e.source}" -> "${e.target}" [${dotEdgeAttrs(e.type)}];`);
+  }
+  lines.push("}");
+  return lines.join("\n") + "\n";
 }
 
 export const rebuildCommand = new Command("rebuild").alias("rb")
@@ -50,17 +108,17 @@ export const rebuildCommand = new Command("rebuild").alias("rb")
       `✅ 已重建: ${jsonPath} (${index.nodes.length} 节点, ${index.edges.length} 边)`,
     );
 
-    // topology.dot（Graphviz 导出，需求 4.7 存储结构）
+    // topology.dot（Graphviz 导出，需求 4.7 存储结构；0.6.2 形状/配色/边样式升级）
+    // 读 graph.yaml 取 entry/exit 做头注释；读不到就跳过注释行，不报错
+    let graphMeta: GraphExportMeta | undefined;
+    try {
+      const graph = readGraph(rootDir);
+      graphMeta = { entry: graph.entry, exit: graph.exit };
+    } catch {
+      graphMeta = undefined;
+    }
     const dotPath = path.join(indexPath, "topology.dot");
-    const dotLines: string[] = ["digraph topology {"];
-    for (const n of index.nodes) {
-      dotLines.push(`  "${n.id}" [label="${escapeDotLabel(n.label)}\\n${n.status}", shape=box];`);
-    }
-    for (const e of index.edges) {
-      dotLines.push(`  "${e.source}" -> "${e.target}" [label="${escapeDotLabel(e.type)}"];`);
-    }
-    dotLines.push("}");
-    fs.writeFileSync(dotPath, dotLines.join("\n") + "\n", "utf-8");
+    fs.writeFileSync(dotPath, buildDotTopology(index.nodes, index.edges, graphMeta), "utf-8");
     console.log(`✅ 已重建: ${dotPath}`);
 
     // 尝试读取 graph.yaml 补充信息
