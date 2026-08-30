@@ -951,7 +951,10 @@ const batchEdgeSchema = z.object({
   id: entityIdSchema("边"),
   source: entityIdSchema("边 source"),
   target: entityIdSchema("边 target"),
-  type: edgeTypeSchema,
+  // IL-011：type 可省略，缺省 depends_on（与 CLI add-edge 既有默认对齐，双通道一致化）
+  type: edgeTypeSchema
+    .default("depends_on")
+    .describe("边类型；缺省 depends_on——特殊边（decides/relates/shares_context）语义真有时才显式写"),
   rel_kind: z.string().optional(),
   contract: z.record(z.string(), z.unknown()).optional(),
 });
@@ -961,6 +964,7 @@ server.registerTool(
   {
     description:
       "批量创建节点与边（设计期减负：20 节点 36 边从 ~56 次调用降到 1 次）。Validates the whole batch first and reports ALL conflicts (duplicate ids, ghost references) before writing anything; re-running after a crash reports remaining conflicts. " +
+      "Edge type is optional and defaults to depends_on (IL-011：与 CLI 既有默认对齐). " +
       "Not transactional across files: if it errors midway, fix the reported conflicts and re-run.",
     inputSchema: {
       nodes: z.array(batchNodeSchema).optional().default([]),
@@ -1049,17 +1053,22 @@ server.registerTool(
   "graph_add_edge",
   {
     description:
-      "添加一条类型化边（depends_on/validates 参与拓扑排序与门禁；fan_out/fan_in 参与门控边语义）。" +
+      "添加一条类型化边。type 可省略，缺省 depends_on（IL-011：与 CLI 既有默认对齐，双通道一致化）——" +
+      "默认全用 depends_on，特殊边语义真有时才显式写（decides/relates 知识边、shares_context 非门禁标注）。" +
+      "depends_on/validates 参与拓扑排序与门禁；fan_out/fan_in 参与门控边语义（向后兼容存量，新设计不再使用——语义与 depends_on 多边等价）。" +
       "注意：shares_context 不参与门禁与排序（仅表达上下文共享）；fallback/iterates 当前为**文档性标注**——" +
       "工具未实现其运行时回退/迭代语义，graph validate 会逐条警告（S2-10）。" +
       "v0.5 知识边：decides（ADR → 任意顶点，决策管辖，superseded 时沿此传播 adr_flags）；relates（仅 context↔context，rel_kind 自由标注）。" +
-      "跨 context 的工作流边是契约边，须填 contract（未填会被 graph validate 警告）。Both endpoints must exist. " +
+      "跨 context 的工作流边是契约边：须填 contract，或由 context 对默认契约声明（context 顶点的 contract_add）覆盖——两者皆无会被 graph validate 警告；单边 contract 优先于声明（例外集成点精确表达）。Both endpoints must exist. " +
       "Duplicate edge id returns an error.",
     inputSchema: {
       id: entityIdSchema("边"),
       source: entityIdSchema("边 source"),
       target: entityIdSchema("边 target"),
-      type: edgeTypeSchema,
+      // IL-011：type 可省略，缺省 depends_on（与 CLI add-edge 既有默认对齐，双通道一致化）
+      type: edgeTypeSchema
+        .default("depends_on")
+        .describe("边类型；缺省 depends_on——特殊边（decides/relates/shares_context）语义真有时才显式写"),
       rel_kind: z.string().optional().describe("v0.5：relates 边的领域关系标注（自由文本）"),
       contract: z
         .record(z.string(), z.unknown())
@@ -1092,7 +1101,8 @@ server.registerTool(
     description:
       "更新节点内容（plan / definition_of_done / checkpoints / assigned_to / label / max_attempts）。Use during the design phase to enrich nodes; during execution prefer graph_update_checkpoint and graph_update_execution_report. " +
       "attempts never resets implicitly — changing plan.description does NOT clear the retry counter; pass reset_attempts=true explicitly (an attempts_reset audit event is always recorded). " +
-      "v0.5 领域字段：set_context 归属/清除 context 顶点（空串清除）、boundary 上下文边界、glossary_add 追加术语（context 顶点用）。",
+      "v0.5 领域字段：set_context 归属/清除 context 顶点（空串清除）、boundary 上下文边界、glossary_add 追加术语（context 顶点用）。" +
+      "IL-012：contract_add 为 context 顶点追加对其他 context 的默认契约声明——跨 context 工作流边自动继承（该 context 对无声明且边无 contract 才会被 graph validate 警告），单边 contract 仍可覆写。",
     inputSchema: {
       id: z.string(),
       plan_description: z.string().optional(),
@@ -1109,6 +1119,19 @@ server.registerTool(
         .array(z.object({ term: z.string(), definition: z.string() }))
         .optional()
         .describe("v0.5（context 顶点）：追加术语 [{term, definition}]"),
+      contract_add: z
+        .array(
+          z.object({
+            to: z.string().describe("目标 context id（跨 context 边 target 所在 context）"),
+            contract: z
+              .record(z.string(), z.unknown())
+              .describe('默认契约（形状同边 contract）：{"produces":"...","consumed_by":[...],"validation":{...}}'),
+          }),
+        )
+        .optional()
+        .describe(
+          "IL-012（context 顶点）：追加对其他 context 的默认契约声明 [{to, contract}]——跨 context 工作流边自动继承，单边 contract 仍可覆写",
+        ),
       superseded_by: z
         .string()
         .optional()
@@ -1120,7 +1143,7 @@ server.registerTool(
         .describe("显式把 attempts 重置为 0（写审计事件；修改 plan 不再自动重置）"),
     },
   },
-  async ({ id, plan_description, add_dod, clear_dod, add_checkpoints, set_assigned_to, label, max_attempts, set_priority, set_context, boundary, glossary_add, superseded_by, reset_attempts }) => {
+  async ({ id, plan_description, add_dod, clear_dod, add_checkpoints, set_assigned_to, label, max_attempts, set_priority, set_context, boundary, glossary_add, contract_add, superseded_by, reset_attempts }) => {
     const gctx = await resolveGraphCtx();
     const rootDir = gctx.dir;
     const node = await hintMissing(gctx, [id], () => getNode(rootDir, id));
@@ -1136,6 +1159,7 @@ server.registerTool(
       ...(set_context !== undefined ? { set_context } : {}),
       ...(boundary !== undefined ? { boundary } : {}),
       ...(glossary_add !== undefined ? { glossary_add } : {}),
+      ...(contract_add !== undefined ? { contract_add: contract_add as NodeUpdateParams["contract_add"] } : {}),
       ...(superseded_by !== undefined ? { superseded_by } : {}),
     });
     if (Object.keys(updates).length === 0 && !reset_attempts) {

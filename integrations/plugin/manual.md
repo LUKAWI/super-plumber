@@ -4,7 +4,7 @@
 > **版本锚点**：super-plumber **0.6.0**（全部 CLI 参数经 `graph --help` 实测于 v0.6.1 重构期；与旧文档不符处以实测为准，表中以〔已校〕标注）。
 > **分发**：正本住 `integrations/shared/manual.md`，由 `scripts/sync-integrations.mjs` 构建期同步进两个插件包（sha256 三方一致）；pi 侧只引用不拷贝。寻址写法见 §11。（该脚本属 W3 波次，接线中）
 
-目录：§1 访问层总览｜§2 design-ops｜§3 九边语法注记｜§4 execute-ops｜§5 状态机｜§6 工具总表（CLI+MCP）｜§7 脚本章｜§8 三层验收实操｜§9 错误处理大表｜§10 solo 自裁边界｜§11 寻址约定｜§12 漂移修正常记
+目录：§1 访问层总览｜§2 design-ops｜§3 边类型判据式速查｜§4 execute-ops｜§5 状态机｜§6 工具总表（CLI+MCP）｜§7 脚本章｜§8 三层验收实操｜§9 错误处理大表｜§10 solo 自裁边界｜§11 寻址约定｜§12 漂移修正常记
 
 ---
 
@@ -68,8 +68,9 @@ graph update-node -i <id> --add-checkpoint '{"id":"cp1","label":"第一步"}'
 # 建边
 graph add-edge -i <eid> -s <源id> -t <目标id> --type depends_on \
   [--rel-kind "<自由文本>"] \
-  [--contract '{"produces":"...","consumed_by":[...],"validation":{...}}']
+  [--contract '{"produces":"...","consumed_by":[{"artifact":"<产物id>","used_as":"<用途>"}],"validation":{"criteria":"<可验证判据>"}}']
 # --rel-kind 仅 relates 边用；两端跨不同 context 的工作流边 = 契约边，contract 必填（未填 validate 警告）
+# 〔已校〕contract 写前校验形状（不符整批拒绝落盘）：consumed_by 须为 [{artifact, used_as}] 对象数组（裸字符串拒绝）；validation 须为对象（如 {"criteria":".."}）
 
 # 读单节点：返回 node 全文 + allowed_transitions + checkpoint_aggregate + ready_gate（+ governing_adrs）
 graph get-node -i <id> --json [--neighbors up|down|none]
@@ -178,18 +179,21 @@ serve 贯穿全程不关闭、已在运行不重复启动（编排纪律在 skil
 
 ---
 
-## §3 九边类型速查注记
+## §3 边类型判据式速查（IL-011 收敛）
 
-何时查这章：连边前确认类型拼写与约束签名。
+何时查这章：连边前确认类型选型与约束签名。
 
-**选型判断力（什么场景该用哪种边）在设计师生角色提示词中，此处只列语法签名，防止两份漂移：**
+**判据式选型——不要逐边判断类型，默认就是答案：**
 
-`add-edge --type` ∈ `depends_on｜validates｜shares_context｜fan_out｜fan_in｜fallback｜iterates｜decides｜relates`
+`add-edge --type` ∈ `depends_on｜validates｜shares_context｜fan_out｜fan_in｜fallback｜iterates｜decides｜relates`（MCP `graph_add_edge`/`graph_batch_create` 与 CLI 一致：**type 可省略，缺省 `depends_on`**——双通道一致化，IL-011）
 
-- `decides` 仅 ADR→任意顶点（source 必须是 adr）；`relates` 仅 context↔context 且须附 `--rel-kind` 自由标注
-- `depends_on`/`validates` 参与 topo 排序与 ready 门禁；`fan_in`/`fan_out` 参与门控；`shares_context` 不参与排序与门禁（仅标注上下文共享）
-- `fallback`/`iterates` 当前为**文档性标注**（运行时不实现其回退/迭代语义），validate 会逐条 warning——如实告知，不是 bug
-- 两端跨 context 的工作流边必须带 `--contract`（未填 validate 警告）；契约形状见 §2.3
+- **默认 `depends_on`**：工作流连边的唯一日常选择，语义 =「target 等待 source」。并行 = 同一 source 多条出边；汇合 = 同一 target 多条入边——ready 门禁本就要求全部门控前驱 passed，无需专用边型表达
+- **方向约定（写反 = 门禁倒挂）**：箭头从前置指向依赖者——**source 是被依赖的前置，target 是等待方**；ready 门禁校验的是 target 对 source 的等待。（实证：2026-08-30 主控绑定 IL 时写反三条边，若非复查将静默卡死下游节点）
+- **知识边（只在 ADR/领域建模阶段出现，工作流建图不产生）**：`decides` 仅 ADR→任意顶点（source 必须是 adr）；`relates` 仅 context↔context 且须附 `--rel-kind` 自由标注
+- **非门禁标注**：`shares_context` 不参与排序与门禁（仅表达上下文共享），语义真有时才显式写
+- **向后兼容存量、新设计不再使用**：`validates`（与 depends_on 机器行为同构）、`fan_in`/`fan_out`（门禁语义与多条 depends_on 入/出边等价）——存量图原样解析零迁移，新边一律 `depends_on`
+- **保留字禁用**：`fallback`/`iterates` 未实现运行时回退/迭代语义（文档性标注，validate 会逐条 warning）——不要在新图中使用
+- 两端跨 context 的工作流边必须带 `--contract`（或由 context 对默认契约声明覆盖，两者皆无 validate 警告）；契约形状见 §2.3
 
 ---
 
@@ -472,6 +476,8 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 | `Node X 被 N 条边引用` | 软删除会留悬挂引用 | `--cascade` 连边删，或先删边 |
 
 **红线 STOP**：手改 YAML 绕状态机/门禁｜传 force 绕校验｜编造工具名或参数（先查 §6 表或 `--help`）｜fan_in 汇聚点未等齐上游就开工。
+
+**已知平台问题注记（issue log C2；SP 代码不可修）**：ZCode 会话 spawn 插件 agent `super-plumber:super-mario` 时工具供给缺失——可用工具仅 `RespondToCoordinator` 一个，无 Read/Bash/Grep 等任何文件工具（2026-08-30 同一会话连续两次复现；同会话 sp-designer 工具齐全、插件包与 `.pi` 正本 frontmatter `tools` 均正确一致，属平台侧 harness 类型相关的供给问题，非 SP 资产错误）。**平台侧排查超出 SP 范围，SP 代码不可修**——留作遗留事项。现行缓解（已验证可靠）＝**general-purpose 只读代行模式**：主线程代做机械核验（或派全工具 general-purpose subagent 按同纪律只读代行，validate/doctor/diff/next 亲自复跑取证），mario 依取证材料出裁定。缺文件工具的 agent 一律如实挂起上报主线程，绝不伪造结论——super-mario 定义首步已固化此自检句（与 §10.1 机械可自裁项对应：机械核验可代行，裁量裁决不代签）。
 
 ---
 

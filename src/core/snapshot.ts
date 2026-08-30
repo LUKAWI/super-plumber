@@ -146,6 +146,8 @@ function createSnapshotUnlocked(
   );
   // v0.5.1：快照即设计定稿点——创建快照时自动导出领域文档视图（纯工具行为，无 LLM 决策）：
   // CONTEXT-MAP.md + docs/contexts/*.md + docs/adr/*.md 随快照点落盘，git 一并提交即冻结。
+  // adr_0013（fix-v080-a1）：导出经 runDocsExport 统一默认——多图工作区自动落
+  // docs/<图名>/ 分离目录（快照不再挤占其他图的视图）；单图工作区路径不变。
   // 非致命：导出失败不回滚快照（图仍是真相源），失败原因记入事件。
   let docsDetail = "";
   try {

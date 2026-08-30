@@ -215,3 +215,120 @@ describe("validateDomainRules 六规则", () => {
     expect(issues).toEqual([]);
   });
 });
+
+// ── IL-012：契约按 context 对声明（边继承 + 单边覆写 + 存量兼容）──
+describe("IL-012 契约按 context 对声明（继承与覆写）", () => {
+  const ctxs = () => [
+    node("ctx1", NodeType.Context, {
+      contracts: [{ to: "ctx2", contract: { produces: "订单事件" } }],
+    }),
+    node("ctx2", NodeType.Context),
+    node("t1", NodeType.Task, { context: "ctx1" }),
+    node("t2", NodeType.Task, { context: "ctx2" }),
+  ];
+
+  it("声明+继承：source 侧 context 声明了对 target 侧的默认契约，跨 context 边无 contract → 不警告", () => {
+    const issues = validateDomainRules(ctxs(), [
+      edge("e1", "t1", "t2", EdgeType.DependsOn), // 无单边 contract，继承 ctx1→ctx2 声明
+    ]);
+    expect(issues.filter((i) => i.message.includes("contract"))).toEqual([]);
+  });
+
+  it("方向性：声明挂在 source 侧（to = target 侧）才生效；反向声明不豁免", () => {
+    // 反向边 t2→t1：source 侧是 ctx2，ctx2 未声明对 ctx1 的契约 → 警告
+    const issues = validateDomainRules(ctxs(), [
+      edge("e1", "t2", "t1", EdgeType.DependsOn),
+    ]);
+    expect(issues.some((i) => i.level === "warning" && i.message.includes("e1"))).toBe(true);
+  });
+
+  it("单边覆写优先：边自带 contract 时无论声明与否都不警告（边契约为最终契约）", () => {
+    // 有声明 + 边 contract：静默（边覆写）
+    const withDecl = validateDomainRules(ctxs(), [
+      edge("e1", "t1", "t2", EdgeType.DependsOn, { contract: { produces: "例外集成点" } }),
+    ]);
+    expect(withDecl.filter((i) => i.message.includes("contract"))).toEqual([]);
+    // 无声明 + 边 contract：同样静默（存量逐边契约路径，覆写优先不受声明缺失影响）
+    const noDecl = validateDomainRules(
+      [
+        node("ctx1", NodeType.Context),
+        node("ctx2", NodeType.Context),
+        node("t1", NodeType.Task, { context: "ctx1" }),
+        node("t2", NodeType.Task, { context: "ctx2" }),
+      ],
+      [edge("e1", "t1", "t2", EdgeType.DependsOn, { contract: { produces: "x" } })],
+    );
+    expect(noDecl.filter((i) => i.message.includes("contract"))).toEqual([]);
+  });
+
+  it("无声明且边无 contract → 警告（文案提及 context 对声明缺失）", () => {
+    const issues = validateDomainRules(
+      [
+        node("ctx1", NodeType.Context),
+        node("ctx2", NodeType.Context),
+        node("t1", NodeType.Task, { context: "ctx1" }),
+        node("t2", NodeType.Task, { context: "ctx2" }),
+      ],
+      [edge("e1", "t1", "t2", EdgeType.DependsOn)],
+    );
+    expect(issues).toHaveLength(1);
+    expect(issues[0].level).toBe("warning");
+    expect(issues[0].message).toContain("e1");
+    expect(issues[0].message).toContain("无默认契约声明");
+  });
+
+  it("存量零迁移：全部边自带 contract、无任何声明 → 零警告（向后兼容）", () => {
+    const nodes = [
+      node("ctx1", NodeType.Context),
+      node("ctx2", NodeType.Context),
+      node("t1", NodeType.Task, { context: "ctx1" }),
+      node("t2", NodeType.Task, { context: "ctx2" }),
+    ];
+    const issues = validateDomainRules(nodes, [
+      edge("e1", "t1", "t2", EdgeType.DependsOn, { contract: { produces: "x" } }),
+      edge("e2", "t2", "t1", EdgeType.DependsOn, { contract: { produces: "y" } }),
+    ]);
+    expect(issues).toEqual([]);
+  });
+
+  it("声明侧：contracts.to 悬空（不存在/非 context 顶点）→ error", () => {
+    const nodes = [
+      node("ctx1", NodeType.Context, {
+        contracts: [
+          { to: "ctx_ghost", contract: { produces: "x" } }, // 不存在
+          { to: "t9", contract: { produces: "x" } }, // 非 context 顶点
+        ],
+      }),
+      node("t9", NodeType.Task),
+    ];
+    const errs = validateDomainRules(nodes, []).filter(
+      (i) => i.level === "error" && i.message.includes("默认契约声明"),
+    );
+    expect(errs).toHaveLength(2);
+    expect(errs[0].message).toContain("ctx_ghost");
+    expect(errs[1].message).toContain("t9");
+  });
+
+  it("声明侧：同 context 内 to 重复 → warning（生效取首条）", () => {
+    const nodes = [
+      node("ctx1", NodeType.Context, {
+        contracts: [
+          { to: "ctx2", contract: { produces: "首条" } },
+          { to: "ctx2", contract: { produces: "重复" } },
+        ],
+      }),
+      node("ctx2", NodeType.Context),
+    ];
+    const warns = validateDomainRules(nodes, []).filter((i) => i.level === "warning");
+    expect(warns).toHaveLength(1);
+    expect(warns[0].message).toContain("重复");
+  });
+
+  it("集成点分组与声明协同：平行同向边依赖同一声明，一次豁免", () => {
+    const issues = validateDomainRules(ctxs(), [
+      edge("e1", "t1", "t2", EdgeType.DependsOn),
+      edge("e2", "t1", "t2", EdgeType.FanOut),
+    ]);
+    expect(issues.filter((i) => i.message.includes("contract"))).toEqual([]);
+  });
+});

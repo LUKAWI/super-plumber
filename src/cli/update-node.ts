@@ -44,6 +44,12 @@ export const updateNodeCommand = new Command("update-node").alias("un")
     [] as string[],
   )
   .option(
+    "--contract-add <json>",
+    'IL-012（context 顶点）：追加对其他 context 的默认契约声明 (可多次使用, JSON: {"to":"ctx_x","contract":{"produces":"..."}})；跨 context 工作流边自动继承，单边 contract 仍可覆写',
+    (val: string, prev: string[]) => [...prev, val],
+    [] as string[],
+  )
+  .option(
     "--reset-attempts",
     "显式把 attempts 重置为 0（写入 attempts_reset 审计事件；修改 plan 不再自动重置）",
   )
@@ -117,6 +123,34 @@ export const updateNodeCommand = new Command("update-node").alias("un")
         }
       }
 
+      // IL-012：解析契约声明追加（CLI 传 JSON 字符串，逐项校验；to 悬空/contract
+      // 形状的深度校验归 schema/domain 层——此处只拦 JSON 结构错误）
+      let contractAdd: { to: string; contract: Record<string, unknown> }[] | undefined;
+      if (options.contractAdd.length > 0) {
+        contractAdd = [];
+        for (const raw of options.contractAdd) {
+          let d: any;
+          try {
+            d = JSON.parse(raw);
+          } catch {
+            console.error(
+              '❌ contract 格式错误，需为 JSON: {"to":"ctx_x","contract":{"produces":"..."}}',
+            );
+            process.exit(1);
+          }
+          if (
+            typeof d.to !== "string" || d.to === "" ||
+            typeof d.contract !== "object" || d.contract === null || Array.isArray(d.contract)
+          ) {
+            console.error(
+              '❌ contract 声明需包含 to（目标 context id）字符串与 contract 对象: {"to":"ctx_x","contract":{...}}',
+            );
+            process.exit(1);
+          }
+          contractAdd.push(d);
+        }
+      }
+
       const updates = buildNodeUpdates(node, {
         ...(options.planDesc !== undefined
           ? { plan_description: options.planDesc }
@@ -137,6 +171,7 @@ export const updateNodeCommand = new Command("update-node").alias("un")
         ...(options.setContext !== undefined ? { set_context: options.setContext } : {}),
         ...(options.boundary !== undefined ? { boundary: options.boundary } : {}),
         ...(glossaryAdd !== undefined ? { glossary_add: glossaryAdd } : {}),
+        ...(contractAdd !== undefined ? { contract_add: contractAdd } : {}),
       });
 
       // S1-9：--reset-attempts 单独使用必须生效（MCP 对应 length === 0 && !reset_attempts）

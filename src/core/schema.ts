@@ -333,6 +333,27 @@ export function validateNode(data: unknown): SchemaIssue[] {
   optString(data, "context", issues);
   optString(data, "boundary", issues);
   validateGlossary(data.glossary, issues);
+  // IL-012（context 顶点）：对其他 context 的默认契约声明——形状与边 contract 一致
+  // （复用 validateContractShape）；to 的存在性/指向合法性是跨文件规则，归 domain 校验
+  if (data.contracts !== undefined) {
+    if (!Array.isArray(data.contracts)) {
+      issues.push(issue("contracts", "必须是数组"));
+    } else {
+      for (const d of data.contracts) {
+        if (!isRecord(d) || typeof d.to !== "string" || d.to === "") {
+          issues.push(issue("contracts", "每项需包含 to（目标 context id）字符串"));
+          continue;
+        }
+        if (d.contract === undefined) {
+          issues.push(issue(`contracts.${d.to}.contract`, "必填（默认契约对象，形状同边 contract）"));
+        } else if (!isRecord(d.contract)) {
+          issues.push(issue(`contracts.${d.to}.contract`, "必须是对象"));
+        } else {
+          validateContractShape(d.contract, issues, `contracts.${d.to}.contract`);
+        }
+      }
+    }
+  }
   optString(data, "decision", issues);
   optString(data, "background", issues);
   optString(data, "considered_options", issues);
@@ -350,6 +371,44 @@ export function validateNode(data: unknown): SchemaIssue[] {
 }
 
 // ── Edge ──
+
+// IL-012：契约形状校验——边 contract 与 context 顶点默认契约声明（contracts[].contract）
+// 共用同一形状（produces / consumed_by[{artifact,used_as}] / validation{required,method}）。
+// S1-8（历史）：consumed_by 逐元素查结构（只查数组不查元素会漏掉缺字段）、
+// method 的真实位置在 contract.validation.method（旧代码错查顶层从未拦截）。
+function validateContractShape(
+  contract: Record<string, unknown>,
+  issues: SchemaIssue[],
+  prefix: string,
+): void {
+  optString(contract, "produces", issues);
+  if (contract.consumed_by !== undefined) {
+    if (!Array.isArray(contract.consumed_by)) {
+      issues.push(issue(`${prefix}.consumed_by`, "必须是数组"));
+    } else {
+      for (const c of contract.consumed_by) {
+        if (!isRecord(c) || typeof c.artifact !== "string" || typeof c.used_as !== "string") {
+          issues.push(issue(`${prefix}.consumed_by`, "每项需包含 artifact 与 used_as 字符串"));
+        }
+      }
+    }
+  }
+  if (contract.validation !== undefined) {
+    if (!isRecord(contract.validation)) {
+      issues.push(issue(`${prefix}.validation`, "必须是对象"));
+    } else {
+      const v = contract.validation as Record<string, unknown>;
+      if (v.required !== undefined && typeof v.required !== "boolean") {
+        issues.push(issue(`${prefix}.validation.required`, "必须是布尔值"));
+      }
+      if (v.method !== undefined && !VERIFIERS.includes(v.method as string)) {
+        issues.push(
+          issue(`${prefix}.validation.method`, `非法值 "${String(v.method)}"，允许: ${VERIFIERS.join("|")}`),
+        );
+      }
+    }
+  }
+}
 
 export function validateEdge(data: unknown): SchemaIssue[] {
   const issues: SchemaIssue[] = [];
@@ -372,36 +431,7 @@ export function validateEdge(data: unknown): SchemaIssue[] {
     if (!isRecord(data.contract)) {
       issues.push(issue("contract", "必须是对象"));
     } else {
-      optString(data.contract, "produces", issues);
-      // S1-8：校验目标修正——旧代码 optEnum(contract, "method") 校验的是不存在
-      // 的顶层 contract.method，真实字段位于 contract.validation.method，
-      // 非法 method 因此从未被拦截；consumed_by 也只查数组不查元素结构
-      if (data.contract.consumed_by !== undefined) {
-        if (!Array.isArray(data.contract.consumed_by)) {
-          issues.push(issue("contract.consumed_by", "必须是数组"));
-        } else {
-          for (const c of data.contract.consumed_by) {
-            if (!isRecord(c) || typeof c.artifact !== "string" || typeof c.used_as !== "string") {
-              issues.push(issue("contract.consumed_by", "每项需包含 artifact 与 used_as 字符串"));
-            }
-          }
-        }
-      }
-      if (data.contract.validation !== undefined) {
-        if (!isRecord(data.contract.validation)) {
-          issues.push(issue("contract.validation", "必须是对象"));
-        } else {
-          const v = data.contract.validation as Record<string, unknown>;
-          if (v.required !== undefined && typeof v.required !== "boolean") {
-            issues.push(issue("contract.validation.required", "必须是布尔值"));
-          }
-          if (v.method !== undefined && !VERIFIERS.includes(v.method as string)) {
-            issues.push(
-              issue("contract.validation.method", `非法值 "${String(v.method)}"，允许: ${VERIFIERS.join("|")}`),
-            );
-          }
-        }
-      }
+      validateContractShape(data.contract, issues, "contract");
     }
   }
   return issues;

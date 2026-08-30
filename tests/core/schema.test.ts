@@ -207,3 +207,63 @@ describe("v0.5 领域字段校验", () => {
     expect(issues.some((i) => i.field === "rel_kind")).toBe(true);
   });
 });
+
+// ── IL-012：context 对默认契约声明（contracts 字段，形状与边 contract 一致）──
+describe("IL-012 context 顶点 contracts 声明（schema 形状）", () => {
+  const validDecl = {
+    to: "ctx_billing",
+    contract: {
+      produces: "订单事件",
+      consumed_by: [{ artifact: "订单", used_as: "计费输入" }],
+      validation: { required: true, method: "auto" },
+    },
+  };
+
+  it("合法声明 → 0 issues", () => {
+    expect(
+      validateNode(validNode({ type: "context", status: "pending", contracts: [validDecl] })),
+    ).toEqual([]);
+  });
+
+  it("contracts 非数组 → 报 contracts", () => {
+    const issues = validateNode(validNode({ contracts: "nope" }));
+    expect(issues.some((i) => i.field === "contracts")).toBe(true);
+  });
+
+  it("缺 to / to 空串 → 报 contracts", () => {
+    const issues = validateNode(validNode({
+      contracts: [{ contract: { produces: "x" } }, { to: "", contract: {} }],
+    }));
+    expect(issues.filter((i) => i.field === "contracts")).toHaveLength(2);
+  });
+
+  it("缺 contract → 报 contracts.<to>.contract", () => {
+    const issues = validateNode(validNode({ contracts: [{ to: "ctx_x" }] }));
+    expect(issues.some((i) => i.field === "contracts.ctx_x.contract")).toBe(true);
+  });
+
+  it("contract 非对象 → 报 contracts.<to>.contract", () => {
+    const issues = validateNode(validNode({ contracts: [{ to: "ctx_x", contract: "x" }] }));
+    expect(issues.some((i) => i.field === "contracts.ctx_x.contract")).toBe(true);
+  });
+
+  it("contract 内部形状复用边契约校验（consumed_by 元素缺字段 / method 非法）", () => {
+    const bad = validateNode(validNode({
+      contracts: [
+        { to: "ctx_x", contract: { consumed_by: [{ artifact: "a" }], validation: { method: "rocket" } } },
+      ],
+    }));
+    expect(bad.some((i) => i.field === "contracts.ctx_x.contract.consumed_by")).toBe(true);
+    expect(bad.some((i) => i.field === "contracts.ctx_x.contract.validation.method")).toBe(true);
+  });
+
+  it("边 contract 形状校验行为不变（提取共享函数后回归）", () => {
+    expect(
+      validateEdge({ id: "e1", source: "a", target: "b", type: "depends_on",
+        contract: { produces: "x", consumed_by: [{ artifact: "a", used_as: "b" }] } }),
+    ).toEqual([]);
+    const bad = validateEdge({ id: "e2", source: "a", target: "b", type: "depends_on",
+      contract: { consumed_by: [{ used_as: "b" }] } });
+    expect(bad.some((i) => i.field === "contract.consumed_by")).toBe(true);
+  });
+});

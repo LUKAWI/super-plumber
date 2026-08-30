@@ -11,8 +11,12 @@ import { pathToFileURL } from "node:url";
 import path from "node:path";
 import * as fs from "node:fs";
 
-const ROOT = path.resolve(process.argv[2] ?? process.cwd());
-const JSON_OUT = process.argv.includes("--json");
+// 位置参数 = 可选的图根目录（缺省 cwd）；过滤掉 --json 等旗标，避免 "--json" 被误当路径
+// （修复既有缺陷：手册 §2.6 文档化的 `sp-check-design.mjs [--json]` 此前会解析成 ROOT="--json"）
+const _args = process.argv.slice(2);
+const _positional = _args.find((a) => !a.startsWith("--"));
+const ROOT = path.resolve(_positional ?? process.cwd());
+const JSON_OUT = _args.includes("--json");
 
 // 与 sp-core.mjs 同款加载：优先本地安装，回退全局安装的公开桶
 async function loadCore() {
@@ -286,6 +290,23 @@ function main() {
         });
       }
     }
+  }
+
+  // --- W7: 多关注点图整体略过领域建模（issue log C1 防线）---
+  // 触发条件：工作流节点 ≥ DOMAIN_NUDGE_NODES 且 context 顶点 = 0 → 建议评估 bounded context 划分。
+  // 阈值取值理由（DOMAIN_NUDGE_NODES = 8）：designer 协议 L1 主干为 3–7 个阶段，是单关注点
+  // 任务的常态规模；工作流节点 ≥8 通常意味着主干满配后仍有细分层（或多主干并行关注点），
+  // 跨关注点概率显著上升；v080 事发图（11 个工作流节点、0 context）在该阈值下可被拦截。
+  // 取更低（如 5）会对合法的单关注点小任务频繁误报；取更高（如 ≥12）则漏掉事发规模。
+  // ADR=0 刻意不提示：单关注点小任务合法地没有 ADR，只查 context 全缺这一"跳过领域建模"信号。
+  const DOMAIN_NUDGE_NODES = 8;
+  const contextCount = nodes.filter((n) => n.type === "context").length;
+  if (realWf.length >= DOMAIN_NUDGE_NODES && contextCount === 0) {
+    issues.push({
+      level: "warning",
+      code: "W7",
+      msg: `${realWf.length} 个工作流节点但 context 顶点 = 0：若需求跨多个关注点，请评估 bounded context 划分（领域建模 → 手册 §2.4）；确属单关注点任务可忽略本提示`,
+    });
   }
 
   // --- 输出 ---

@@ -82,12 +82,27 @@ export function validateDomainRules(
     }
   }
 
-  // 3. 跨 context 工作流边未填 contract → warning（激活休眠 contract 字段：两个上下文间的
-  //    依赖必须声明"产出什么、谁消费、怎么验收"；知识边 decides/relates 不适用此规则）。
+  // 3. 跨 context 工作流边契约检查（IL-012 改造：契约按 context 对声明一次、边继承）。
+  //    声明索引：context 顶点的 contracts[]（"对 to 的默认契约"）——跨 context 工作流边
+  //    自动继承其 source 侧 context 对 target 侧 context 的声明（逻辑继承：只影响
+  //    validate 判定，不改写边数据——存量图零迁移，逐边契约继续合法）。
+  //    优先级：单边 contract > context 对声明（单边覆写仍可精确表达例外集成点）。
+  //    警告条件从"边无 contract"收紧为"该 context 对无声明且边无 contract"。
   //    D3 修复（v0.5.1）：按集成点（source→target 对）分组判定——平行同向的标注边
   //    （如 fan_out 与 depends_on 并存）只要任一条声明了契约即视为集成点已声明，
   //    警告按集成点汇总一次（列全部未声明边 id），不再逐边重复告警。
+  //    知识边 decides/relates 不适用此规则。
   const KNOWLEDGE_EDGE_TYPES = [EdgeType.Decides, EdgeType.Relates];
+  const defaultDecls = new Map<string, Set<string>>(); // source 侧 context → 其声明过的 to 集合
+  for (const n of nodes) {
+    if (n.type !== NodeType.Context || !n.contracts) continue;
+    let tos = defaultDecls.get(n.id);
+    if (!tos) {
+      tos = new Set<string>();
+      defaultDecls.set(n.id, tos);
+    }
+    for (const d of n.contracts) tos.add(d.to);
+  }
   const contractGroups = new Map<string, { ids: string[]; hasContract: boolean; from: string; to: string }>();
   for (const e of edges) {
     if (KNOWLEDGE_EDGE_TYPES.includes(e.type)) continue;
@@ -111,11 +126,36 @@ export function validateDomainRules(
     contractGroups.set(key, group);
   }
   for (const [key, g] of contractGroups) {
-    if (!g.hasContract) {
+    // IL-012：source 侧 context 声明了对 target 侧的默认契约 → 集成点视为已声明（边继承）
+    const declared = defaultDecls.get(g.from)?.has(g.to) ?? false;
+    if (!g.hasContract && !declared) {
       issues.push({
         level: "warning",
-        message: `集成点 ${key} 跨 context（${g.from} → ${g.to}）但所有边（${g.ids.join(", ")}）均未填 contract（契约边须声明 produces/consumed_by/validation）`,
+        message: `集成点 ${key} 跨 context（${g.from} → ${g.to}）但该 context 对无默认契约声明（${g.from} 的 contracts 里无 to: ${g.to}），其所有边（${g.ids.join(", ")}）也未填 contract（契约边须声明 produces/consumed_by/validation，或由 context 对默认契约声明覆盖）`,
       });
+    }
+  }
+
+  // 3b. 声明侧完整性（IL-012）：context 顶点 contracts[] 自身的跨文件校验——
+  //     to 悬空（不存在/非 context 顶点）→ error（拼错会静默失效，继承永不命中）；
+  //     同一 context 内 to 重复 → warning（生效取首条，与 glossary 重复同级的提示）
+  for (const n of nodes) {
+    if (n.type !== NodeType.Context || !n.contracts) continue;
+    const seen = new Set<string>();
+    for (const d of n.contracts) {
+      if (!isContext(d.to)) {
+        issues.push({
+          level: "error",
+          message: `context ${n.id} 的默认契约声明 to 引用不存在或不是 context 顶点: ${d.to}`,
+        });
+      }
+      if (seen.has(d.to)) {
+        issues.push({
+          level: "warning",
+          message: `context ${n.id} 对 ${d.to} 的默认契约声明重复（生效取首条）`,
+        });
+      }
+      seen.add(d.to);
     }
   }
 

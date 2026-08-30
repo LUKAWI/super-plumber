@@ -118,6 +118,19 @@ export interface GlossaryEntry {
   definition: string;
 }
 
+// IL-012（context 顶点）：对其他 context 的默认契约声明——契约是
+// "两个 bounded context 之间的关系"属性（DDD），按 context 对声明一次，
+// 跨 context 工作流边自动继承（validate 层面：声明存在即视为契约已声明）；
+// 单边 contract 仍可覆写（例外集成点精确表达），存量逐边契约继续合法。
+export interface ContextContractDecl {
+  /** 目标 context id：跨 context 边的 target 所在 context
+   * （声明挂在边的 source 侧 context 上，语义 = "我交付给 to 什么"，与
+   * "source 是被依赖的前置/产出方"的方向约定一致） */
+  to: string;
+  /** 默认契约（形状与边 contract 完全一致：produces/consumed_by/validation） */
+  contract: Contract;
+}
+
 export interface NodeSchema {
   id: string;
   type: NodeType;
@@ -131,6 +144,9 @@ export interface NodeSchema {
   boundary?: string;
   /** v0.5（context 顶点）：术语表 */
   glossary?: GlossaryEntry[];
+  /** IL-012（context 顶点）：对其他 context 的默认契约声明（按 context 对一次；
+   * 跨 context 工作流边自动继承，单边 contract 仍可覆写） */
+  contracts?: ContextContractDecl[];
   /** v0.5（adr 顶点）：决策内容（label 即标题，decision 必填） */
   decision?: string;
   background?: string;

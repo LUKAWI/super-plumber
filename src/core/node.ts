@@ -5,6 +5,7 @@ import {
   AdrStatus,
   NodeType,
   type Checkpoint,
+  type Contract,
   GATE_EDGE_TYPES,
 } from "./types.js";
 import { readNode, writeNode, nodeFilePath, addGraphRef } from "./parser.js";
@@ -388,6 +389,7 @@ export function updateNodeContent(
       | "assigned_to"
       | "label"
       | "max_attempts"
+      | "contracts"
       | "execution_report"
     >
   >,
@@ -612,6 +614,9 @@ export interface NodeUpdateParams {
   set_context?: string;
   boundary?: string;
   glossary_add?: { term: string; definition: string }[];
+  /** IL-012（context 顶点）：追加对其他 context 的默认契约声明——跨 context 工作流边
+   * 自动继承（validate 判定层面），单边 contract 仍可覆写；to 悬空由 domain 校验报 error */
+  contract_add?: { to: string; contract: Contract }[];
   /** v0.5（adr 顶点）：接替者——置 superseded 前必须设置（MCP supersede 两步法的第一步） */
   superseded_by?: string;
   /** FIX-A2：显式重置 attempts（由 CLI --reset-attempts / MCP reset_attempts 传入，
@@ -634,6 +639,7 @@ export function buildNodeUpdates(
     | "context"
     | "boundary"
     | "glossary"
+    | "contracts"
     | "superseded_by"
   >
 > {
@@ -702,6 +708,10 @@ export function buildNodeUpdates(
   if (params.glossary_add && params.glossary_add.length > 0) {
     updates.glossary = [...(node.glossary ?? []), ...params.glossary_add];
   }
+  // IL-012：默认契约声明追加（对齐 glossary_add 的追加语义；重复 to 由 domain 校验警告）
+  if (params.contract_add && params.contract_add.length > 0) {
+    updates.contracts = [...(node.contracts ?? []), ...params.contract_add];
+  }
   if (params.superseded_by !== undefined) {
     updates.superseded_by = params.superseded_by;
   }
@@ -718,6 +728,7 @@ export function buildNodeUpdates(
       | "context"
       | "boundary"
       | "glossary"
+      | "contracts"
       | "superseded_by"
     >
   >;

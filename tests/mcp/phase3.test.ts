@@ -185,6 +185,38 @@ describe("MCP phase 3 — agent-native toolset", () => {
     expect(conflictData.conflicts.some((c) => c.includes("ghost2"))).toBe(true);
   });
 
+  it("IL-011 type 可省略缺省 depends_on（MCP/CLI 双通道一致化），显式类型不受影响", async () => {
+    await call(client, "graph_create_node", { id: "nt1", label: "NT1" });
+    await call(client, "graph_create_node", { id: "nt2", label: "NT2" });
+    await call(client, "graph_create_node", { id: "nt3", label: "NT3" });
+
+    // graph_add_edge 不传 type → 落盘 depends_on
+    const add = await call(client, "graph_add_edge", { id: "e_no_type", source: "nt1", target: "nt2" });
+    expect(add.isError).toBeFalsy();
+
+    // graph_batch_create 边不传 type → 落盘 depends_on
+    const batch = await call(client, "graph_batch_create", {
+      nodes: [],
+      edges: [{ id: "e_batch_no_type", source: "nt2", target: "nt3" }],
+    });
+    expect(batch.isError).toBeFalsy();
+
+    // 显式类型不受影响
+    const explicit = await call(client, "graph_add_edge", {
+      id: "e_explicit_type",
+      source: "nt1",
+      target: "nt3",
+      type: "validates",
+    });
+    expect(explicit.isError).toBeFalsy();
+
+    const readEdge = (id: string) =>
+      fs.readFileSync(path.join(tmpDir, ".graph/t/edges", `${id}.yaml`), "utf-8");
+    expect(readEdge("e_no_type")).toContain("type: depends_on");
+    expect(readEdge("e_batch_no_type")).toContain("type: depends_on");
+    expect(readEdge("e_explicit_type")).toContain("type: validates");
+  });
+
   it("graph_snapshot → diff → rollback 闭环", async () => {
     const snap = await call(client, "graph_snapshot", { message: "mcp-v1" });
     expect(snap.isError).toBeFalsy();

@@ -13,6 +13,14 @@ web-ui/.npm-cache/
 wechat-*.md
 .zcode/
 
+# 版本设计草案（讨论稿，定稿条目转正为图内 ADR 后归档删除）
+docs/v0.8.0-design.md
+
+# 版本路线图（计划书底稿，随开发直接修订；条目定稿转正 ADR 后归档删除）
+docs/roadmap-to-1.0.md
+roadmap-to-1.0.html
+.impeccable/config.json
+
 # 浏览器调试会话产物（非资产）
 .playwright-mcp/
 web-ui/.impeccable/live/

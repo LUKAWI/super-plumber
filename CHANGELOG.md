@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.1] — 2026-08-30（patch：多图知识视图按图名分离 + 0.7.0 遗留修复批清账 + 边类型与契约工效）
+
+- **多图工作区知识视图按图名分离（adr_0013，根治 A1 跨图视图挤占）**：多图工作区中 `graph export --docs` 与 snapshot 自动导出默认落 `docs/<图名>/{adr,contexts,CONTEXT-MAP.md}`，各图视图互不挤占、不再产生 `.retired/` 误归档与 CONTEXT-MAP 翻烧饼；单图工作区路径完全不变（向后兼容）；显式 `--adr-dir/--ctx-dir` 透传仍优先。多图工作区升级后视图落点有变化，旧共享目录成为冻结历史视图。
+- **0.7.0 遗留修复批清账**（docs/v0.8.0-issue-log.md）：
+  - B1 双副本防漂移短期门禁：新增 `.github/PULL_REQUEST_TEMPLATE.md`——skill/agent 提示词改动须列双路径逐一 diff 核对（允许且仅允许渠道寻址行差异）；
+  - B2 manual §2.3 契约边示例修订为实测形状（`consumed_by` 须为 `[{artifact, used_as}]` 对象数组、`validation` 须为对象），旧形状会被写前校验整批拒绝；
+  - C1 领域建模防略过三层：plumber-design 派单模板「派发前合规自查」三条清单 + doctor 新增 W7（工作流节点 ≥8 且 context=0 提示评估 bounded context）+ sp-designer「报告缺领域段 = 未完成」自检条款；
+  - C2 super-mario 定义首步工具自检句（spawn 缺文件工具即如实挂起上报，不伪造结论）+ manual §9 已知平台问题注记与 general-purpose 只读代行缓解模式。
+- **边类型工效（IL-011）**：MCP `graph_add_edge` / `graph_batch_create` 的 edge type 改为可省略、缺省 `depends_on`（对齐 CLI 既有默认，双通道一致）；manual §3「九边速查」改写为判据式（默认 depends_on、知识边仅 ADR/领域建模阶段、validates/fan_in/fan_out 向后兼容存量新设计不再使用、fallback/iterates 保留字禁用）；**depends_on 方向约定成文**（source=被依赖的前置、target=等待方）；sp-designer 角色提示词选型段同步收窄。
+- **契约工效（IL-012）**：context 顶点支持 `contracts: [{to, contract}]` 默认契约声明，跨 context 工作流边自动继承、单边可覆写；validate 契约检查改为「该 context 对无声明且边无 contract 才警告」；双通道交付（CLI `update-node --contract-add` / MCP `contract_add`）；存量图零迁移。
+- **web-ui**：节点详情面板 IL 条目 each_key_duplicate 渲染中断修复（NodeDetail.svelte）。
+- **账本入库**：`docs/issue-log.md`（统一问题账本）与 `docs/v0.8.0-issue-log.md`（0.7.0 遗留修复批账本）随版入库；docs/contexts/ 四张领域上下文视图入库。
+- 回归：全量测试 61 文件 560 用例绿、`graph validate` 0 error 0 warning、`sync-integrations.mjs` 一致性门禁通过。
+- 发布动作：npm 0.7.1（latest）+ GitHub tag v0.7.1。
+
 ## [0.7.0] — 2026-08-28（minor：0.7.0-beta.1 转正 + 领域文档与设计系统同步补录）
 
 - 版本决策：0.7.0-beta.1（tag=beta，2026-08-28 发布）为「深空仪器舱」重构预发布；beta 验证通过、无阻断缺陷，直接转正 0.7.0 发布为 latest。npm 不允许删除 dist-tag，beta 保留指向 0.7.0-beta.1（latest 已是 0.7.0）。

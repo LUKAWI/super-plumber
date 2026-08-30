@@ -3,10 +3,15 @@
 // ADR 顶点 → docs/adr/NNNN-slug.md（格式对齐仓库既有手写 ADR）
 // context 顶点 → CONTEXT-MAP.md（总览）+ docs/contexts/<id>.md（节点即文档）
 // 注意：不触碰根 CONTEXT.md（单一上下文约定下手写维护的术语表，避免覆盖人工内容）。
+// adr_0013（fix-v080-a1）：多图工作区下知识视图默认按图名分离——
+// ADR → docs/<图名>/adr/、context → docs/<图名>/contexts/ + docs/<图名>/CONTEXT-MAP.md；
+// 单图工作区（含旧布局原地 default）保持既有共享路径不变（向后兼容）。
+// 根因：ADR 编号按图独立 × 共享目录，任何一图导出都会同号覆写/误归档其他图的视图。
+// 使用者显式传 adrDir/ctxDir 时永远优先于默认规则。
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { listNodes } from "./node.js";
-import { toGraphDir, workspaceOf } from "./graph-dir.js";
+import { GRAPH_NAME_RE, listGraphNames, toGraphDir, workspaceOf } from "./graph-dir.js";
 import { assertValidEntityId } from "./schema.js";
 import { AdrStatus, NodeType, type NodeSchema } from "./types.js";
 
@@ -119,18 +124,42 @@ function retireStaleSlugFiles(adrDir: string, num: string, canonical: string): v
   }
 }
 
+/**
+ * adr_0013（fix-v080-a1）：知识视图的默认落点是否按图名分离。
+ * 多图工作区（.graph/ 下图数 > 1）→ 返回当前图名（作目录子路径 docs/<图名>/…）；
+ * 单图工作区（含旧布局 .graph/ 原地 default）→ null（保持既有共享路径，向后兼容）。
+ * 图名经 GRAPH_NAME_RE 校验（保证目录名安全）；异常布局回落共享路径，不阻塞导出。
+ */
+function defaultViewSubdir(graphDir: string): string | null {
+  const wsRoot = workspaceOf(graphDir);
+  if (listGraphNames(wsRoot).length <= 1) return null;
+  const name = path.basename(graphDir);
+  return GRAPH_NAME_RE.test(name) ? name : null;
+}
+
 export function runDocsExport(
   rootDir: string,
   opts: { adrDir?: string; ctxDir?: string } = {},
 ): DocsExportResult {
-  const nodes = listNodes(toGraphDir(rootDir));
+  const graphDir = toGraphDir(rootDir);
+  const nodes = listNodes(graphDir);
   const adrs = nodes.filter((n) => n.type === NodeType.Adr);
   const contexts = nodes.filter((n) => n.type === NodeType.Context);
   const written: string[] = [];
 
-  // ADR → docs/adr/NNNN-slug.md
   const wsRoot = workspaceOf(rootDir); // 产物落工作区根（即使 rootDir 是图目录）
-  const adrDir = path.join(wsRoot, opts.adrDir ?? "docs/adr");
+  // 默认落点：多图 → docs/<图名>/…（按图名分离）；单图 → 既有共享路径；显式透传永远优先
+  const viewSub = defaultViewSubdir(graphDir);
+  const defaultAdrDir = viewSub ? path.join("docs", viewSub, "adr") : path.join("docs", "adr");
+  const defaultCtxDir = viewSub
+    ? path.join("docs", viewSub, "contexts")
+    : path.join("docs", "contexts");
+  const contextMapRel = viewSub
+    ? path.join("docs", viewSub, "CONTEXT-MAP.md")
+    : "CONTEXT-MAP.md";
+
+  // ADR → docs/adr/NNNN-slug.md
+  const adrDir = path.join(wsRoot, opts.adrDir ?? defaultAdrDir);
   fs.mkdirSync(adrDir, { recursive: true });
   for (const a of adrs) {
     const num = adrNumber(a.id);
@@ -143,7 +172,7 @@ export function runDocsExport(
 
   // context → CONTEXT-MAP.md + docs/contexts/<id>.md
   if (contexts.length > 0) {
-    const ctxDir = path.join(wsRoot, opts.ctxDir ?? "docs/contexts");
+    const ctxDir = path.join(wsRoot, opts.ctxDir ?? defaultCtxDir);
     fs.mkdirSync(ctxDir, { recursive: true });
     for (const c of contexts) {
       // S0-3 次生面兜底：拼接 docs/contexts/<id>.md 前的最后防线
@@ -153,8 +182,12 @@ export function runDocsExport(
       fs.writeFileSync(file, renderContextFile(c), "utf-8");
       written.push(path.relative(wsRoot, file));
     }
-    fs.writeFileSync(path.join(wsRoot, "CONTEXT-MAP.md"), renderContextMap(contexts), "utf-8");
-    written.push("CONTEXT-MAP.md");
+    // contextMapRel 的父目录（多图默认 = docs/<图名>/）可能尚未创建——
+    // adr/ctx 目录被显式透传接管时无人 mkdir 它，写前补建（幂等）
+    const contextMapPath = path.join(wsRoot, contextMapRel);
+    fs.mkdirSync(path.dirname(contextMapPath), { recursive: true });
+    fs.writeFileSync(contextMapPath, renderContextMap(contexts), "utf-8");
+    written.push(contextMapRel);
   }
 
   return { adrCount: adrs.length, contextCount: contexts.length, written };

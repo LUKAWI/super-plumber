@@ -91,10 +91,14 @@ describe("快照自动导出（CONTEXT-MAP）性能影响", () => {
     }
     // 中位数 <2s：40 节点图的快照（文件复制+sha256）+7 知识顶点的 md 导出
     expect(median(xs)).toBeLessThan(2000);
-    // 导出产物确实生成（性能与功能同验）
-    expect(fs.existsSync(path.join(tmpDir, "CONTEXT-MAP.md"))).toBe(true);
-    expect(fs.existsSync(path.join(tmpDir, "docs/contexts/ctx_alpha.md"))).toBe(true);
-    expect(fs.existsSync(path.join(tmpDir, "docs/adr/0001-决策一.md"))).toBe(true);
+    // 导出产物确实生成（性能与功能同验）；
+    // adr_0013：10 图工作区 → 知识视图按图名分离落 docs/big-graph/（不再挤占共享路径）
+    expect(fs.existsSync(path.join(tmpDir, "docs", "big-graph", "CONTEXT-MAP.md"))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, "docs", "big-graph", "contexts", "ctx_alpha.md"))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, "docs", "big-graph", "adr", "0001-决策一.md"))).toBe(true);
+    // 根共享路径不得被多图工作区导出触碰（A1 挤占根治断言）
+    expect(fs.existsSync(path.join(tmpDir, "CONTEXT-MAP.md"))).toBe(false);
+    expect(fs.existsSync(path.join(tmpDir, "docs", "adr"))).toBe(false);
   });
 
   it("导出幂等重跑开销：同内容第二次导出 <100ms（写盘短路余量）", () => {

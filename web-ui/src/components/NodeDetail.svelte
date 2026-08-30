@@ -67,16 +67,22 @@
     return g.nodes.filter((m) => m.context === node.id && !isKnowledgeType(m.type));
   });
 
-  /** 管辖决策：decides 打到本节点（或本节点所属 context）的 ADR —— 从详情页可跳转 */
+  /** 管辖决策：decides 打到本节点（或本节点所属 context）的 ADR —— 从详情页可跳转。
+   *  同一 ADR 可能经"直挂节点"与"直挂 context 簇传播"双通道命中（如 ADR 决定整簇又点名成员），
+   *  必须按 id 去重——Svelte each 以 id 为 key，重复键会抛 each_key_duplicate 使详情面板渲染中断。 */
   const linkedAdrs = $derived.by(() => {
     const g = graphState.graph;
     if (!g || !node) return [] as NodeSchema[];
     const out: NodeSchema[] = [];
+    const seen = new Set<string>();
     for (const e of g.edges) {
       if (e.type !== "decides") continue;
       const src = g.nodes.find((x) => x.id === e.source);
       if (!src || src.type !== "adr") continue;
-      if (e.target === node.id || (node.context && e.target === node.context)) out.push(src);
+      if ((e.target === node.id || (node.context && e.target === node.context)) && !seen.has(src.id)) {
+        seen.add(src.id);
+        out.push(src);
+      }
     }
     return out;
   });

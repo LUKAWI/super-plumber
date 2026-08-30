@@ -175,8 +175,14 @@ export const exportMermaidCommand = new Command("export").alias("x")
   .description("导出拓扑图（默认 Mermaid 流程图；--docs 导出领域知识顶点为 markdown 视图）")
   .option("--mermaid", "导出为 Mermaid 格式")
   .option("--docs", "v0.5：导出知识顶点为 markdown（ADR→docs/adr/，context→CONTEXT-MAP.md + docs/contexts/）")
-  .option("--adr-dir <dir>", "--docs 模式：ADR 输出目录", "docs/adr")
-  .option("--ctx-dir <dir>", "--docs 模式：context 文档输出目录", "docs/contexts")
+  .option(
+    "--adr-dir <dir>",
+    "--docs 模式：ADR 输出目录（缺省：单图 docs/adr；多图 docs/<图名>/adr，按图名分离互不挤占）",
+  )
+  .option(
+    "--ctx-dir <dir>",
+    "--docs 模式：context 文档输出目录（缺省：单图 docs/contexts；多图 docs/<图名>/contexts）",
+  )
   .option("-o, --output <file>", "Mermaid 输出文件路径", "topology.mmd")
   .action((options) => {
     const rootDir = cliGraphDir(process.cwd());

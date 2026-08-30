@@ -203,3 +203,70 @@ describe("v0.5 graph export", () => {
     expect(fs.existsSync(path.join(tmpDir, "CONTEXT.md"))).toBe(false);
   });
 });
+
+// ── IL-012：--contract-add 双通道 CLI 侧 + validate 契约检查联动 ──
+describe("IL-012 CLI --contract-add 与 validate 联动", () => {
+  function setupCrossCtxGraph(): void {
+    run("init t");
+    run('create-node --id ctx_a --type context --label "上下文A"');
+    run('create-node --id ctx_b --type context --label "上下文B"');
+    run('create-node --id t1 --label "任务1" --context ctx_a');
+    run('create-node --id t2 --label "任务2" --context ctx_b');
+    run("add-edge --id e1 --source t1 --target t2 --type depends_on"); // 无 contract
+  }
+
+  it("跨 context 边无声明无 contract → validate 警告；--contract-add 声明后警告消失", () => {
+    setupCrossCtxGraph();
+    const before = JSON.parse(run("validate --json")) as { warnings: string[] };
+    expect(before.warnings.some((w) => w.includes("e1") && w.includes("contract"))).toBe(true);
+
+    runArr([
+      "update-node", "--id", "ctx_a", "--contract-add",
+      '{"to":"ctx_b","contract":{"produces":"任务1产物","consumed_by":[{"artifact":"任务1产物","used_as":"任务2输入"}]}}',
+    ]);
+    const yaml = readNode("ctx_a");
+    expect(yaml).toContain("contracts:");
+    expect(yaml).toContain("to: ctx_b");
+    expect(yaml).toContain("produces:");
+
+    const after = JSON.parse(run("validate --json")) as { ok: boolean; warnings: string[] };
+    expect(after.ok).toBe(true);
+    expect(after.warnings.some((w) => w.includes("contract"))).toBe(false);
+  });
+
+  it("单边覆写：边自带 contract 时即使无声明也不警告（存量逐边契约向后兼容）", () => {
+    run("init t");
+    run('create-node --id ctx_a --type context --label "A"');
+    run('create-node --id ctx_b --type context --label "B"');
+    run('create-node --id t1 --label "任务1" --context ctx_a');
+    run('create-node --id t2 --label "任务2" --context ctx_b');
+    runArr([
+      "add-edge", "--id", "e1", "--source", "t1", "--target", "t2", "--type", "depends_on",
+      "--contract", '{"produces":"x","consumed_by":[{"artifact":"x","used_as":"y"}],"validation":{"required":true,"method":"auto"}}',
+    ]);
+    const out = JSON.parse(run("validate --json")) as { ok: boolean; warnings: string[] };
+    expect(out.ok).toBe(true);
+    expect(out.warnings.some((w) => w.includes("contract"))).toBe(false);
+  });
+
+  it("--contract-add 非法 JSON / 缺 to → 报错退出且不落盘", () => {
+    setupCrossCtxGraph();
+    const bad1 = runFailArr(["update-node", "--id", "ctx_a", "--contract-add", "not-json"]);
+    expect(bad1).toContain("格式错误");
+    const bad2 = runFailArr(["update-node", "--id", "ctx_a", "--contract-add", '{"contract":{}}']);
+    expect(bad2).toContain("to");
+    expect(readNode("ctx_a")).not.toContain("contracts:");
+  });
+
+  it("--contract-add 可多次追加（对齐 --glossary-add 语义）", () => {
+    setupCrossCtxGraph();
+    run('create-node --id ctx_c --type context --label "C"');
+    runArr([
+      "update-node", "--id", "ctx_a", "--contract-add", '{"to":"ctx_b","contract":{"produces":"x"}}',
+      "--contract-add", '{"to":"ctx_c","contract":{"produces":"y"}}',
+    ]);
+    const yaml = readNode("ctx_a");
+    expect(yaml).toContain("to: ctx_b");
+    expect(yaml).toContain("to: ctx_c");
+  });
+});
