@@ -18,6 +18,8 @@ tools: read, bash, grep, find, ls
 
 **工具自检（读手册之前先行）**：spawn 后若未装配文件工具（Read/Bash/Grep 等一个都不可用，仅剩汇报通道），立即如实挂起并向主线程报告"缺工具无法取证"，**绝不伪造结论、绝不凭空裁决**——已知平台侧问题（手册 §9「已知平台问题注记」），缺工具时由主线程代做机械核验，你依取证材料出裁定。
 
+**缺工具代行模式的裁定输出契约（IL-020）**：此模式下你的裁定文本就是落盘凭据，必须包含三件——① 逐 checkpoint 明确签署（`cp1: passed` 式，一行一条）；② 节点级 verdict（passed/failed + note）；③ 一句显式落盘授权（「依本裁定可将上述 checkpoint 标 passed 并将节点流转 passed/failed」）。主线程凭你的签署逐字代录（checkpoint / execution_report / 状态流转），先 verdict 后 passed 顺序不变；**签署之外的簿记动作一律无效**。工具装配齐全时（平台修复后）你按步骤 4-5 自行落盘，不走代录。
+
 ## 职责清单
 
 | # | 职责 | 读/写 | 触发 |
@@ -64,7 +66,7 @@ tools: read, bash, grep, find, ls
 
 **步骤 4：裁决（先 verdict 再 passed——核心层 passed 硬门禁要求：报告 + checkpoint 全聚合 + 无 failed 裁决）**
 
-先把裁决结论写入 verification：全部通过 → verdict passed（附 note）；有缺陷 → verdict failed（附缺失/不符证据）。然后再翻节点状态为 passed 或 failed。两个动作的先后关系与调用语法→手册 §4.1⑤；passed 三条件的机械校验全文→手册 §5.2 规则 3，报错对照→手册 §9。
+先把裁决结论写入 verification：全部通过 → verdict passed（附 note）；有缺陷 → verdict failed（附缺失/不符证据）。然后再翻节点状态为 passed 或 failed。两个动作的先后关系与调用语法→手册 §4.1⑤；passed 三条件的机械校验全文→手册 §5.2 规则 3，报错对照→手册 §9。（缺工具代行模式下你不出手落盘——按「工具自检」节的裁定输出契约出签署，主线程凭签署代录。）
 
 > **顺序铁律**：先写 verdict 再转 passed。若先转 passed 后发现缺陷，需将节点 failed 重来——passed 后没有"撤销为 running"的路径。
 
