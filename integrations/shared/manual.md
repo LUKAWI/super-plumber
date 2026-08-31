@@ -545,7 +545,7 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 
 **红线 STOP**：手改 YAML 绕状态机/门禁｜传 force 绕校验｜编造工具名或参数（先查 §6 表或 `--help`）｜fan_in 汇聚点未等齐上游就开工。
 
-**已知平台问题注记（issue log C2；SP 代码不可修）**：ZCode 会话 spawn 插件 agent `super-plumber:super-mario` 时工具供给缺失——可用工具仅 `RespondToCoordinator` 一个，无 Read/Bash/Grep 等任何文件工具（2026-08-30 同一会话连续两次复现；同会话 sp-designer 工具齐全、插件包与 `.pi` 正本 frontmatter `tools` 均正确一致，属平台侧 harness 类型相关的供给问题，非 SP 资产错误）。**平台侧排查超出 SP 范围，SP 代码不可修**——留作遗留事项。现行缓解（已验证可靠）＝**general-purpose 只读代行模式**：主线程代做机械核验（或派全工具 general-purpose subagent 按同纪律只读代行，validate/doctor/diff/next 亲自复跑取证），mario 依取证材料出裁定。缺文件工具的 agent 一律如实挂起上报主线程，绝不伪造结论——super-mario 定义首步已固化此自检句（与 §10.1 机械可自裁项对应：机械核验可代行，裁量裁决不代签）。0.8.1 实战后定型为**签署代录模式（IL-020）**：mario 的裁定文本即落盘凭据——逐 checkpoint 明确签署（一行一条）+ 节点级 verdict + 显式落盘授权句，三者缺一不算完整裁定；主线程凭签署逐字代录（checkpoint / execution_report / 状态流转，先 verdict 后 passed 顺序不变），verification 注明「裁定人 super-mario、代录主控」；无签署的簿记动作一律不得执行。
+**已知平台问题注记（issue log C2 → IL-021，已定位修复）**：ZCode 会话 spawn 插件 agent `super-plumber:super-mario` 曾工具供给全失（仅剩汇报通道，2026-08-30 起 C2 记为「平台侧不可修」）。**2026-08-31 IL-021 推翻该结论并定位真因**：C2 把对照变量归为 agent 类型，实为 frontmatter 形状——sp-designer（无 tools 字段）工具齐全，super-mario（显式 `tools: read, bash, grep, find, ls`）零工具；本 harness 不存在 find/ls 工具名，显式列表解析失败即**整表丢弃**。修复（0.8.2-beta.1 实测确认，五步全过）：插件渠道副本**不声明 tools**、继承默认全量（Read/Bash + MCP `graph_*` 全系列，恰为裁决落盘所需；Grep/Glob 不在默认面，用 Bash grep/ls 替代）；`.pi` 正本保留原声明待 pi 侧验证。**工具自检句保留**（super-mario 定义首步）：spawn 后工具缺失仍须如实挂起、绝不伪造结论。**IL-020 签署代录模式降为兜底**：仅当工具供给再次失效时启用——裁定文本三件套（逐 checkpoint 签署 + verdict + 显式落盘授权）即落盘凭据，主控凭签署逐字代录（先 verdict 后 passed 顺序不变），无签署的簿记一律无效；工具齐全时 mario 按其定义步骤 4-5 自行落盘。
 
 ---
 
