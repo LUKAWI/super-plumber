@@ -85,7 +85,7 @@ describe("顶点形状与配色（DOT，与 Mermaid 同源调色板）", () => {
       ["pending", "#8a8f98", "#5b5f66"],
       ["ready", "#4a93e8", "#2f6fbc"],
       ["running", "#f0a73a", "#c07f1d"],
-      ["passed", "#34c964", "#1f9c46"],
+      ["passed", "#16a34a", "#0e7a37"],
       ["failed", "#e5504f", "#b93231"],
       ["blocked", "#a574e6", "#7d4fc0"],
       ["cancelled", "#5b5f66", "#3d4147"],
@@ -292,8 +292,8 @@ describe("共享映射纯函数", () => {
 
   it("vertexColors：三组调色板 + 兜底灰", () => {
     expect(vertexColors({ type: "task", status: "passed" })).toEqual({
-      fill: "#34c964",
-      stroke: "#1f9c46",
+      fill: "#16a34a",
+      stroke: "#0e7a37",
     });
     expect(vertexColors({ type: "context", status: "pending" })).toEqual({
       fill: "#4db6ac",

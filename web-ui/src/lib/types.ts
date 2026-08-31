@@ -202,13 +202,13 @@ export const EDGE_TYPE_LABELS: Record<EdgeType, string> = {
 };
 
 // 状态色单一来源（与 web-ui/index.html 的 CSS 变量、CLI export-mermaid 保持一致）：
-// pending #8a8f98 | ready #4a93e8 | running #f0a73a | passed #34c964
+// pending #8a8f98 | ready #4a93e8 | running #f0a73a | passed #16a34a
 // failed #e5504f | blocked #a574e6 | cancelled #7e848d（v0.7 提亮：原 #5b5f66 仅 3.27:1）
 export const STATUS_COLORS: Record<NodeStatus, string> = {
 	pending: "#8a8f98",
 	ready: "#4a93e8",
 	running: "#f0a73a",
-	passed: "#34c964",
+	passed: "#16a34a",
 	failed: "#e5504f",
 	blocked: "#a574e6",
 	cancelled: "#7e848d",
@@ -217,7 +217,7 @@ export const STATUS_COLORS: Record<NodeStatus, string> = {
 // ADR 三态色（与状态色体系同源：proposed 中性 / accepted 绿 / superseded 红）
 export const ADR_STATUS_COLORS: Record<AdrStatus, string> = {
 	proposed: "#8a8f98",
-	accepted: "#34c964",
+	accepted: "#16a34a",
 	superseded: "#e5504f",
 };
 

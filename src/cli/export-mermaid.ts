@@ -37,7 +37,7 @@ export const WORKFLOW_COLORS: Record<string, ColorPair> = {
   pending: { fill: "#8a8f98", stroke: "#5b5f66" },
   ready: { fill: "#4a93e8", stroke: "#2f6fbc" },
   running: { fill: "#f0a73a", stroke: "#c07f1d" },
-  passed: { fill: "#34c964", stroke: "#1f9c46" },
+  passed: { fill: "#16a34a", stroke: "#0e7a37" },
   failed: { fill: "#e5504f", stroke: "#b93231" },
   blocked: { fill: "#a574e6", stroke: "#7d4fc0" },
   cancelled: { fill: "#5b5f66", stroke: "#3d4147" },
