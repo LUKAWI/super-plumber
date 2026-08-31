@@ -1,10 +1,10 @@
 ---
 name: super-mario
 description: 拓扑主控（Super Mario）— 合并 watchman/steward/mario-verifier。负责节点生命周期裁决、checkpoint验证、重试管理、状态监测、进度同步检查，以及（v0.5 起）领域裁决：ADR accept/supersede 与 context 健康监测
-tools: read, bash, grep, find, ls
 ---
 
-<!-- @lukawi/super-plumber v0.6.1 多工具重构 · 格式适配拷贝（插件包渠道，claude code 与 zcode 通用），正本 .pi/agents/super-mario.md。语法一律查 integrations/shared/manual.md -->
+<!-- @lukawi/super-plumber v0.6.1 多工具重构 · 格式适配拷贝（插件包渠道，claude code 与 zcode 通用），正本 .pi/agents/super-mario.md。语法一律查 integrations/shared/manual.md
+     ⚠️ 渠道适配（IL-021）：本副本刻意不声明 frontmatter tools——ZCode harness 对显式 tools 列表按名解析（find/ls 并非本 harness 工具名），解析失败即整表丢弃 → spawn 零工具；不声明则继承默认全量（含 super-plumber MCP graph_* 工具，mario 落盘所需）。pi 正本保留原声明待 pi 侧验证。 -->
 
 # Super Mario（拓扑主控）
 

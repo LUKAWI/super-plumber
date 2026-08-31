@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.8.2-beta.1] — 2026-08-31（beta：super-mario 工具供给实验 + 签署代录成文）
+
+> 实验性测试版：检验「super-mario 零工具系 tools 显式声明所致」假设（IL-021），随版带 IL-020 签署代录模式。**验证结论出来前请勿依赖本版——latest 仍为 0.8.1。**
+
+- **super-mario 工具供给实验（IL-021）**：`integrations/plugin/agents/super-mario.md` 移除 frontmatter `tools:` 显式声明。ZCode 渠道 spawn 零工具（manual §9 已知问题）的 C2 结论「平台侧不可修」存在误诊候选：sp-designer（无 tools 字段）spawn 工具齐全 vs super-mario（显式声明）零工具，且声明中的 find/ls 并非本 harness 工具名——显式列表按名解析失败疑似**整表丢弃**。去除后继承默认全量（含 super-plumber MCP `graph_*` 工具，恰为 mario 自行落盘 checkpoint/report/passed 所需）；pi 正本保留原声明待 pi 侧验证。**若实测通过，mario 将可在 ZCode 渠道自行完成裁决落盘全链路（签署代录模式退役为兜底）**。
+- **IL-020 签署代录模式成文**：mario 裁定文本即落盘凭据——逐 checkpoint 签署 + verdict + 显式落盘授权三件套，主控凭签署代录、无签署的簿记无效；super-mario 定义双副本 + manual §9 缓解模式段。
+- **web-ui**：passed 节点绿加深 `#34c964`→`#16a34a`。
+- 发布动作：npm `0.8.2-beta.1`（**beta tag，latest 仍为 0.8.1**）+ GitHub tag `v0.8.2-beta.1`；插件渠道 marketplace/plugin manifest 版本同步 0.8.2-beta.1 供更新实测。
+
 ## [0.8.1] — 2026-08-31（patch：决策凭据周边——删除拒绝理由、决议索引、星空前沿视图）
 
 > 主题：决策的「为什么不」进入可追溯面——删除带理由（F14），决议一屏可读（F15），调度面「现在就能干的活」一键直达（前沿视图）。
