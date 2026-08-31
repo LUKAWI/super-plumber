@@ -549,14 +549,23 @@ server.registerTool(
   {
     description:
       "从指定节点出发遍历相邻节点（DFS，最大深度与节点数双限制）。Use when you only care about a node's neighborhood. " +
-      "Returns { nodes: ordered visited ids, truncated } — truncated=true 表示达到 max_nodes 上限，缩小 max_depth 或换起点继续。",
+      "Returns { nodes: ordered visited ids, truncated, truncated_by_depth, truncated_by_nodes } — " +
+      "truncated=true 表示发生任一截断；truncated_by_depth=true 表示深度截断（max_depth 内未达末端，深链图上调 max_depth 或从更远起点/汇聚点分段遍历）；" +
+      "truncated_by_nodes=true 表示达到 max_nodes 上限（缩小 max_depth 或换起点继续）。",
     inputSchema: {
       node_id: z.string(),
       direction: z
         .enum(["downstream", "upstream", "both"])
         .optional()
         .default("downstream"),
-      max_depth: z.number().int().min(1).max(20).optional().default(3),
+      max_depth: z
+        .number()
+        .int()
+        .min(1)
+        .max(50)
+        .optional()
+        .default(3)
+        .describe("最大深度（默认3，上限50；深链图一次到末端请传足深度）"),
       max_nodes: z
         .number()
         .int()
@@ -577,10 +586,21 @@ server.registerTool(
     }
     const visited = new Set<string>();
     const result: string[] = [];
+    // IL-003：深度截断与节点数截断分开记账——此前深度截断被静默吞掉，
+    // truncated 只看节点数上限，深链图丢失整段下游还虚报 truncated:false
+    let truncatedByDepth = false;
+    let truncatedByNodes = false;
 
     function dfs(nodeId: string, depth: number) {
-      if (depth > max_depth || visited.has(nodeId)) return;
-      if (result.length >= max_nodes) return;
+      if (visited.has(nodeId)) return;
+      if (depth > max_depth) {
+        truncatedByDepth = true;
+        return;
+      }
+      if (result.length >= max_nodes) {
+        truncatedByNodes = true;
+        return;
+      }
       visited.add(nodeId);
       result.push(nodeId);
       if (direction === "downstream" || direction === "both") {
@@ -595,7 +615,12 @@ server.registerTool(
       }
     }
     dfs(node_id, 0);
-    return jsonGraph(gctx, { nodes: result, truncated: result.length >= max_nodes });
+    return jsonGraph(gctx, {
+      nodes: result,
+      truncated: truncatedByDepth || truncatedByNodes,
+      truncated_by_depth: truncatedByDepth,
+      truncated_by_nodes: truncatedByNodes,
+    });
   },
 );
 
@@ -1395,7 +1420,8 @@ server.registerTool(
   {
     description:
       "软删除节点（保留 .deleted.yaml 历史）。Refuses (with the list of referencing edges) unless cascade=true, so you can never leave dangling edges by accident. " +
-      "Soft delete: recoverable, audit-friendly.",
+      "Soft delete: recoverable, audit-friendly. " +
+      "Pass reason to record why (F14: written to the .deleted.yaml archive and the node_deleted audit event; optional — reason is a credential, not a refusal condition).",
     inputSchema: {
       id: z.string(),
       cascade: z
@@ -1403,13 +1429,23 @@ server.registerTool(
         .optional()
         .default(false)
         .describe("连同引用该节点的边一起软删除"),
+      reason: z
+        .string()
+        .optional()
+        .describe(
+          "删除理由（审计凭据：写入 .deleted.yaml 归档与 node_deleted 事件；缺省行为不变）",
+        ),
     },
   },
-  async ({ id, cascade }) => {
+  async ({ id, cascade, reason }) => {
     const gctx = await resolveGraphCtx();
     const rootDir = gctx.dir;
-    deleteNode(rootDir, id, { cascade, actor: mcpActor() });
-    return jsonGraph(gctx, { deleted: id, cascade });
+    deleteNode(rootDir, id, { cascade, actor: mcpActor(), reason });
+    return jsonGraph(gctx, {
+      deleted: id,
+      cascade,
+      ...(reason ? { reason } : {}),
+    });
   },
 );
 

@@ -65,6 +65,8 @@ interface GraphBucket {
 	levelFilter: number[] | null;
 	/** 状态过滤（可点状态 chips；null = 不过滤） */
 	statusFilter: NodeStatus[] | null;
+	/** 前沿（frontier）一键档：ready + ready_eligible 合并过滤（ctx-webui 术语） */
+	frontierOnly: boolean;
 	query: string;
 	activeMaps: ActiveMaps;
 	diff: DiffState | null;
@@ -101,6 +103,7 @@ function newBucket(): GraphBucket {
 		lastPatched: null,
 		levelFilter: null,
 		statusFilter: null,
+		frontierOnly: false,
 		query: "",
 		activeMaps: { ...( _uiPrefs.activeMaps ?? DEFAULT_ACTIVE_MAPS) },
 		diff: null,
@@ -463,6 +466,18 @@ export const graphState = {
 
 	clearStatusFilter() {
 		cur().statusFilter = null;
+	},
+
+	/** 前沿（frontier）一键档：开 = 只强调「现在就能干的活」（ready+ready_eligible） */
+	get frontierOnly() {
+		return curReadonly().frontierOnly;
+	},
+	setFrontierOnly(v: boolean) {
+		cur().frontierOnly = v;
+	},
+	toggleFrontier() {
+		const b = cur();
+		b.frontierOnly = !b.frontierOnly;
 	},
 
 	setQuery(q: string) {

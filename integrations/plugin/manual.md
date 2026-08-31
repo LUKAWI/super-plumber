@@ -1,7 +1,7 @@
 # Super Plumber Operations 手册（唯一正本）
 
 > **定位**：三访问层（CLI / MCP / 脚本）操作语法、状态机、错误处理、solo 裁决边界的**唯一权威正本**。角色提示词与 skill 中的一切语法引用指向本文对应章节；本文不复述任何角色的判断力内容（边类型选型、设计甄别、DoD 质量裁量等归各自角色提示词，见 §10/§11）。
-> **版本锚点**：super-plumber **0.8.0**（全部 CLI 参数经 `graph --help` 实测：0.6.1 重构期全量校，其后增量（0.7.x 多图/导出、0.8.0 approve 与写作规范）随交付核对；与旧文档不符处以实测为准，表中以〔已校〕标注）。
+> **版本锚点**：super-plumber **0.8.1**（全部 CLI 参数经 `graph --help` 实测：0.6.1 重构期全量校，其后增量（0.7.x 多图/导出、0.8.0 approve 与写作规范、0.8.1 拒绝理由凭据与分期导出）随交付核对；与旧文档不符处以实测为准，表中以〔已校〕标注）。
 > **分发**：正本住 `integrations/shared/manual.md`，由 `scripts/sync-integrations.mjs` 构建期同步进两个插件包（sha256 三方一致）；pi 侧只引用不拷贝。寻址写法见 §11。（该脚本属 v0.6.1 W3 波次，已接线并作为 prepublishOnly 发布门禁）
 
 目录：§1 访问层总览｜§2 design-ops｜§3 边类型判据式速查｜§4 execute-ops｜§5 状态机｜§6 工具总表（CLI+MCP）｜§7 脚本章｜§8 三层验收实操｜§9 错误处理大表｜§10 solo 自裁边界｜§11 寻址约定｜§12 漂移修正常记
@@ -84,7 +84,7 @@ graph update-node -i <id> [--plan-desc <text>] [--add-dod <item>]×N [--clear-do
   [--reset-attempts] [--show]
 ```
 
-软删除：`graph delete-node -i <id> [--cascade]`（有引用边默认拒绝）、`graph delete-edge -i <eid>`（保留 `.deleted.yaml` 历史）。索引损坏重建：`graph rebuild`。
+软删除：`graph delete-node -i <id> [--cascade] [--reason <理由>]`（有引用边默认拒绝；理由是审计凭据非拒绝条件——进 `.deleted.yaml` 归档与 `node_deleted` 事件，缺省行为不变）、`graph delete-edge -i <eid>`（保留 `.deleted.yaml` 历史）。索引损坏重建：`graph rebuild`。
 
 ### 2.4 领域顶点（context / ADR）语法
 
@@ -114,20 +114,21 @@ graph adr list -s proposed                                # -s proposed|accepted
 - MCP 侧创建用 `graph_create_adr`（同样自动编号+proposed）；**MCP 废弃须两步**：先 `graph_update_node {id, superseded_by:"adr_NNNN"}`，再 `graph_update_node_status {status:"superseded"}`。CLI `graph adr supersede` 是原子封装
 - **提议/裁决分离**：设计与执行 agent 只 produce proposed；accept/supersede 归 super-mario/人类（见 §10）
 - ADR 六字段 YAML 目标形态（格式示例；写得是否够格归设计师纪律）：`label`（短标题）/ `decision`（我们决定了什么）/ `background` / `considered_options`（备选取舍）/ `why` / `consequences`；废弃后出现 `superseded_by`
-- CONTEXT 顶点目标形态：`id: ctx_<短名>` / `type: context` / `label` / `boundary`（负责 X，不负责 Y）/ `glossary[].{term, definition}`（定义要能划界）/ `contracts[].{to, contract}`（对该 context 的默认契约，IL-012）
+- CONTEXT 顶点目标形态：`id: ctx_<短名>` / `type: context` / `label` / `boundary`（负责 X，不负责 Y）/ `glossary[].{term, definition}`（定义要能划界；definition 尾部可带 `Avoid:` 尾注，见下条）/ `contracts[].{to, contract}`（对该 context 的默认契约，IL-012）
+- **术语 Avoid 约定（WF06，0.8.1）**：definition 尾部可带尾注 `Avoid: x, y`（`avoid:` 小写与全半角冒号同样识别；尾注前的正文即定义主体），语义 = 该术语的反模式与禁用叫法标注，多条逗号分隔。写作两条约束：尾注放 definition 尾部——解析按 `Avoid:` 首次出现切分，正文中间出现同样会被切出；definition 不以 `Avoid:` 开头——整串无正文时视为未按约定、原样呈现不切分。web-ui 按此约定解析并在领域图分区高亮呈现（不依赖 schema 新字段）；schema 专用字段后置不建，约定先行
 
 ### 2.5 快照与文档导出
 
 ```bash
 graph snapshot -m "<定稿说明>"      # 快照即定稿点：自动导出 CONTEXT-MAP.md + docs/contexts/ + docs/adr/
-graph export --docs [--adr-dir docs/adr] [--ctx-dir docs/contexts]   # 手动补导出
+graph export --docs [--adr-dir docs/adr] [--ctx-dir docs/contexts]   # 手动补导出（0.8.1 起含 DECISIONS.md 决议一行索引）
 graph export --mermaid -o topology.mmd                # 默认 Mermaid 流程图（表达约定见下）
 graph snapshots [--json]; graph diff [--from id] [--to id]; graph rollback <snapshot-id> --confirm [--design-only]
 ```
 
 真相源是 YAML 字段，markdown 只是导出视图——别在图里存 markdown。rollback 必须显式 `--confirm`（自动备份当前状态）；`--design-only` 只回滚设计态、保留执行进度。
 
-**导出表达约定（v0.6.2；Mermaid 与 DOT 同一映射——`graph export --mermaid` 与 `graph rebuild` 产出的 topology.dot 表达一致；导出仍为纯文本 .mmd/.dot，渲染交给外部工具 mermaid.live / Graphviz）**：
+**导出表达约定（v0.6.2；Mermaid 与 DOT 同一映射——`graph export --mermaid` 与 `graph rebuild` 产出的 topology.dot 形状/配色/边样式映射一致，0.8.1 起 mermaid 另有 level 分期带 subgraph 分组而 DOT 仍平铺；导出仍为纯文本 .mmd/.dot，渲染交给外部工具 mermaid.live / Graphviz）**：
 
 | 顶点 | 形状/配色 |
 |------|-----------|
@@ -217,6 +218,21 @@ serve 贯穿全程不关闭、已在运行不重复启动（编排纪律在 skil
 - **glob 必须排除软删审计文件**：`nodes/*.yaml` 会连 `*.deleted.yaml`、`*.deleted.<时间戳>.yaml` 一起匹配——软删历史是审计档案不是数据源，被卷入后同一 id 被多来源反复改写（2026-08-30 批量改 61 个节点标签，11 个节点被污染成旧文案+双重前缀，docs/issue-log.md IL-002）
 - **批量前打快照**：`graph snapshot -m "<批量说明>"`（§2.5），污染可整体回滚而非逐个手工修复
 - **批量后跑 `graph validate` 并抽样核对被改字段**：validate 只保结构不保内容——另抽 2~3 个被改节点读回字段与预期逐一比对，确认改的是想要的值（事故中 validate 全绿、污染照样落盘）
+
+### 2.11 节点类型×默认纪律映射 + plan 纪律指针惯例（WF07）
+
+何时查这小节：建节点选 type、给节点配 checkpoints/verifier、在节点 plan 里写纪律指针时。状态机与调度语义以 §4/§5 为准，本表只做按类型的默认纪律与 verifier 惯例速查（人机介入四口的细分口径归 0.9.1 正交决策表，此处不展开）。
+
+| 类型 | 状态机归属（§5） | 调度面 | 默认纪律与 verifiers 惯例 |
+|------|-----------------|--------|--------------------------|
+| task | 工作流七态 | 进调度桶；完成判定按 task 节点计数（§5.3） | 三要素齐（E4）；checkpoint 常态 `verifier: auto`（机械核验，对应 §10.1 自裁项）；含主观裁量的环节落 `human`（对应 §10.2 留人清单）；交叉评审环节用 `cross_review` |
+| checkpoint | 工作流七态 | 同 task | 用作阶段验收/检查位：DoD 写通过判据；verifier 按判据性质在 auto / cross_review / human 三值中选 |
+| decision | 工作流七态 | 同 task | 用作流程中途的显式决策位：plan 写决策问题与备选，结论落 DoD 可核对项；够 ADR 三判据的方案取舍走 §2.4 的 ADR，不在 decision 位重复造裁决 |
+| gate | 工作流七态 | 同 task（作为下游前驱时即门禁位，规则 1） | 用作硬放行点：DoD = 放行判据；用户审核类 gate 用 `verifier: human`（批准是人给的，§10.2），机械放行判据用 `auto` |
+| context | 无状态（知识顶点豁免，§5.3） | 永不进调度桶 | 节点即文档：boundary + glossary（含 Avoid 尾注，§2.4）+ contracts；不配 checkpoints/DoD，状态变更一律拒绝 |
+| adr | ADR 三态 proposed → accepted → superseded | 永不进调度桶 | 六字段（§2.4）；decides 边挂管辖对象防孤儿；accept/supersede 归裁决方（§10.2），设计与执行 agent 停在 proposed |
+
+**plan 纪律指针惯例（条件式；DEC-6）**：节点 plan 可指名 **SP 自带纪律技能**（如 plumber-tdd / plumber-review，随 0.9.4 起的 S11 分期落地）作执行纪律参照，写法必须是条件式建议——「若本环境存在 plumber-tdd 技能，按其约定执行本节点」。两条约束：**只指 SP 自带技能**（DEC-6：借鉴风格、不做外部运行时依赖，绝不指向外部技能库）；**存在才建议、缺失静默降级**——指针命中不了时执行者直接按 plan/DoD 干活，不另找替代、不阻塞、不报错。
 
 ---
 
@@ -386,10 +402,10 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 | `get-node` / `gn` | 读节点全文+合法转换+门禁 | `-i --json --neighbors up/down/none` |
 | `add-edge` / `ae` | 建边（校验端点存在） | `-i -s -t --type --rel-kind --contract` |
 | `status` / `s` | 图状态总览 | `--json` |
-| `export` / `x` | 导出（Mermaid/领域文档；顶点形状/边样式/文件头约定见 §2.5） | `--mermaid --docs --adr-dir --ctx-dir -o`〔已校：--docs 及目录参数〕 |
+| `export` / `x` | 导出（Mermaid/领域文档；顶点形状/边样式/文件头约定见 §2.5；mermaid 默认按 level 分期带 subgraph 分组） | `--mermaid --docs --adr-dir --ctx-dir -o --levels <1,2> --band-name <level>=<名>`〔已校：--docs 及目录参数；0.8.1 增 --levels/--band-name，--docs 增发 DECISIONS.md〕 |
 | `serve` / `sv` | Web UI 预览 | `-p`（默认 8934）`--no-open` |
 | `approve` | 写入设计审核凭据（DEC-1：review 字段 + design_approved 事件；仅记录，零门禁） | `--by <名>`（必填）`--status approved/self`〔已校：新增〕 |
-| `delete-node` / `dn` | 软删除节点 | `-i --cascade` |
+| `delete-node` / `dn` | 软删除节点（理由是凭据非拒绝条件） | `-i --cascade --reason <text>`〔已校：--reason 0.8.1 增，进 .deleted.yaml 归档与 node_deleted 事件〕 |
 | `delete-edge` / `de` | 软删除边 | `-i` |
 | `validate` / `v` | 结构完整性校验 | `--json` |
 | `rebuild` / `rb` | 重建 index 派生索引 | — |
@@ -417,7 +433,7 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 | 调度 | `graph_get_next_actions` | 规划循环首选，一次返回五桶 | stale_ms 默认 30 分钟；桶上限 limit=100；支持 assigned_to 过滤 |
 | 读 | `graph_get_node` | 节点全文+allowed_transitions+checkpoint_aggregate+ready_gate(+governing_adrs) | include_neighbors up/down |
 | 读 | `graph_get_graph` | 图拓扑+邻接（索引缓存） | 默认 summary 紧凑模式；full 用 offset/limit 分页（页默认200） |
-| 读 | `graph_traverse` | DFS 遍历邻居 | direction/max_depth/max_nodes；返回 nodes+truncated |
+| 读 | `graph_traverse` | DFS 遍历邻居 | direction/max_depth（默认3、上限50）/max_nodes；返回 nodes+truncated+truncated_by_depth+truncated_by_nodes（IL-003：深度截断与节点数截断分别如实上报，truncated=任一发生；深链图一次到末端传足 max_depth，或从更远起点/汇聚点分段遍历） |
 | 读 | `graph_search` | 按 query/status/type/assigned_to/level 过滤 | 返回 total+nodes（紧凑字段） |
 | 写·设计 | `graph_create_node` | 建节点（一次带 plan/DoD/checkpoints） | 重复 id 报错绝不覆盖 |
 | 写·设计 | `graph_batch_create` | 批量建 nodes+edges（先全量预校验） | 每批 ≤200 节点 |
@@ -426,7 +442,7 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 | 写·设计 | `graph_update_graph` | 图级字段编辑 | 同 §2.2 六字段 |
 | 写·设计 | `graph_approve` | DEC-1 写入设计审核凭据（review 字段 + design_approved 事件） | status approved=人工（默认）/self=quick 自签；幂等覆盖；仅记录零门禁〔已校：新增〕 |
 | 写·设计 | `graph_create_adr` | 创建 ADR（自动编号+proposed） | 〔已校：新增〕孤儿 ADR 会被警告 |
-| 写·设计 | `graph_delete_node` | 软删除节点 | cascade:true 连边删 |
+| 写·设计 | `graph_delete_node` | 软删除节点 | cascade:true 连边删；reason 写审计凭据（0.8.1） |
 | 写·设计 | `graph_delete_edge` | 软删除边 | — |
 | 写·执行 | `graph_update_node_status` | 状态流转；claim=status running+claim_by | force 一律协议拒绝 |
 | 写·执行 | `graph_update_checkpoint` | 上报单个 checkpoint | 幂等；完成即报 |

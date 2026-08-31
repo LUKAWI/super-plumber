@@ -124,6 +124,38 @@ describe("CLI commands", () => {
     expect(() => run("delete-node --id ghost")).toThrow();
   });
 
+  it("F14: graph delete-node --reason 理由写入 .deleted.yaml 与事件", () => {
+    run("init t");
+    run("create-node --id a --label A");
+    // spawnSync 参数数组避免 Windows cmd 的引号剥除（同 update-node 用例）
+    const { spawnSync } = require("node:child_process");
+    const res = spawnSync(
+      process.execPath,
+      [
+        path.resolve("dist/cli/index.js"),
+        "delete-node",
+        "--id",
+        "a",
+        "--reason",
+        "superseded-by-v2-design",
+      ],
+      { cwd: tmpDir, encoding: "utf-8" },
+    );
+    expect(res.status).toBe(0);
+    const deleted = fs.readFileSync(
+      path.join(tmpDir, ".graph/t/nodes/a.deleted.yaml"),
+      "utf-8",
+    );
+    expect(deleted).toContain("deleted_reason:");
+    expect(deleted).toContain("superseded-by-v2-design");
+    const events = fs.readFileSync(
+      path.join(tmpDir, ".graph/t/events.jsonl"),
+      "utf-8",
+    );
+    expect(events).toContain("superseded-by-v2-design");
+    // DEC-3：理由是凭据不是拒绝条件——缺省仍可删除（前一个用例已覆盖无 reason 删除）
+  });
+
   it("graph update-node --add-checkpoint 多次传参全部保留", () => {
     run("init t");
     run("create-node --id a --label A");

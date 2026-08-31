@@ -7,6 +7,7 @@
     isKnowledgeType,
   } from "../lib/types";
   import { adrFlagsFor } from "../lib/maps";
+  import { parseAvoidNote } from "../lib/glossary";
   import Markdown from "../lib/components/Markdown.svelte";
   import DetailDrawer from "../lib/components/DetailDrawer.svelte";
 
@@ -231,10 +232,22 @@
             <span class="section-count">{node.glossary.length}</span>
           </h3>
           <dl class="glossary-list">
-            {#each node.glossary as entry}
-              <div class="glossary-entry">
+            {#each node.glossary as entry (entry.term + entry.definition)}
+              {@const avoidNote = parseAvoidNote(entry.definition)}
+              <div class="glossary-entry" class:has-avoid={avoidNote.avoid !== null}>
                 <dt class="glossary-term">{entry.term}</dt>
-                <dd class="glossary-def">{entry.definition}</dd>
+                <dd class="glossary-def">{avoidNote.text}</dd>
+                {#if avoidNote.avoid !== null}
+                  <!-- Avoid 尾注：约定解析（glossary.ts），警示分区高亮 -->
+                  <dd class="glossary-avoid" role="note">
+                    <svg class="avoid-icon" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+                      <circle cx="6" cy="6" r="4.6"/>
+                      <path d="M6 3.4v3.2M6 8.4v.9" stroke-linecap="round"/>
+                    </svg>
+                    <span class="avoid-tag">Avoid</span>
+                    <span class="avoid-text">{avoidNote.avoid}</span>
+                  </dd>
+                {/if}
               </div>
             {/each}
           </dl>
@@ -736,6 +749,47 @@
     line-height: 1.7;
     color: var(--ink-muted);
     margin: 0;
+  }
+
+  /* Avoid 尾注（0.8.1 P1-9）：定义尾部的「别这么叫」约定分区高亮。
+     警示琥珀档（running 色相）——禁令语义但不冒充 failed 红（失败语义专属） */
+  .glossary-entry.has-avoid {
+    border-color: rgba(240, 167, 58, 0.35);
+  }
+
+  .glossary-avoid {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sp-2);
+    margin: var(--sp-2) 0 0;
+    padding: var(--sp-2) var(--sp-2);
+    background: rgba(240, 167, 58, 0.1);
+    border: 1px solid rgba(240, 167, 58, 0.3);
+    border-radius: var(--r-sm);
+    font-family: var(--font-sans);
+    font-size: var(--text-xs);
+    line-height: 1.6;
+    color: var(--status-running);
+  }
+
+  .avoid-icon {
+    flex-shrink: 0;
+    margin-top: 3px;
+  }
+
+  .avoid-tag {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    font-weight: 700;
+    letter-spacing: var(--track-caps);
+    text-transform: uppercase;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .avoid-text {
+    color: var(--ink);
+    min-width: 0;
   }
 
   /* context 成员清单 */

@@ -98,16 +98,35 @@ describe("App 渲染冒烟（S0-6 黑屏回归）", () => {
 		expect(document.body.textContent).toContain("正在连接拓扑服务");
 	});
 
-	it("RS-02 数据到达后节点标签真实渲染（applyFull → DOM 可见）", async () => {
-		app = mount(App, { target: document.body });
-		// 与 ws onGraph 处理器同路径注入全量数据（首个到达的图成为当前图）
-		graphState.applyFull("smoke", miniGraph());
-		await vi.waitFor(
-			() => {
-				const label = document.querySelector("text.node-label");
-				expect(label?.textContent).toContain("冒烟节点");
-			},
-			{ timeout: 4000 },
-		);
-	});
+  it("RS-02 数据到达后节点标签真实渲染（applyFull → DOM 可见）", async () => {
+    app = mount(App, { target: document.body });
+    // 与 ws onGraph 处理器同路径注入全量数据（首个到达的图成为当前图）
+    graphState.applyFull("smoke", miniGraph());
+    await vi.waitFor(
+      () => {
+        const label = document.querySelector("text.node-label");
+        expect(label?.textContent).toContain("冒烟节点");
+      },
+      { timeout: 4000 },
+    );
+  });
+
+  it("RS-03 前沿一键档：顶栏 chip 渲染前沿计数，点击即过滤（0.8.1 P1-8）", async () => {
+    app = mount(App, { target: document.body });
+    // pending 无门控入边 = 空门禁自然满足 → 前沿成员
+    graphState.applyFull("smoke", miniGraph());
+    await vi.waitFor(() => {
+      const chip = document.querySelector(".frontier-chip");
+      expect(chip).not.toBeNull();
+      expect(chip?.getAttribute("aria-pressed")).toBe("false");
+      expect(chip?.querySelector(".sb-n")?.textContent).toBe("1");
+    });
+    // 点击 → 前沿档开启（aria-pressed 翻转；store 桶状态同步）
+    document.querySelector<HTMLButtonElement>(".frontier-chip")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await vi.waitFor(() => {
+      expect(document.querySelector(".frontier-chip")?.getAttribute("aria-pressed")).toBe("true");
+      expect(graphState.frontierOnly).toBe(true);
+    });
+  });
 });

@@ -21,6 +21,8 @@
     isEdgeVisibleInMaps,
     nodeMapOf,
   } from "../lib/maps";
+  import { frontierIds } from "../lib/frontier";
+  import { PHASE_BANDS, phaseGroups, type PhaseBandId } from "../lib/phase";
 
   // Extend NodeSchema with D3 simulation properties
   type SimNode = NodeSchema & d3.SimulationNodeDatum;
@@ -147,22 +149,29 @@
     return graphState.activeMaps.workflow || graphState.activeMaps.domain;
   }
 
-  function nodeMatchesFilters(n: NodeSchema): boolean {
+  /**
+   * 过滤命中判断（层级 + 状态 + 搜索 + 前沿档）。
+   * frontier = 前沿（frontier）id 集（ready + ready_eligible 合并，调用方按需派生）；
+   * null = 前沿档关闭，不做前沿过滤。
+   */
+  function nodeMatchesFilters(n: NodeSchema, frontier: Set<string> | null): boolean {
     const levels = graphState.levelFilter;
     if (levels !== null && !levels.includes(n.level)) return false;
     const statuses = graphState.statusFilter;
     if (statuses !== null && !statuses.includes(n.status as NodeStatus)) return false;
     const q = graphState.query.trim().toLowerCase();
     if (q && !n.id.toLowerCase().includes(q) && !n.label.toLowerCase().includes(q)) return false;
+    if (frontier !== null && !frontier.has(n.id)) return false;
     return true;
   }
 
-  /** 当前过滤（层级+状态+搜索）下可见的节点数（0 → 画布空态提示） */
+  /** 当前过滤（层级+状态+搜索+前沿）下可见的节点数（0 → 画布空态提示） */
   const filterMatchCount = $derived.by(() => {
     const g = graphState.graph;
     if (!g) return 0;
+    const frontier = graphState.frontierOnly ? frontierIds(g) : null;
     return g.nodes.filter(
-      (n) => n.type !== "adr" && nodeRendered(n) && nodeMatchesFilters(n),
+      (n) => n.type !== "adr" && nodeRendered(n) && nodeMatchesFilters(n, frontier),
     ).length;
   });
 
@@ -170,7 +179,8 @@
   const filtersActive = $derived(
     graphState.query.trim() !== "" ||
       graphState.levelFilter !== null ||
-      graphState.statusFilter !== null,
+      graphState.statusFilter !== null ||
+      graphState.frontierOnly,
   );
 
   function edgeEndId(v: SimNode | string): string {
@@ -283,10 +293,15 @@
 
   function applyFiltersAndDiff() {
     if (!svgEl || !zoomGroup) return;
+    // 前沿（frontier）档：开 = 只强调 ready + ready_eligible，其余淡化。
+    // 同步读取（供下方 d3 回调闭包）：graphState.frontierOnly 由此被 $effect 追踪。
+    const frontierGraph = currentGraph ?? graphState.graph;
+    const frontier =
+      graphState.frontierOnly && frontierGraph ? frontierIds(frontierGraph) : null;
     const nodeSel = zoomGroup.selectAll<SVGGElement, SimNode>(".nodes > g.node");
     nodeSel
       .classed("map-hidden", (d: SimNode) => !nodeRendered(d))
-      .classed("dimmed", (d: SimNode) => !nodeMatchesFilters(d));
+      .classed("dimmed", (d: SimNode) => !nodeMatchesFilters(d, frontier));
     const diffMap = new Map<string, string | null>();
     for (const n of currentNodes) diffMap.set(n.id, diffClassOf("node", n.id));
     nodeSel
@@ -1342,6 +1357,7 @@
   $effect(() => {
     void graphState.levelFilter;
     void graphState.query;
+    void graphState.frontierOnly;
     applyFiltersAndDiff();
   });
   $effect(() => {
@@ -1451,8 +1467,48 @@
       label: g.nodes.find((n) => n.id === id)?.label ?? id,
     }));
   });
+
+  // ── 分期图例（0.8.1：开发顺序四相；领域图/叠加视图显示）──
+  // 段位由节点 id 前缀（或标签段位）派生（lib/phase.ts），不改图数据；
+  // 点击段位 → 成员清单弹层；配套分期索引域（ctx-phase-*）存在时可跳转。
+  const phaseLegend = $derived.by(() => {
+    const g = graphState.graph;
+    if (!g || !graphState.activeMaps.domain) return [];
+    const groups = phaseGroups(g.nodes);
+    return PHASE_BANDS.map((band) => ({
+      ...band,
+      members: groups.get(band.id) ?? [],
+      ctxNode: g.nodes.find((n) => n.id === band.ctxId) ?? null,
+    }));
+  });
+
+  let openPhase = $state<PhaseBandId | null>(null);
+  const openPhaseBand = $derived(
+    openPhase ? phaseLegend.find((b) => b.id === openPhase) ?? null : null,
+  );
+
+  function togglePhasePopover(id: PhaseBandId) {
+    openPhase = openPhase === id ? null : id;
+  }
+
+  /** 图例成员点击：选中并平移居中（与搜索 Enter 同语言） */
+  function jumpToNode(n: NodeSchema) {
+    graphState.selectNode(n);
+    graphState.locateNode(n.id);
+  }
+
+  // 透镜关闭时收起成员弹层（重开不残留上次的展开态）
+  $effect(() => {
+    if (!graphState.activeMaps.domain) openPhase = null;
+  });
+
+  /** Esc 收起成员弹层（画布本地浮层；与 App 的全局退出手势并行不冲突） */
+  function phaseEscape(e: KeyboardEvent) {
+    if (e.key === "Escape" && openPhase !== null) openPhase = null;
+  }
 </script>
 
+<svelte:window onkeydown={phaseEscape} />
 <!-- 键盘分组循环的冒泡容器（可交互焦点都在内部 SVG/子弹层上，容器自身不可聚焦） -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div bind:this={wrapperEl} class="canvas-wrapper" onkeydown={canvasKeydown}>
@@ -1471,22 +1527,80 @@
   {:else if graphState.graph && filtersActive && filterMatchCount === 0}
     <div class="lens-empty" role="status">
       <span>没有匹配当前过滤条件的节点</span>
-      <button class="lens-empty-clear" onclick={() => { graphState.setQuery(""); graphState.setLevelFilter(null); graphState.clearStatusFilter(); }}>
+      <button class="lens-empty-clear" onclick={() => { graphState.setQuery(""); graphState.setLevelFilter(null); graphState.clearStatusFilter(); graphState.setFrontierOnly(false); }}>
         清除过滤
       </button>
     </div>
   {/if}
 
-  {#if overlayLegend.length > 0}
-    <div class="ctx-legend" aria-label="context 簇色图例">
-      {#each overlayLegend as item (item.id)}
-        <span class="ctx-legend-item">
-          <span class="ctx-dot" style="background: {item.color}"></span>
-          <span class="ctx-name">{item.label}</span>
-        </span>
-      {/each}
-    </div>
-  {/if}
+  <div class="legend-stack">
+    {#if overlayLegend.length > 0}
+      <div class="ctx-legend" aria-label="context 簇色图例">
+        {#each overlayLegend as item (item.id)}
+          <span class="ctx-legend-item">
+            <span class="ctx-dot" style="background: {item.color}"></span>
+            <span class="ctx-name">{item.label}</span>
+          </span>
+        {/each}
+      </div>
+    {/if}
+
+    {#if phaseLegend.length > 0}
+      <div class="phase-legend" aria-label="开发分期图例">
+        <span class="phase-legend-title">开发分期</span>
+        {#each phaseLegend as band (band.id)}
+          <button
+            class="phase-item"
+            class:zero={band.members.length === 0}
+            class:expanded={openPhase === band.id}
+            aria-expanded={openPhase === band.id}
+            onclick={() => togglePhasePopover(band.id)}
+            title="开发顺序段位 {band.label}——点击看成员清单"
+          >
+            <span class="phase-dot" style="background: {band.color}"></span>
+            <span class="phase-name">{band.label}</span>
+            <span class="phase-count">{band.members.length}</span>
+          </button>
+        {/each}
+
+        {#if openPhaseBand}
+          <div class="phase-popover" role="dialog" aria-label="{openPhaseBand.label} 段成员清单">
+            <div class="phase-popover-head">
+              <span class="phase-popover-title">
+                <span class="phase-dot" style="background: {openPhaseBand.color}"></span>
+                {openPhaseBand.label}
+              </span>
+              {#if openPhaseBand.ctxNode}
+                <button
+                  class="phase-ctx-link"
+                  onclick={() => jumpToNode(openPhaseBand.ctxNode!)}
+                  title="打开分期索引域（context，含边界与术语）"
+                >{openPhaseBand.ctxNode.id}</button>
+              {/if}
+              <button class="phase-popover-close" onclick={() => (openPhase = null)} aria-label="收起成员清单">
+                <svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                  <path d="M1 1l7 7M8 1 1 8" stroke-linecap="round"/>
+                </svg>
+              </button>
+            </div>
+            {#if openPhaseBand.members.length === 0}
+              <p class="phase-popover-empty">当前图无此段节点</p>
+            {:else}
+              <div class="phase-member-list">
+                {#each openPhaseBand.members as m (m.id)}
+                  <button class="phase-member" onclick={() => jumpToNode(m)} title="{m.label}（{m.status}）">
+                    <span class="phase-member-dot" style="background: {statusColorOf(m.status)}"></span>
+                    <span class="phase-member-name">{m.label}</span>
+                    <span class="phase-member-id">{m.id}</span>
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </div>
+    {/if}
+  </div>
 
   {#if graphState.diff}
     <div class="diff-mode-chip" role="status">
@@ -1787,11 +1901,23 @@
     }
   }
 
-  /* 簇色图例（叠加视图，浮动 dock 右侧：玻璃胶囊，永不与右缘抽屉重叠） */
-  .ctx-legend {
+  /* 簇色图例 + 分期图例共用的左下泊位：栈容器定位，互不重叠、随内容纵向生长 */
+  .legend-stack {
     position: absolute;
     left: calc(var(--rail-w) + 20px);
     bottom: var(--sp-4);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    z-index: 5;
+    max-width: 220px;
+    /* 容器本体不吃点击（空白处点击 = 清除选中）；面板各自接管 */
+    pointer-events: none;
+  }
+
+  /* 簇色图例（叠加视图，浮动 dock 右侧：玻璃胶囊，永不与右缘抽屉重叠） */
+  .ctx-legend {
     display: flex;
     flex-direction: column;
     gap: 3px;
@@ -1804,7 +1930,6 @@
     padding: var(--sp-2) var(--sp-3);
     max-width: 220px;
     pointer-events: none;
-    z-index: 5;
   }
 
   .ctx-legend-item {
@@ -1823,6 +1948,239 @@
     height: 8px;
     border-radius: 50%;
     flex-shrink: 0;
+  }
+
+  /* ── 分期图例（开发顺序四相）：与簇色图例同语言的玻璃胶囊，可点 ── */
+  .phase-legend {
+    position: relative; /* 成员弹层的定位锚 */
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    background: var(--glass);
+    -webkit-backdrop-filter: var(--blur-panel);
+    backdrop-filter: var(--blur-panel);
+    border: 1px solid var(--glass-line);
+    border-radius: var(--r);
+    box-shadow: var(--shadow-float);
+    padding: var(--sp-2) var(--sp-3);
+    pointer-events: auto;
+  }
+
+  .phase-legend-title {
+    font-family: var(--font-sans);
+    font-size: var(--text-2xs);
+    font-weight: 650;
+    color: var(--ink-faint);
+    padding-bottom: var(--sp-1);
+  }
+
+  .phase-item {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    background: transparent;
+    border: none;
+    border-radius: var(--r-sm);
+    padding: 3px var(--sp-1);
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.13s var(--ease-out-quart);
+  }
+
+  .phase-item:hover {
+    background: var(--wash-2);
+  }
+
+  .phase-item:focus-visible {
+    outline: 2px solid var(--interactive);
+    outline-offset: 1px;
+  }
+
+  .phase-item.zero {
+    opacity: 0.45;
+  }
+
+  .phase-item.expanded {
+    background: var(--wash-2);
+  }
+
+  .phase-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .phase-name {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--ink-muted);
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+
+  .phase-item:hover .phase-name,
+  .phase-item.expanded .phase-name {
+    color: var(--ink);
+  }
+
+  .phase-count {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--ink-faint);
+    background: var(--wash-2);
+    border-radius: 999px;
+    padding: 0 7px;
+    font-variant-numeric: tabular-nums;
+    margin-left: auto;
+  }
+
+  /* 成员清单弹层：自图例上方展开（同泊位生长，不与画布交互面争地） */
+  .phase-popover {
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + 8px);
+    min-width: 240px;
+    max-width: 300px;
+    max-height: 40vh;
+    overflow-y: auto;
+    background: var(--glass-strong);
+    -webkit-backdrop-filter: var(--blur-panel);
+    backdrop-filter: var(--blur-panel);
+    border: 1px solid var(--glass-line);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-float), inset 0 1px 0 var(--hi-line);
+    padding: var(--sp-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+  }
+
+  .phase-popover-head {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+  }
+
+  .phase-popover-title {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    font-family: var(--font-sans);
+    font-size: var(--text-2xs);
+    font-weight: 650;
+    color: var(--ink);
+    flex: 1;
+    min-width: 0;
+  }
+
+  .phase-ctx-link {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--ink-muted);
+    background: var(--wash-2);
+    border: none;
+    border-radius: 999px;
+    padding: 2px 9px;
+    cursor: pointer;
+    transition: background 0.13s var(--ease-out-quart), color 0.13s var(--ease-out-quart);
+    flex-shrink: 0;
+  }
+
+  .phase-ctx-link:hover {
+    background: var(--wash-3);
+    color: var(--ink);
+  }
+
+  .phase-ctx-link:focus-visible {
+    outline: 2px solid var(--interactive);
+    outline-offset: 1px;
+  }
+
+  .phase-popover-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    background: transparent;
+    border: none;
+    border-radius: var(--r-sm);
+    color: var(--ink-faint);
+    cursor: pointer;
+    transition: background 0.13s var(--ease-out-quart), color 0.13s var(--ease-out-quart);
+    flex-shrink: 0;
+  }
+
+  .phase-popover-close:hover {
+    background: var(--wash-2);
+    color: var(--ink);
+  }
+
+  .phase-popover-close:focus-visible {
+    outline: 2px solid var(--interactive);
+    outline-offset: 1px;
+  }
+
+  .phase-popover-empty {
+    font-family: var(--font-sans);
+    font-size: var(--text-2xs);
+    color: var(--ink-faint);
+    margin: 0;
+  }
+
+  .phase-member-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .phase-member {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    background: transparent;
+    border: none;
+    border-radius: var(--r-sm);
+    padding: 4px var(--sp-1);
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.13s var(--ease-out-quart);
+  }
+
+  .phase-member:hover {
+    background: var(--wash-2);
+  }
+
+  .phase-member:focus-visible {
+    outline: 2px solid var(--interactive);
+    outline-offset: 1px;
+  }
+
+  .phase-member-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .phase-member-name {
+    font-family: var(--font-sans);
+    font-size: var(--text-2xs);
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  .phase-member-id {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--ink-faint);
+    letter-spacing: 0.02em;
+    flex-shrink: 0;
+    margin-left: auto;
   }
 
   /* 对比模式徽章（画布顶部居中：模式可见，不再静默切换） */
@@ -1988,15 +2346,27 @@
   }
 
   @media (max-width: 768px) {
-    .ctx-legend {
+    .legend-stack {
       max-width: 150px;
       left: var(--sp-2);
       bottom: calc(56px + 20px);
+    }
+    .ctx-legend {
+      max-width: 150px;
+    }
+    .phase-popover {
+      max-width: 220px;
     }
   }
 
   @media (prefers-reduced-motion: reduce) {
     .zoom-hint { transition: none; }
+    .phase-item,
+    .phase-ctx-link,
+    .phase-popover-close,
+    .phase-member {
+      transition: none;
+    }
   }
 
   /* 微尘由 d3 生成 → 样式走 :global（keyframes 同） */

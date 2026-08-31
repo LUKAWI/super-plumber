@@ -13,6 +13,7 @@ import {
   deleteNode,
   deleteEdge,
 } from "../../src/core/parser.js";
+import { readEvents } from "../../src/core/eventlog.js";
 import {
   NodeType,
   NodeStatus,
@@ -138,5 +139,56 @@ describe("Parser", () => {
     const g = readGraph(tmpDir);
     expect(g.nodes.map((n) => n.file)).toEqual(["nodes/b.yaml"]);
     expect(g.edges).toEqual([]);
+  });
+
+  // ── F14（0.8.1）：delete-node reason 双通道的核心面 ──
+  it("F14 deleteNode 带 reason：理由写入 .deleted.yaml 归档与 node_deleted 事件", () => {
+    writeNode(tmpDir, {
+      id: "a",
+      type: NodeType.Task,
+      label: "A",
+      level: 1,
+      status: NodeStatus.Pending,
+      attempts: 0,
+      max_attempts: 3,
+      created_at: "x",
+      updated_at: "x",
+    });
+    deleteNode(tmpDir, "a", { reason: "与 v2 设计冲突", actor: "tester" });
+    const content = fs.readFileSync(
+      path.join(tmpDir, ".graph/nodes/a.deleted.yaml"),
+      "utf-8",
+    );
+    expect(content).toContain("deleted_reason:");
+    expect(content).toContain("与 v2 设计冲突");
+    expect(content).toContain("deleted_by: tester");
+    const evt = readEvents(tmpDir, { kind: "node_deleted" }).find(
+      (e) => e.node === "a",
+    );
+    expect(evt?.detail).toContain("与 v2 设计冲突");
+  });
+
+  it("F14 deleteNode 缺省 reason：行为保持现状（归档无 deleted_reason、事件无 detail）", () => {
+    writeNode(tmpDir, {
+      id: "b",
+      type: NodeType.Task,
+      label: "B",
+      level: 1,
+      status: NodeStatus.Pending,
+      attempts: 0,
+      max_attempts: 3,
+      created_at: "x",
+      updated_at: "x",
+    });
+    deleteNode(tmpDir, "b");
+    const content = fs.readFileSync(
+      path.join(tmpDir, ".graph/nodes/b.deleted.yaml"),
+      "utf-8",
+    );
+    expect(content).not.toContain("deleted_reason");
+    const evt = readEvents(tmpDir, { kind: "node_deleted" }).find(
+      (e) => e.node === "b",
+    );
+    expect(evt?.detail).toBeUndefined();
   });
 });

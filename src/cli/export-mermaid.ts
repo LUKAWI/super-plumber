@@ -130,26 +130,74 @@ function mermaidEdgeLine(edge: EdgeSchema): string {
   }
 }
 
-/** 0.6.2：拼 Mermaid 文本的纯函数（I/O 在 action 里做），形状/配色/头注释可单测锁定 */
+/** 单个顶点定义行（不带缩进前缀，平铺/分期带两种布局共用同一形状映射） */
+function mermaidNodeLine(node: NodeSchema): string {
+  const esc = escapeMermaidLabel(node.label);
+  if (node.type === "context") {
+    // 知识顶点：胶囊形，固定 context class（context 无工作流状态，不接状态色）
+    return `${node.id}(["${esc}"]):::context;`;
+  } else if (node.type === "adr") {
+    // 知识顶点：六边形，adr_<status> class（三态调色板；意外状态兜底灰）
+    return `${node.id}{{"${esc}"}}:::adr_${node.status};`;
+  }
+  return `${node.id}["${esc}"]:::${node.status};`;
+}
+
+/** 知识顶点判定：context/ADR 是横切领域知识，不进 level 分期带（IL-004） */
+function isKnowledgeNode(node: NodeSchema): boolean {
+  return node.type === "context" || node.type === "adr";
+}
+
+/** id 升序比较器：分期带布局的显式稳定排序（Git diff 噪音可控） */
+function byId(a: NodeSchema, b: NodeSchema): number {
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/** IL-004：分期带选项（缺省全空 = 保持平铺现状，向后兼容） */
+export interface MermaidBandOptions {
+  /** 按 level 分期带生成 subgraph 分组 */
+  groupByLevel?: boolean;
+  /** level → 分期域名（组名显示 `L<n> · 域名`；缺省只显示 `L<n>`） */
+  bandNames?: Record<number, string>;
+}
+
+/** 0.6.2：拼 Mermaid 文本的纯函数（I/O 在 action 里做），形状/配色/头注释可单测锁定。
+ * IL-004：options.groupByLevel 开启后按 level 分期带生成 subgraph 分组——
+ * 知识顶点横切不入带；带升序、带内按 id 排序（稳定输出，diff 噪音可控）。 */
 export function buildMermaid(
   nodes: NodeSchema[],
   edges: EdgeSchema[],
   meta?: GraphExportMeta,
+  options?: MermaidBandOptions,
 ): string {
+  const grouped = options?.groupByLevel === true;
   let mermaid = "graph TD;\n";
   mermaid += mermaidHeader(meta);
   mermaid += "  %% 节点定义 (按状态着色)\n";
 
-  for (const node of nodes) {
-    const esc = escapeMermaidLabel(node.label);
-    if (node.type === "context") {
-      // 知识顶点：胶囊形，固定 context class（context 无工作流状态，不接状态色）
-      mermaid += `  ${node.id}(["${esc}"]):::context;\n`;
-    } else if (node.type === "adr") {
-      // 知识顶点：六边形，adr_<status> class（三态调色板；意外状态兜底灰）
-      mermaid += `  ${node.id}{{"${esc}"}}:::adr_${node.status};\n`;
-    } else {
-      mermaid += `  ${node.id}["${esc}"]:::${node.status};\n`;
+  if (!grouped) {
+    for (const node of nodes) {
+      mermaid += `  ${mermaidNodeLine(node)}\n`;
+    }
+  } else {
+    const knowledge = nodes.filter(isKnowledgeNode).sort(byId);
+    if (knowledge.length > 0) {
+      mermaid += "  %% 知识顶点 (context/ADR 横切领域知识，不入分期带)\n";
+      for (const n of knowledge) mermaid += `  ${mermaidNodeLine(n)}\n`;
+    }
+    const workflow = nodes.filter((n) => !isKnowledgeNode(n));
+    const levels = [...new Set(workflow.map((n) => n.level))].sort((a, b) => a - b);
+    if (levels.length > 0) {
+      mermaid += "  %% 分期带 (按 level 分组；带内按 id 排序，Git diff 友好)\n";
+      for (const lv of levels) {
+        const name = options?.bandNames?.[lv];
+        const title = name ? `L${lv} · ${escapeMermaidLabel(name)}` : `L${lv}`;
+        mermaid += `  subgraph band_L${lv}["${title}"]\n`;
+        for (const n of workflow.filter((w) => w.level === lv).sort(byId)) {
+          mermaid += `    ${mermaidNodeLine(n)}\n`;
+        }
+        mermaid += `  end\n`;
+      }
     }
   }
 
@@ -159,8 +207,11 @@ export function buildMermaid(
   }
 
   mermaid += "\n  %% 样式定义\n";
+  // IL-004：分组模式下 classDef 收集也走 id 排序副本——输出与输入序无关（逐字节稳定）；
+  // 平铺模式保持入参序（向后兼容，金样本锁定）
+  const classDefSource = grouped ? [...nodes].sort(byId) : nodes;
   const seen = new Set<string>();
-  for (const node of nodes) {
+  for (const node of classDefSource) {
     const cls = vertexClass(node);
     if (!seen.has(cls)) {
       seen.add(cls);
@@ -169,6 +220,66 @@ export function buildMermaid(
   }
 
   return mermaid;
+}
+
+/** IL-004：大图分段导出——只保留指定 level 的工作流顶点。
+ * 边保留规则：两端均为保留工作流顶点；或一端为保留工作流顶点、另一端为知识顶点
+ * （跨 level 的工作流边丢弃）。知识顶点仅在仍被保留边引用时保留——横切顶点全量
+ * 带走会让分段失去意义。纯函数，行为可单测锁定。 */
+export function filterByLevels(
+  nodes: NodeSchema[],
+  edges: EdgeSchema[],
+  levels: number[],
+): { nodes: NodeSchema[]; edges: EdgeSchema[] } {
+  const wanted = new Set(levels);
+  const byIdMap = new Map(nodes.map((n) => [n.id, n]));
+  const keptWorkflow = new Set(
+    nodes.filter((n) => !isKnowledgeNode(n) && wanted.has(n.level)).map((n) => n.id),
+  );
+  const keptEdges = edges.filter((e) => {
+    const s = keptWorkflow.has(e.source);
+    const t = keptWorkflow.has(e.target);
+    if (s && t) return true;
+    if (!s && !t) return false;
+    const other = byIdMap.get(s ? e.target : e.source);
+    return other !== undefined && isKnowledgeNode(other);
+  });
+  const knowledgeIds = new Set<string>();
+  for (const e of keptEdges) {
+    if (!keptWorkflow.has(e.source)) knowledgeIds.add(e.source);
+    if (!keptWorkflow.has(e.target)) knowledgeIds.add(e.target);
+  }
+  return {
+    nodes: nodes.filter((n) => keptWorkflow.has(n.id) || knowledgeIds.has(n.id)),
+    edges: keptEdges,
+  };
+}
+
+/** IL-004：解析 --levels（逗号分隔 level 整数，如 "1,2"）；非法即抛错 */
+export function parseLevels(raw: string): number[] {
+  const parts = raw.split(",").map((s) => s.trim());
+  // 严格整数判定：parseInt 会把 "1.5" 截断成 1，必须整串匹配
+  const levels = parts.map((s) => (/^-?\d+$/.test(s) ? Number(s) : Number.NaN));
+  if (parts.length === 0 || levels.some((n) => !Number.isInteger(n))) {
+    throw new Error(`--levels 参数无效: "${raw}"（应为逗号分隔的 level 整数，如 1,2）`);
+  }
+  return levels;
+}
+
+/** IL-004：解析 --band-name（可重复，<level>=<名称>）；非法即抛错 */
+export function parseBandNames(raws: string[]): Record<number, string> {
+  const bandNames: Record<number, string> = {};
+  for (const raw of raws) {
+    const i = raw.indexOf("=");
+    const head = i === -1 ? "" : raw.slice(0, i);
+    const name = i === -1 ? "" : raw.slice(i + 1).trim();
+    const lv = /^-?\d+$/.test(head) ? Number(head) : Number.NaN;
+    if (!Number.isInteger(lv) || !name) {
+      throw new Error(`--band-name 参数无效: "${raw}"（应为 <level>=<名称>，如 1=前置修复带）`);
+    }
+    bandNames[lv] = name;
+  }
+  return bandNames;
 }
 
 export const exportMermaidCommand = new Command("export").alias("x")
@@ -184,6 +295,16 @@ export const exportMermaidCommand = new Command("export").alias("x")
     "--docs 模式：context 文档输出目录（缺省：单图 docs/contexts；多图 docs/<图名>/contexts）",
   )
   .option("-o, --output <file>", "Mermaid 输出文件路径", "topology.mmd")
+  .option(
+    "--band-name <level=名称>",
+    "IL-004：分期带显示名（可重复；组名显示为 L<n> · 名称，如 --band-name \"1=前置修复带\"）",
+    (val: string, prev: string[]) => [...prev, val],
+    [] as string[],
+  )
+  .option(
+    "--levels <levels>",
+    "IL-004：大图分段导出——只导出指定 level 分期带（逗号分隔，如 1,2）；知识顶点仅保留仍被保留边引用者",
+  )
   .action((options) => {
     const rootDir = cliGraphDir(process.cwd());
 
@@ -193,7 +314,9 @@ export const exportMermaidCommand = new Command("export").alias("x")
         adrDir: options.adrDir,
         ctxDir: options.ctxDir,
       });
-      console.log(`✅ 导出完成: ${result.adrCount} 篇 ADR, ${result.contextCount} 个 context`);
+      console.log(
+        `✅ 导出完成: ${result.adrCount} 篇 ADR, ${result.contextCount} 个 context, ${result.decisionCount} 条决议`,
+      );
       for (const f of result.written) console.log(`   · ${f}`);
       if (result.contextCount === 0) {
         console.log(`   （图中无 context 顶点，未生成 CONTEXT-MAP.md；根 CONTEXT.md 手写维护，不受影响）`);
@@ -204,6 +327,23 @@ export const exportMermaidCommand = new Command("export").alias("x")
     const nodes = listNodes(rootDir);
     const edges = listEdges(rootDir);
 
+    // IL-004：分期带组名与分段导出参数解析（非法参数响亮失败，不静默导出）
+    let bandNames: Record<number, string>;
+    let levelFilter: number[] | undefined;
+    try {
+      bandNames = parseBandNames(options.bandName ?? []);
+      levelFilter = options.levels ? parseLevels(options.levels) : undefined;
+    } catch (err) {
+      console.error(`❌ ${(err as Error).message}`);
+      process.exit(1);
+    }
+
+    let exportNodes = nodes;
+    let exportEdges = edges;
+    if (levelFilter) {
+      ({ nodes: exportNodes, edges: exportEdges } = filterByLevels(nodes, edges, levelFilter));
+    }
+
     // 0.6.2：读 graph.yaml 取 entry/exit 做头注释图例；读不到就跳过，不报错
     let graphMeta: GraphExportMeta | undefined;
     try {
@@ -213,9 +353,18 @@ export const exportMermaidCommand = new Command("export").alias("x")
       graphMeta = undefined;
     }
 
-    const mermaid = buildMermaid(nodes, edges, graphMeta);
+    // IL-004：默认按 level 分期带 subgraph 分组（entry/exit 仍以头注释承载）
+    const mermaid = buildMermaid(exportNodes, exportEdges, graphMeta, {
+      groupByLevel: true,
+      bandNames,
+    });
 
     const outPath = path.resolve(options.output);
     fs.writeFileSync(outPath, mermaid, "utf-8");
     console.log(`✅ 已导出 Mermaid 文件: ${outPath}`);
+    const workflowCount = exportNodes.filter((n) => !isKnowledgeNode(n)).length;
+    console.log(`   · 分期带分组: ${workflowCount} 个工作流节点（知识顶点横切不入带）`);
+    if (levelFilter) {
+      console.log(`   · 分段导出: levels=${levelFilter.join(",")}（全图 ${nodes.length} 顶点中导出 ${exportNodes.length}）`);
+    }
   });

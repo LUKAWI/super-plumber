@@ -140,4 +140,39 @@ describe("NodeDetail PLAN 板块 Markdown 集成", () => {
 		expect(host.querySelector("p.plan-desc")).toBeNull();
 		expect(host.querySelector("span.plan-desc")).toBeNull();
 	});
+
+	it("NDM-06 术语 Avoid: 尾注识别并分区高亮（0.8.1 P1-9）", () => {
+		const ctxNode: NodeSchema = {
+			id: "ctx-avoid-demo",
+			type: "context",
+			label: "演示域",
+			level: 1,
+			status: "pending",
+			attempts: 0,
+			max_attempts: 3,
+			created_at: "",
+			updated_at: "",
+			boundary: "负责演示；不负责其余",
+			glossary: [
+				{ term: "前沿（frontier）", definition: "两桶合并的一键档。Avoid: 别叫 待办池" },
+				{ term: "普通术语", definition: "没有尾注的定义" },
+			],
+		};
+		graphState.selectNode(ctxNode);
+		const host = document.createElement("div");
+		document.body.appendChild(host);
+		app = mount(NodeDetail, { target: host });
+
+		// Avoid 条目：正文剥离尾注 + 尾注分区高亮（note 区 + Avoid 标签）
+		const avoids = host.querySelectorAll(".glossary-avoid");
+		expect(avoids).toHaveLength(1);
+		expect(avoids[0].querySelector(".avoid-tag")?.textContent).toBe("Avoid");
+		expect(avoids[0].querySelector(".avoid-text")?.textContent).toBe("别叫 待办池");
+		const defs = [...host.querySelectorAll(".glossary-def")].map((d) => d.textContent);
+		expect(defs).toContain("两桶合并的一键档。"); // 尾注已从正文剥离
+		expect(defs).toContain("没有尾注的定义"); // 无尾注条目原样呈现
+		// has-avoid 只打在含尾注的条目上
+		const entries = [...host.querySelectorAll(".glossary-entry")];
+		expect(entries.filter((e) => e.classList.contains("has-avoid"))).toHaveLength(1);
+	});
 });

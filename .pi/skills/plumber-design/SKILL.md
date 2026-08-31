@@ -59,6 +59,12 @@ description: Use when 接到新需求/任务需要拆解成任务拓扑图、设
 - 层数建议 ≤5，避免出现单节点层；同一图内准则一致。
 - designer **出图前先声明置层方案**（分几带、每带含义），声明与图不符按设计缺陷返工。
 
+**查历史拒绝理由（出图/改图前必做；WF05）**——派发/动笔前筛查本图已否决过的方案，防止重蹈。三步：
+
+1. **看软删归档**：`ls .graph/*/nodes/*.deleted*.yaml .graph/nodes/*.deleted*.yaml 2>/dev/null`；命中文件读顶层键 `deleted_reason` / `deleted_at` / `deleted_by`（0.8.1 F14 起随软删写入；更早的旧归档无这三个键、只有节点原文，按 label 与删除时间轴对照辨认）。
+2. **查审计事件**：`graph events -k node_deleted --json`（MCP `graph_events {kind:"node_deleted"}`）——`detail` 带 `reason="…"` 与 cascade 边清单，可补全旧档缺失的理由。
+3. **命中即回应**：待建/待改节点与已删方案同域或同目标 → 设计报告逐一回应删除理由（换道，或给出理由已失效的依据）；报告无回应 = 重蹈已否决方案，按设计缺陷返工。有 subagent 时主线程先筛、命中结果随派单交付 designer；solo 分支动笔前自跑。
+
 ### Step 3 — 双关卡验证门禁
 
 `graph validate`（结构关）+ doctor 体检脚本（质量关）**双 0 error 才允许进入预览**；warning 是可修的，看懂并修掉再走，不允许带 error 进预览。体检判据明细（E1-E10/W1-W6）、命令参数与失败修法 → 手册 §2.6。

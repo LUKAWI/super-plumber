@@ -9,10 +9,18 @@ export const deleteNodeCommand = new Command("delete-node").alias("dn")
     "--cascade",
     "连同引用该节点的所有边一起软删除（默认：有引用边时报错拒绝）",
   )
+  .option(
+    "--reason <text>",
+    "删除理由（F14 审计凭据：写入 .deleted.yaml 归档与 node_deleted 事件；缺省不拦截、行为不变）",
+  )
   .action((options) => {
     const rootDir = cliGraphDir(process.cwd());
     try {
-      deleteNode(rootDir, options.id, { cascade: !!options.cascade, actor: "cli" });
+      deleteNode(rootDir, options.id, {
+        cascade: !!options.cascade,
+        actor: "cli",
+        reason: options.reason,
+      });
       console.log(`✅ 已删除节点: ${options.id}`);
     } catch (err: any) {
       console.error(`❌ ${err.message}`);

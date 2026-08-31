@@ -205,20 +205,38 @@ function removeGraphRef(
   syncGraphRef(rootDir, kind, id, true);
 }
 
-function softDelete(filePath: string): string {
+function softDelete(
+  filePath: string,
+  meta: { reason?: string; actor?: string } = {},
+): string {
   const deletedPath = filePath.replace(/\.yaml$/, ".deleted.yaml");
   // 如果已存在 .deleted 文件，先追加时间戳
   const finalPath = fs.existsSync(deletedPath)
     ? filePath.replace(/\.yaml$/, `.deleted.${Date.now()}.yaml`)
     : deletedPath;
   fs.renameSync(filePath, finalPath);
+  // F14（0.8.1）：删除理由随软删归档。.deleted.yaml 是审计档案不是数据源
+  // （listNodeFileNames 按 DELETED_FILE_RE 排除，schema 不校验），追加顶层键
+  // 安全；理由是凭据不是拒绝条件（DEC-3）——缺省不写、行为保持现状。
+  const reason = meta.reason?.trim();
+  if (reason) {
+    const block = yaml.dump(
+      {
+        deleted_reason: reason,
+        deleted_at: new Date().toISOString(),
+        deleted_by: meta.actor ?? "unknown",
+      },
+      { indent: 2, lineWidth: 120 },
+    );
+    fs.appendFileSync(finalPath, block, "utf-8");
+  }
   return finalPath;
 }
 
 export function deleteNode(
   rootDir: string,
   id: string,
-  opts: { cascade?: boolean; actor?: string } = {},
+  opts: { cascade?: boolean; actor?: string; reason?: string } = {},
 ): void {
   return withLockSync(rootDir, id, () => {
     const filePath = nodeFilePath(rootDir, id);
@@ -249,15 +267,20 @@ export function deleteNode(
     // （隐藏节点）；反序最多产生"文件尚在但引用已撤"的良性形态
     // （validate 警告，rebuild 可自愈）。
     removeGraphRef(rootDir, "node", id);
-    softDelete(filePath);
+    softDelete(filePath, { reason: opts.reason, actor: opts.actor });
     invalidateIndex(rootDir); // 目录内容变了（rename 不改源文件 mtime 语义），主动失效
+    // F14：删除理由写入审计事件（detail）。理由与 cascade 说明可并存（"；"连接）；
+    // 缺省理由时 detail 保持既有语义（仅 cascade 时才有）。
+    const reason = opts.reason?.trim();
+    const detailParts = [
+      ...(reason ? [`reason="${reason}"`] : []),
+      ...(opts.cascade ? [`cascade 删除边: ${referencing.join(", ")}`] : []),
+    ];
     appendEvent(rootDir, {
       actor: opts.actor ?? "unknown",
       kind: "node_deleted",
       node: id,
-      ...(opts.cascade
-        ? { detail: `cascade 删除边: ${referencing.join(", ")}` }
-        : {}),
+      ...(detailParts.length > 0 ? { detail: detailParts.join("；") } : {}),
     });
   });
 }

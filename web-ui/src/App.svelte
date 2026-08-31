@@ -7,6 +7,7 @@
   import { createGraphConnection } from "./lib/api";
   import { graphState } from "./lib/store.svelte";
   import { deriveMaps } from "./lib/maps";
+  import { frontierNodes } from "./lib/frontier";
   import { isKnowledgeType, statusColorOf, type NodeStatus } from "./lib/types";
 
   let disconnect: (() => void) | null = null;
@@ -73,6 +74,12 @@
   // schema 缺省的 pending 是假状态，一并从统计中剔除。──
   const workflowNodes = $derived(
     (graphState.graph?.nodes ?? []).filter((n) => !isKnowledgeType(n.type)),
+  );
+
+  // 前沿（frontier）计数：ready + ready_eligible 两桶合并（ctx-webui 术语——
+  // 「现在就能干的活」；前端由既有图数据派生，不是新调度桶）
+  const frontierCount = $derived(
+    graphState.graph ? frontierNodes(graphState.graph).length : 0,
   );
   const visibleEdgeCount = $derived(
     (graphState.graph?.edges ?? []).filter((e) => e.type !== "decides").length,
@@ -162,6 +169,18 @@
     {#if graphState.graph}
       <div class="status-bar" role="group" aria-label="按状态过滤（计数即图例）">
         <span class="sb-total"><span class="sb-n">{workflowNodes.length}</span> total</span>
+        <button
+          class="sb-chip frontier-chip"
+          aria-pressed={graphState.frontierOnly}
+          onclick={() => graphState.toggleFrontier()}
+          title="前沿（frontier）：ready + 门禁已满足的 pending——「现在就能干的活」，一键只看前沿"
+        >
+          <svg class="frontier-star" width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
+            <path d="M5 0 6.2 3.8 10 5 6.2 6.2 5 10 3.8 6.2 0 5 3.8 3.8Z"/>
+          </svg>
+          <span class="sb-n">{frontierCount}</span>
+          <span class="sb-label">前沿</span>
+        </button>
         {#each STATUSES as s (s.key)}
           <button
             class="sb-chip"
@@ -175,10 +194,10 @@
             <span class="sb-label">{s.label}</span>
           </button>
         {/each}
-        {#if graphState.statusFilter || graphState.levelFilter}
+        {#if graphState.statusFilter || graphState.levelFilter || graphState.frontierOnly}
           <button
             class="sb-clear"
-            onclick={() => { graphState.setLevelFilter(null); graphState.clearStatusFilter(); }}
+            onclick={() => { graphState.setLevelFilter(null); graphState.clearStatusFilter(); graphState.setFrontierOnly(false); }}
             title="清除全部过滤"
           >清除</button>
         {/if}
@@ -619,6 +638,25 @@
 
   .sb-chip.zero {
     opacity: 0.45;
+  }
+
+  /* 前沿 chip（frontier 一键档）：星形图标即视觉锚，激活时 ready 蓝收边 */
+  .frontier-chip .frontier-star {
+    color: var(--ink-faint);
+    transition: color 0.13s var(--ease-out-quart);
+    flex-shrink: 0;
+  }
+
+  .frontier-chip:hover .frontier-star {
+    color: var(--ink-muted);
+  }
+
+  .frontier-chip[aria-pressed="true"] {
+    box-shadow: inset 0 0 0 1px var(--status-ready);
+  }
+
+  .frontier-chip[aria-pressed="true"] .frontier-star {
+    color: var(--status-ready);
   }
 
   .sb-dot {

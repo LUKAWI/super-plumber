@@ -13,11 +13,13 @@ import * as path from "node:path";
 import { listNodes } from "./node.js";
 import { GRAPH_NAME_RE, listGraphNames, toGraphDir, workspaceOf } from "./graph-dir.js";
 import { assertValidEntityId } from "./schema.js";
-import { AdrStatus, NodeType, type NodeSchema } from "./types.js";
+import { AdrStatus, NodeStatus, NodeType, type NodeSchema } from "./types.js";
 
 export interface DocsExportResult {
   adrCount: number;
   contextCount: number;
+  /** F15（0.8.1）：DECISIONS.md 决议索引条数（passed task + accepted/superseded ADR） */
+  decisionCount: number;
   written: string[];
 }
 
@@ -95,6 +97,45 @@ function renderContextMap(contexts: NodeSchema[]): string {
 }
 
 /**
+ * F15（0.8.1）：DECISIONS.md 决议一行索引——passed 的 task 节点 +
+ * accepted/superseded 的 ADR，各一行（id/标题/结论时间），一屏可读。
+ * 结论时间口径：passed task 取 execution_report.completed_at（缺省回落
+ * updated_at）；ADR 状态变更（accept/supersede）由状态机写 updated_at。
+ */
+function collectDecisions(nodes: NodeSchema[]): NodeSchema[] {
+  return nodes.filter(
+    (n) =>
+      (n.type === NodeType.Task && n.status === NodeStatus.Passed) ||
+      (n.type === NodeType.Adr &&
+        (n.status === AdrStatus.Accepted || n.status === AdrStatus.Superseded)),
+  );
+}
+
+function renderDecisions(decisions: NodeSchema[]): string {
+  const esc = (s: string) => s.replace(/\|/g, "\\|");
+  const lines: string[] = [
+    `# DECISIONS`,
+    ``,
+    `> 决议一行索引（由 \`graph export\` 从图顶点生成）：passed 的 task 节点 + accepted/superseded 的 ADR。`,
+    `> 图为真相源，本文件是视图；改图不改文，重新导出即覆盖。`,
+    ``,
+    `| 决议 | id | 标题 | 结论时间 |`,
+    `|------|----|------|---------|`,
+  ];
+  if (decisions.length === 0) {
+    lines.push(`| _（尚无决议记录）_ | | | |`);
+  }
+  for (const d of decisions) {
+    const kind =
+      d.type === NodeType.Adr ? `ADR · ${d.status}` : `task · ${d.status}`;
+    const at = d.execution_report?.completed_at ?? d.updated_at;
+    lines.push(`| ${esc(kind)} | ${esc(d.id)} | ${esc(d.label)} | ${esc(at)} |`);
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+
+/**
  * 清理同号旧命名文件（label 改了 slug 会变）。
  * D4 实锤升级：个别环境（本机 shell）对特定 Unicode 文件名的 fs.rmSync 是
  * **进程级崩溃**（exit 127，无异常可捕，try/catch 无效）——renameSync 则正常。
@@ -145,6 +186,7 @@ export function runDocsExport(
   const nodes = listNodes(graphDir);
   const adrs = nodes.filter((n) => n.type === NodeType.Adr);
   const contexts = nodes.filter((n) => n.type === NodeType.Context);
+  const decisions = collectDecisions(nodes);
   const written: string[] = [];
 
   const wsRoot = workspaceOf(rootDir); // 产物落工作区根（即使 rootDir 是图目录）
@@ -190,5 +232,21 @@ export function runDocsExport(
     written.push(contextMapRel);
   }
 
-  return { adrCount: adrs.length, contextCount: contexts.length, written };
+  // F15：DECISIONS.md 决议索引——与 CONTEXT-MAP.md 同目录约定
+  // （多图 → docs/<图名>/DECISIONS.md；单图 → 工作区根，向后兼容布局不变）。
+  // 空决议也落盘（索引恒在，行为可预期）；mkdir 幂等，防父目录未建。
+  const decisionsRel = viewSub
+    ? path.join("docs", viewSub, "DECISIONS.md")
+    : "DECISIONS.md";
+  const decisionsPath = path.join(wsRoot, decisionsRel);
+  fs.mkdirSync(path.dirname(decisionsPath), { recursive: true });
+  fs.writeFileSync(decisionsPath, renderDecisions(decisions), "utf-8");
+  written.push(decisionsRel);
+
+  return {
+    adrCount: adrs.length,
+    contextCount: contexts.length,
+    decisionCount: decisions.length,
+    written,
+  };
 }

@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.8.1] — 2026-08-31（patch：决策凭据周边——删除拒绝理由、决议索引、星空前沿视图）
+
+> 主题：决策的「为什么不」进入可追溯面——删除带理由（F14），决议一屏可读（F15），调度面「现在就能干的活」一键直达（前沿视图）。
+
+- **F14 删除拒绝理由（双通道）**：`graph delete-node --reason` 与 MCP `graph_delete_node` 的 `reason` 参数——理由进 `.deleted.yaml` 归档（deleted_reason/deleted_at/deleted_by 三键）与 `node_deleted` 审计事件；**理由是凭据非拒绝条件**（DEC-3：缺省行为零变化，不设硬门禁）；plumber-design SKILL（双副本）出图前新增「查历史拒绝理由」步骤（读软删归档与事件，避免重蹈已否决方案）。
+- **F15 DECISIONS.md 决议索引**：`graph export --docs` 增发决议一行索引——passed 的 task 节点 + accepted/superseded 的 ADR 各一行（决议/id/标题/结论时间），pending 不入；单图落工作区根、多图落 `docs/<图名>/`（与 CONTEXT-MAP.md 同目录约定）。
+- **mermaid 分期带导出（IL-004）**：`graph export --mermaid` 默认按 level 分期带生成 subgraph 分组（知识顶点横切不入带、带内稳定排序 Git diff 友好），`--levels <1,2>` 分段裁剪、`--band-name <level>=<名>` 显式命名（图 schema 无 level→域名映射，缺省 `L<n>` 防误标）；DOT 侧仍平铺（形状/配色/边样式映射一致，分组仅 mermaid）。
+- **traverse 深链修复（IL-003）**：深度截断与 max_nodes 截断分别如实上报（新增 `truncated_by_depth`/`truncated_by_nodes`，truncated=任一发生，不再虚报 false）；max_depth schema 上限 20→50（默认 3 不变），深链 33+ 跳一次调用可达末端；MCP 工具 description 与 manual §6.2 双落点标注深链使用姿势。
+- **web-ui 前沿视图 + 分期图例 + Avoid 呈现**：顶栏「✦ 前沿 N」一键过滤（ready 与门禁已满足的 pending 合并档，与调度器五桶对账一致，零新增读接口）；领域/叠加视图「开发分期」玻璃图例（debug·0.7.0 / 0.8.x / 0.9.x / 1.0.0 四段，数据源为节点 id 前缀或标签段位，点击看成员与分期索引域）；术语 definition 尾部 `Avoid:` 尾注识别与琥珀分区高亮（WF06 约定先行，schema 字段后置）。
+- **工作流面成文（WF05/06/07）**：manual §2.4 术语 Avoid 约定（切分口径与 web-ui 解析逐字对齐）、§2.11 节点类型×默认纪律映射表 + plan 纪律指针惯例（DEC-6：只指 SP 自带技能、存在才建议、缺失静默降级）。
+- **发版门禁（IL-016）**：`sync-integrations.mjs --check` 增版本面一致性断言（package.json 与 `.claude-plugin/marketplace.json`、`integrations/plugin/.claude-plugin/plugin.json` 三方一致，0.9.5 起前向兼容 `.codex-plugin/plugin.json` 与 `.agents/plugins/marketplace.json` 共五方；不一致 exit(1) 逐条列差异）——作为 prepublishOnly 第一段自动生效；README 新增「发版清单」小节（版本面同步为第 1 步）。
+- **治理账（docs/issue-log.md 前馈回路）**：IL-003/IL-004/IL-016 销账（节点 passed，2026-08-31）；IL-017（sp-traverse.mjs 脚本层 DFS 语义漂移，il-003 执行者上报）立节点 `il-017-sp-traverse-drift` 绑 0.9.4 S03 七脚本收敛一并清偿；IL-018（DOT 平铺不对称）/IL-019（web-ui 纯知识顶点图透镜提示与空 context 星云两处边角，v081-verify 观察项）记录即可；附带数据清洗：ctx-webui「Avoid 呈现」定义正文中置 `Avoid:` 字样改写（快照保底）。
+- **0.9.5 立项随版入库**：adr_0015（Codex 渠道采用官方 .codex-plugin 插件路线，accepted）+ ctx-phase-09x 收录 0.9.5 四节点（v095-manifest/docs/verify/release，25→29 成员）。
+- 回归：后端 69 文件 634 用例绿（0.8.0 为 605）+ web-ui 106 用例绿（0.8.0 为 68）、`graph validate` 0 error、`sync-integrations.mjs --check` 通过（含 IL-016 版本面断言）。
+- 发布动作：npm 0.8.1（latest）+ GitHub tag v0.8.1。
+
 ## [0.8.0] — 2026-08-31（minor：借力 skills 系统的工程判断——分级路由 + 审批凭据 + 写作规范）
 
 > 主题：把"每张图都走全套重流程"的对称性打破——quick/standard/program 三档分级路由让小任务轻装自举，

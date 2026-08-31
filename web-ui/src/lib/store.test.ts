@@ -118,6 +118,41 @@ describe("graphState store", () => {
   });
 });
 
+describe("前沿（frontier）一键档", () => {
+  beforeEach(() => {
+    graphState.resetAll();
+  });
+
+  it("默认关闭，toggle 往返，set 显式赋值", () => {
+    expect(graphState.frontierOnly).toBe(false);
+    graphState.toggleFrontier();
+    expect(graphState.frontierOnly).toBe(true);
+    graphState.toggleFrontier();
+    expect(graphState.frontierOnly).toBe(false);
+    graphState.setFrontierOnly(true);
+    expect(graphState.frontierOnly).toBe(true);
+    graphState.setFrontierOnly(false);
+    expect(graphState.frontierOnly).toBe(false);
+  });
+
+  it("前沿档随图分桶隔离（查看状态不跨图泄漏）", () => {
+    graphState.applyGraphsList({
+      active: "alpha",
+      graphs: [
+        { name: "alpha", nodeCount: 1 },
+        { name: "beta", nodeCount: 1 },
+      ],
+    });
+    graphState.applyFull("alpha", makeGraphOf("a1"));
+    graphState.applyFull("beta", makeGraphOf("b1"));
+    graphState.setFrontierOnly(true);
+    graphState.selectGraph("beta");
+    expect(graphState.frontierOnly).toBe(false);
+    graphState.selectGraph("alpha");
+    expect(graphState.frontierOnly).toBe(true);
+  });
+});
+
 // ── v0.5.2 多图分桶 store ─────────────────────────────────────────────────────
 function makeGraphOf(id: string, status = "pending"): GraphIndex {
   return {
