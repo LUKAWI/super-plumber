@@ -14,8 +14,8 @@
 
 | 层 | 形态 | 能做什么 | 不能做什么 |
 |----|------|---------|-----------|
-| CLI `graph` | 27 个子命令入口（§6.1），bash 友好 | 全流程：init 建图、多图管理、设计读写、执行流转、verdict 裁决、快照回滚、events 审计、export/serve；**唯一人类运维通道**（--force、rename-graph、delete-graph） | agent 不使用 `--force`；非 JSON 的输出需 `--json` 供解析 |
-| MCP `graph_*` | 24 个工具（§6.2），zod 强校验 | 设计+执行+裁决+版本几乎全能，校验最强——agent 首选 | 刻意不设通道：init 建新图、rename-graph、delete-graph、export --docs（走 CLI）；`force:true` 被**协议级拒绝** |
+| CLI `graph` | 28 个子命令入口（§6.1），bash 友好 | 全流程：init 建图、多图管理、设计读写、执行流转、verdict 裁决、快照回滚、events 审计、export/serve；**唯一人类运维通道**（--force、rename-graph、delete-graph） | agent 不使用 `--force`；非 JSON 的输出需 `--json` 供解析 |
+| MCP `graph_*` | 25 个工具（§6.2），zod 强校验 | 设计+执行+裁决+版本几乎全能，校验最强——agent 首选 | 刻意不设通道：init 建新图、rename-graph、delete-graph、export --docs（走 CLI）；`force:true` 被**协议级拒绝** |
 | 脚本 `sp-*.mjs` | 7 个文件（§7），薄包装 | 无 MCP 客户端时的 claim / checkpoint / report / 状态流转 / 读节点 / 遍历 | 只是核心引擎的包装，能力面窄于前两层；从含 `.graph/` 的 cwd 运行 |
 
 优先级：**MCP > CLI > 脚本**。执行期一切状态流转必须经这三者之一——**绝不手改 `.graph/` YAML 伪造状态**。
@@ -24,7 +24,7 @@
 
 ## §2 design-ops：建图、领域顶点、ADR 与体检
 
-何时查这章：设计或修改拓扑图、建 context/ADR、跑 validate 与体检、起 serve 预览时。（选型判断力与建模方法论在设计师角色提示词，这里只有语法。）
+何时查这章：设计或修改拓扑图、建 context/ADR、跑 validate 与体检、起 serve 预览、写节点 plan/DoD 文案时。（选型判断力与建模方法论在设计师角色提示词，这里只有语法。）
 
 ### 2.1 标准建图序列
 
@@ -69,7 +69,7 @@ graph update-node -i <id> --add-checkpoint '{"id":"cp1","label":"第一步"}'
 graph add-edge -i <eid> -s <源id> -t <目标id> --type depends_on \
   [--rel-kind "<自由文本>"] \
   [--contract '{"produces":"...","consumed_by":[{"artifact":"<产物id>","used_as":"<用途>"}],"validation":{"criteria":"<可验证判据>"}}']
-# --rel-kind 仅 relates 边用；两端跨不同 context 的工作流边 = 契约边，contract 必填（未填 validate 警告）
+# --rel-kind 仅 relates 边用；两端跨不同 context 的工作流边 = 契约边：无逐边 contract 且 context 顶点也无 contracts 声明时才 validate 警告（IL-012，声明语法见 §2.4；单边 contract 优先于声明）
 # 〔已校〕contract 写前校验形状（不符整批拒绝落盘）：consumed_by 须为 [{artifact, used_as}] 对象数组（裸字符串拒绝）；validation 须为对象（如 {"criteria":".."}）
 
 # 读单节点：返回 node 全文 + allowed_transitions + checkpoint_aggregate + ready_gate（+ governing_adrs）
@@ -80,6 +80,7 @@ graph update-node -i <id> [--plan-desc <text>] [--add-dod <item>]×N [--clear-do
   [--add-checkpoint <json>]×N [--set-assigned <agent>] [--label <text>] \
   [--max-attempts <n>] [--set-priority <n>] [--set-context ctx_x|""] \
   [--boundary "<划界句>"] [--glossary-add '{"term":"..","definition":".."}']×N \
+  [--contract-add '{"to":"ctx_x","contract":{"produces":"..."}}']×N \
   [--reset-attempts] [--show]
 ```
 
@@ -92,6 +93,9 @@ graph update-node -i <id> [--plan-desc <text>] [--add-dod <item>]×N [--clear-do
 graph create-node -i ctx_<域名> -t context -l "<中文名>"
 graph update-node -i ctx_ordering --boundary "负责订单生命周期；不负责计费（经契约边由 billing 消费）"
 graph update-node -i ctx_ordering --glossary-add '{"term":"订单","definition":"带明细行的购买单据，区别于账单"}'
+graph update-node -i ctx_ordering --contract-add '{"to":"ctx_billing","contract":{"produces":"订单事件"}}'
+# IL-012 契约声明（context 对粒度，替代逐边手写）：挂 source 侧、to 指向消费侧 context——
+# 跨 context 工作流边自动继承，单边 --contract 覆写优先；to 悬空 validate 报 error、同对重复报 warning（生效取首条）
 # 术语是内容字段不是顶点；同 context 内术语重复 → validate 警告；跨 context 同名合法
 graph add-edge -i rel_1 -s ctx_a -t ctx_b --type relates --rel-kind "上游-下游"   # 仅 context↔context
 
@@ -110,7 +114,7 @@ graph adr list -s proposed                                # -s proposed|accepted
 - MCP 侧创建用 `graph_create_adr`（同样自动编号+proposed）；**MCP 废弃须两步**：先 `graph_update_node {id, superseded_by:"adr_NNNN"}`，再 `graph_update_node_status {status:"superseded"}`。CLI `graph adr supersede` 是原子封装
 - **提议/裁决分离**：设计与执行 agent 只 produce proposed；accept/supersede 归 super-mario/人类（见 §10）
 - ADR 六字段 YAML 目标形态（格式示例；写得是否够格归设计师纪律）：`label`（短标题）/ `decision`（我们决定了什么）/ `background` / `considered_options`（备选取舍）/ `why` / `consequences`；废弃后出现 `superseded_by`
-- CONTEXT 顶点目标形态：`id: ctx_<短名>` / `type: context` / `label` / `boundary`（负责 X，不负责 Y）/ `glossary[].{term, definition}`（定义要能划界）
+- CONTEXT 顶点目标形态：`id: ctx_<短名>` / `type: context` / `label` / `boundary`（负责 X，不负责 Y）/ `glossary[].{term, definition}`（定义要能划界）/ `contracts[].{to, contract}`（对该 context 的默认契约，IL-012）
 
 ### 2.5 快照与文档导出
 
@@ -165,6 +169,7 @@ node .pi/skills/plumber-design/scripts/sp-check-design.mjs [--json]   # 质量�
 | warning | W4 | plan 较长但 checkpoints < 2（执行者无法逐步汇报） |
 | warning | W5 | 磁盘存在但 graph.yaml 未引用（孤儿文件/幽灵边） |
 | warning | W6 | 多个根 或 多个汇（建议收敛单一主干起点、单一收口） |
+| warning | W7 | 工作流节点 ≥8 且 context 顶点 = 0：多关注点图整体略过领域建模的信号——建议评估 bounded context 划分（语法见 §2.4）；确属单关注点任务可忽略；ADR 缺席刻意不查（单关注点小任务合法无 ADR） |
 
 warning 都要看懂并修掉再走——可修的不该被放过。
 
@@ -176,6 +181,42 @@ graph serve -p 8940 --no-open   # 指定端口；无头环境不开浏览器；�
 ```
 
 serve 贯穿全程不关闭、已在运行不重复启动（编排纪律在 skill）。
+
+### 2.8 plan/DoD 写作规范（四原则，一正一反）
+
+何时查这小节：给节点写 plan.description / definition_of_done / checkpoints 文案时。plan/DoD 是执行 agent 的唯一任务书与验收判据——写得脆，验收就脆。四原则，每条配一正一反例句；反例即 F16 文案 lint 的靶子（三类规则码：**a 脆弱定位**＝路径+行号/函数名式指认文件内部实现位置，板块级文件落点不报；**b 行号式**＝「第 N 行 / line N / :N」式；**c 不可验证措辞**＝「正确地/合理地/适当地/完善/确保质量」类主观词）：
+
+1. **耐久 ＞ 精确**：不写行号式定位，文件落点写到板块级路径。行号与函数名会随重构漂移，定位粒度以「其他任务改完本文件后仍找得到」为限。
+   - 正例：把 integrations/shared/manual.md §2.6 体检表补上 W7 判据（以 sp-check-design.mjs 现行实现为准）
+   - 反例：修改 integrations/shared/manual.md 第 152–169 行的表格〔a+b〕
+2. **行为式**：写「执行 X 后可观察到 Y」——验收的是可观察的行为差异，不是「做了」这个动作。
+   - 正例：执行 node scripts/sync-integrations.mjs --check，输出含「全部一致」且退出码为 0
+   - 反例：正确地同步插件包拷贝〔c〕
+3. **可独立验证**：每条 DoD 一个 agent 可逐条核对，不依赖其他任务的上下文、口头共识或「与上游对齐」类参照。
+   - 正例：integrations/plugin/manual.md 与 integrations/shared/manual.md 内容一致（sha256 相同）
+   - 反例：把结果与上游节点产出合理地对齐〔c〕
+4. **显式范围**：写明只动什么、不碰什么——范围外被顺手改动是验收纠纷的头号来源。
+   - 正例：只改 integrations/shared/manual.md 正本并运行 sync；不碰 .pi/skills/** 与 src/**
+   - 反例：顺带完善相关文档〔c；没写边界＝全仓都算「相关」〕
+
+落笔自查：任何一条 DoD 读不出「拿什么命令/文件/读数核对」就按对应原则改写。
+
+### 2.9 置层明文准则（IL-001）
+
+何时查这小节：给工作流节点定 level、规划 L1-Ln 分层带时。
+
+- level 表达**少数有意义的分层带**，与图的分期/领域结构对齐（如分期带，或修复/实现/验证带）——不是依赖深度的刻度
+- **不用 level 编码依赖深度**：层内顺序由 depends_on 边（§3）与 priority 表达
+- 层数建议 ≤5，避免出现单节点层；同一图内准则一致
+- designer 出图前**先声明置层方案**（分几带、每带含义），声明与图不符按设计缺陷返工
+
+### 2.10 批量操作守则（IL-002）
+
+何时查这小节：写临时脚本/REPL 批处理直接批量改 `.graph/` 下图文件时（走 MCP/CLI 单条接口不属于批量操作）。
+
+- **glob 必须排除软删审计文件**：`nodes/*.yaml` 会连 `*.deleted.yaml`、`*.deleted.<时间戳>.yaml` 一起匹配——软删历史是审计档案不是数据源，被卷入后同一 id 被多来源反复改写（2026-08-30 批量改 61 个节点标签，11 个节点被污染成旧文案+双重前缀，docs/issue-log.md IL-002）
+- **批量前打快照**：`graph snapshot -m "<批量说明>"`（§2.5），污染可整体回滚而非逐个手工修复
+- **批量后跑 `graph validate` 并抽样核对被改字段**：validate 只保结构不保内容——另抽 2~3 个被改节点读回字段与预期逐一比对，确认改的是想要的值（事故中 validate 全绿、污染照样落盘）
 
 ---
 
@@ -193,13 +234,13 @@ serve 贯穿全程不关闭、已在运行不重复启动（编排纪律在 skil
 - **非门禁标注**：`shares_context` 不参与排序与门禁（仅表达上下文共享），语义真有时才显式写
 - **向后兼容存量、新设计不再使用**：`validates`（与 depends_on 机器行为同构）、`fan_in`/`fan_out`（门禁语义与多条 depends_on 入/出边等价）——存量图原样解析零迁移，新边一律 `depends_on`
 - **保留字禁用**：`fallback`/`iterates` 未实现运行时回退/迭代语义（文档性标注，validate 会逐条 warning）——不要在新图中使用
-- 两端跨 context 的工作流边必须带 `--contract`（或由 context 对默认契约声明覆盖，两者皆无 validate 警告）；契约形状见 §2.3
+- 两端跨 context 的工作流边是契约边：逐边 `--contract`，或由 context 顶点 `contracts:[{to,contract}]` 默认声明覆盖（`update-node --contract-add` 为追加通道，见 §2.4；单边 contract 优先）——该 context 对无声明且边无 contract 才 validate 警告（IL-012）；契约形状见 §2.3
 
 ---
 
 ## §4 execute-ops：五步协议与并行判读
 
-何时查这章：执行任何节点、claim/report/passed 报错、判断串行还是并行时。（每步纪律句留在 skill，这里只有调用语法与字段含义。）
+何时查这章：执行任何节点、claim/report/passed 报错、判断串行还是并行、管理执行会话上下文时。（每步纪律句留在 skill，这里只有调用语法与字段含义。）
 
 ### 4.1 五步协议的工具调用语法
 
@@ -267,6 +308,15 @@ stale 处理三步：确认长时无更新（默认阈值 30 分钟 = 1800000ms�
 
 重试链：`failed→pending` 时 attempts 自动 +1；`attempts ≥ max_attempts(>0)` 后拦截并提示人工介入；显式重置用 `graph update-node -i <id> --reset-attempts` 或 MCP `graph_update_node {reset_attempts:true}`（写 attempts_reset 审计事件；修改 plan.description **不再**自动归零）。`max_attempts=0` 表示不限。
 
+### 4.4 上下文卫生（执行会话四要点）
+
+何时查这小节：派 subagent 执行节点、跨节点切换、compact 之后继续干活、看到 stale_running 条目时。四要点与 plumber-execute skill 同源，名目一致（skill 面含 solo/subagent 分支细则，本节是手册面）：
+
+1. **一节点一会话为默认**：一个执行会话只装载一个节点的上下文；研究/原型类与显式并行为例外。
+2. **checkpoint=阶段边界**：compact、交接、长输出落盘对齐 checkpoint 边界进行，不在 checkpoint 中途做。
+3. **compact 失败模式**：压缩发生后必须重读节点全文（`graph_get_node` 取 plan/DoD/checkpoints）再继续，不凭会话记忆续做。
+4. **stale 是心跳不是事故**：running 超阈值先视为『可能在干活』，确认执行者不可达后才 reclaim，绝不顺手 cancel（处置三步见 §4.3）。
+
 ---
 
 ## §5 状态机全章
@@ -325,7 +375,7 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 
 何时查这章：拼写参数、找某能力在哪一层、核对工具是否存在时。**绝不发明工具名/参数**；以下两表经 v0.6.0 CLI `--help` 与 MCP 工具清单实测。行尾〔已校〕表示与旧版 reference 文档不一致、以实测为准。
 
-### 6.1 CLI 子命令表（27 个入口〔已校〕，旧档记 20–21）
+### 6.1 CLI 子命令表（28 个入口〔已校〕，旧档记 20–21）
 
 几乎所有子命令支持全局选项 `--graph <名>`（缺省按环境变量 SUPER_PLUMBER_GRAPH > `.graph/active` > default 解析）。
 
@@ -338,6 +388,7 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 | `status` / `s` | 图状态总览 | `--json` |
 | `export` / `x` | 导出（Mermaid/领域文档；顶点形状/边样式/文件头约定见 §2.5） | `--mermaid --docs --adr-dir --ctx-dir -o`〔已校：--docs 及目录参数〕 |
 | `serve` / `sv` | Web UI 预览 | `-p`（默认 8934）`--no-open` |
+| `approve` | 写入设计审核凭据（DEC-1：review 字段 + design_approved 事件；仅记录，零门禁） | `--by <名>`（必填）`--status approved/self`〔已校：新增〕 |
 | `delete-node` / `dn` | 软删除节点 | `-i --cascade` |
 | `delete-edge` / `de` | 软删除边 | `-i` |
 | `validate` / `v` | 结构完整性校验 | `--json` |
@@ -359,7 +410,7 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 | `rename-graph` / `rg` | 重命名图（仅人类通道） | `-o <旧名> -n <新名>`〔已校：新增〕 |
 | `delete-graph` / `dg` | 删图（软删除至 .trash，仅人类通道） | `-i <图名> --confirm`〔已校：新增〕 |
 
-### 6.2 MCP 工具表（24 个〔已校〕，旧档记 19）
+### 6.2 MCP 工具表（25 个〔已校〕，旧档记 19）
 
 | 分组 | 工具 | 用途 | 注意 |
 |------|------|------|------|
@@ -373,6 +424,7 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 | 写·设计 | `graph_add_edge` | 建边 | type/rel_kind/contract |
 | 写·设计 | `graph_update_node` | 编辑 plan/DoD/checkpoints/归属/boundary/glossary 等 | reset_attempts 显式传 true |
 | 写·设计 | `graph_update_graph` | 图级字段编辑 | 同 §2.2 六字段 |
+| 写·设计 | `graph_approve` | DEC-1 写入设计审核凭据（review 字段 + design_approved 事件） | status approved=人工（默认）/self=quick 自签；幂等覆盖；仅记录零门禁〔已校：新增〕 |
 | 写·设计 | `graph_create_adr` | 创建 ADR（自动编号+proposed） | 〔已校：新增〕孤儿 ADR 会被警告 |
 | 写·设计 | `graph_delete_node` | 软删除节点 | cascade:true 连边删 |
 | 写·设计 | `graph_delete_edge` | 软删除边 | — |

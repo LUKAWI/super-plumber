@@ -1,6 +1,6 @@
 // tests/mcp/description-contracts.test.ts
 // A5 / f17：承诺-实现断言（防描述漂移）。四处清单与落点：
-//   ① 工具计数注释 → 已在 tests/mcp/tools-coverage.test.ts TC-01 覆盖（24 个，graph_validate/graph_events 在列）
+//   ① 工具计数注释 → 已在 tests/mcp/tools-coverage.test.ts TC-01 覆盖（25 个，graph_validate/graph_events/graph_approve 在列）
 //   ② artifacts 校验承诺（S0-4）→ 已在 tests/mcp/artifacts-check.test.ts ART-01..ART-04 覆盖
 //   ③ diff 默认值（S2-3）→ 已在 tests/mcp/semantics.test.ts SEM-02/SEM-03 覆盖
 //   ④ fallback/iterates 文档性标注（S2-10）→ 本文件 DC-01（graph_add_edge 描述披露）

@@ -13,6 +13,9 @@ export {
   buildGraphIndex,
   computeNextActions,
   resetIndexCache,
+  // DEC-1（g080-approve-core）：图级 review 凭据判定（claim 响应注入用，与 adr_flags 同款提示语义）
+  reviewFlagFor,
+  REVIEW_FLAG_UNREVIEWED,
 } from "./index-service.js";
 export type { GraphIndex, NextActionsResult } from "./index-service.js";
 

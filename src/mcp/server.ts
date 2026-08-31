@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // src/mcp/server.ts
-// Super Plumber MCP Server（stdio）— 24 个 graph_* 工具。
+// Super Plumber MCP Server（stdio）— 25 个 graph_* 工具。
 // 设计原则（agent 原生化）：
 //   1. 设计期/执行期/裁决期全流程 MCP 覆盖（建图→调度→claim→checkpoint→report→verdict→验收）
 //   2. zod 参数校验（缺参/非法枚举 → 协议错误），错误消息可读可自纠
@@ -30,16 +30,18 @@ import {
 } from "../core/node.js";
 import { createEdge as createEdgeOp, listEdges } from "../core/edge.js";
 import { readGraph } from "../core/parser.js";
-import { deleteNode, deleteEdge, updateGraph, rebuildGraphRefs } from "../core/parser.js";
+import { deleteNode, deleteEdge, updateGraph, rebuildGraphRefs, approveGraph } from "../core/parser.js";
 import {
   buildGraphIndex,
   computeNextActions,
   topologicalSort,
   detectCycles,
   detectHiddenCycles,
+  reviewFlagFor,
 } from "../core/graph.js";
 import { allowedTransitionsFor, aggregateCheckpointStatus } from "../core/state-machine.js";
 import { validateDomainRules } from "../core/domain.js";
+import { lintNodeWording } from "../core/style-lint.js";
 import {
   NODE_ID_RE,
   loadNodeFile,
@@ -659,7 +661,8 @@ server.registerTool(
   {
     description:
       "校验当前图的结构完整性：schema 逐文件校验 + 幽灵边 + 循环依赖（含 fan 门控隐藏环）+ " +
-      "v0.5 领域规则六条 + graph.yaml 引用列表双向漂移。Use after graph_batch_create / 批量改动 / 手编文件后自检；" +
+      "v0.5 领域规则六条 + plan/DoD 文案 lint（manual §2.8 规则码 a/b/c，恒 warning）+ graph.yaml 引用列表双向漂移。" +
+      "Use after graph_batch_create / 批量改动 / 手编文件后自检；" +
       "crash recovery 场景先调它再决定重跑范围。Returns { ok, errors[], warnings[], node_count, edge_count } — " +
       "ok=false 时 errors 非空（结构问题），warnings 为提示性（如 entry/exit 描述为空、fallback/iterates 仅文档性标注）。",
     inputSchema: {},
@@ -741,6 +744,12 @@ server.registerTool(
     for (const d of validateDomainRules(nodes, edges)) {
       if (d.level === "error") errors.push(d.message);
       else warnings.push(d.message);
+    }
+
+    // 4b. F16：plan/DoD 文案 lint（core/style-lint.ts：规则码 a 脆弱定位/b 行号式/c 不可验证
+    //     措辞，manual §2.8 四原则）。恒为 warning——文案规范不参与 ok 判定
+    for (const node of nodes) {
+      for (const li of lintNodeWording(node)) warnings.push(li.message);
     }
 
     // 5. 拓扑排序 + 环检测（含 fan 门控隐藏环）
@@ -1212,10 +1221,19 @@ server.registerTool(
       }),
     );
     // v0.5：claim（→running）响应附管辖 ADR 指针——agent 此刻最需要知道"依据哪些决策干活"
+    // DEC-1（g080-approve-core）：claim 响应条件附加 review_flag（与 governing_adrs
+    // 同款注入模式；核心层 reviewFlagFor 判定，图有 review 凭据时不出现）。
+    // 仅提示、零门禁——claim 本身不因此被拒绝。
     if (node.status === NodeStatus.Running && !isKnowledgeType(node.type)) {
+      const extra: Record<string, unknown> = {};
       const gov = getGoverningAdrs(rootDir, id);
       if (gov.current.length > 0 || gov.superseded.length > 0) {
-        return jsonGraph(gctx, { node, governing_adrs: gov });
+        extra.governing_adrs = gov;
+      }
+      const rf = reviewFlagFor(rootDir);
+      if (rf !== undefined) extra.review_flag = rf;
+      if (Object.keys(extra).length > 0) {
+        return jsonGraph(gctx, { node, ...extra });
       }
     }
     return jsonGraph(gctx, node);
@@ -1339,6 +1357,34 @@ server.registerTool(
         ...(root_context !== undefined ? { root_context } : {}),
       }),
     );
+  },
+);
+
+// DEC-1（g080-approve-core）：设计审核凭据写入（MCP 通道）。
+// 与 CLI graph approve 共用核心原语 approveGraph——双通道一致。
+server.registerTool(
+  "graph_approve",
+  {
+    description:
+      "DEC-1 写入设计审核凭据：graph.yaml 的 review 字段（status/by/at）+ design_approved 审计事件。" +
+      "status: approved=人工审核（默认）| self=quick 自签（quick 流程显式传 self，与人工审核可区分）。" +
+      "幂等：重复调用覆盖为最新一次审核凭据。红线：review 仅记录、零门禁——不改变任何状态机合法转换；" +
+      "图无 review 凭据时调度面（graph_get_next_actions 的 ready_eligible 与 claim 响应）仅以 review_flag 提示，不拦截认领。",
+    inputSchema: {
+      by: z.string().min(1).describe("审核人（写入 review.by 与事件 payload；quick 自签时为 quick 操作者名）"),
+      status: z
+        .enum(["approved", "self"])
+        .optional()
+        .default("approved")
+        .describe("审核状态（默认 approved=人工审核；self=quick 自签）"),
+    },
+  },
+  async ({ by, status }) => {
+    const gctx = await resolveGraphCtx();
+    // 不传 opts.actor：与 claim 的 mcpActor(claimBy) 语义一致——审核事件的行为
+    // 主体是审核人（by），客户端名只作兜底（approveGraph 内 opts.actor ?? by）
+    const graph = approveGraph(gctx.dir, { by, status });
+    return jsonGraph(gctx, { review: graph.review });
   },
 );
 

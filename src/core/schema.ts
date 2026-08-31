@@ -53,6 +53,8 @@ const CP_STATUSES = ["pending", "running", "passed", "failed", "skipped"];
 const VERIFIERS = ["auto", "cross_review", "human"];
 const VERDICTS = ["pending", "passed", "failed"];
 const DEFINED_BY = ["human", "llm"];
+// DEC-1（g080-approve-core）：设计审核凭据的合法状态（self=quick 自签、approved=人工审核）
+const REVIEW_STATUSES = ["approved", "self"];
 
 // ── 实体 ID 规则（S0-3 路径穿越防护）──
 // ID 直接拼入文件路径（nodes/<id>.yaml、edges/<id>.yaml）：禁路径分隔符、
@@ -492,6 +494,18 @@ export function validateGraph(data: unknown): SchemaIssue[] {
   }
   if (data.root_context !== undefined && !isRecord(data.root_context)) {
     issues.push(issue("root_context", "必须是对象"));
+  }
+  // DEC-1（g080-approve-core）：review 为可选字段——缺省不存在（零迁移、零默认拒绝），
+  // 存在时严格校验形状（status 枚举 / by、at 字符串），手编拼错在读入层即拦截。
+  if (data.review !== undefined) {
+    if (!isRecord(data.review)) {
+      issues.push(issue("review", "必须是对象"));
+    } else {
+      const rev = data.review as Record<string, unknown>;
+      optEnum(rev, "status", REVIEW_STATUSES, issues);
+      reqString(rev, "by", issues);
+      optString(rev, "at", issues);
+    }
   }
   return issues;
 }

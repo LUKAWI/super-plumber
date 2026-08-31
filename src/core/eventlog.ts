@@ -42,7 +42,10 @@ export type GraphEventKind =
   // v0.5 领域事件（ADR 生命周期）
   | "adr_created"
   | "adr_accepted"
-  | "adr_superseded";
+  | "adr_superseded"
+  // DEC-1（g080-approve-core）：设计审核凭据写入（payload：by/status 见 detail；
+  // review 仅记录、零门禁，不伴随任何状态机变更）
+  | "design_approved";
 
 const EVENTS_LOCK = "__events__";
 const EVENTS_FILE = "events.jsonl";

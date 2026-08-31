@@ -199,6 +199,17 @@ export interface GraphExit {
   level: number;
 }
 
+// DEC-1（g080-approve-core）：设计审核凭据——approve 双通道（CLI approve /
+// MCP graph_approve）写入 graph.yaml，仅记录、零门禁：核心状态机不加任何
+// 拒绝规则，调度面只在 ready_eligible 与 claim 响应以 review_flag 提示。
+// status: 'approved'=人工审核 | 'self'=quick 自签（可区分）。
+// 可选字段：缺省不存在（存量图零迁移、零默认拒绝）。
+export interface GraphReview {
+  status: "approved" | "self";
+  by: string; // 审核人（quick 自签时为 quick 操作者名）
+  at: string; // ISO 8601
+}
+
 export interface GraphSchema {
   id: string;
   version: string;
@@ -208,6 +219,8 @@ export interface GraphSchema {
   nodes: { file: string }[];
   edges: { file: string }[];
   root_context?: Record<string, unknown>;
+  /** DEC-1：设计审核凭据（可选，缺省=未审核；写入走 approveGraph） */
+  review?: GraphReview;
 }
 
 // ── 目录常量（v0.5.2：图内相对——相对"图目录"而非工作区根；

@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.8.0] — 2026-08-31（minor：借力 skills 系统的工程判断——分级路由 + 审批凭据 + 写作规范）
+
+> 主题：把"每张图都走全套重流程"的对称性打破——quick/standard/program 三档分级路由让小任务轻装自举，
+> 审批从口头"批准了"变成可追溯凭据，plan/DoD 文案有了 lint 与写作规范，serve 人审话术并入 sp-grilling 纪律技能。
+
+- **设计审批凭据（DEC-1/adr_0001，F01/F12/F02）**：新增 `graph approve` CLI 与 `graph_approve` MCP 双通道——图级 `review` 字段（status: approved=人工 / self=quick 自签，by，at）+ `design_approved` 事件 + 索引失效，幂等覆盖；**零门禁红线**（核心状态机零新拒绝，未审核图全链路行为不变）。未审核图在 `graph next` 的 ready_eligible 条目与 MCP claim 响应注入 `review_flag: 'unreviewed'` 提示（≤10 token，机制同 adr_flags），approve 后消失；ready 桶不注入。CLI 27→28 命令、MCP 24→25 工具。
+- **三级工作类路由 Phase 0（DEC-2/adr_0002）**：plumber-design SKILL 流程之首两问定档（有雾吗？一个会话装得下吗？）——quick：单节点图、entry/exit 各一句话、跳过 serve 人审与 doctor 质检、只跑 `graph validate`、init 后立即 `approve --status self` 自签、执行协议减为 claim→report→passed（checkpoint 可选）；standard：现状全流程；program：登记方向，雾区渐进 0.9.0 落地。自举实测：quick 档 9 步 vs standard 档 22 步（41%），成本匹配目标。
+- **sp-grilling 纪律技能（adr_0014/adr_0005，skills 2→3）**：MP grilling 本体协议忠实移植（一次一问、每问附推荐答案、事实自查环境/决策归人、共识达成前不动手）+ SP 落点附录四路落图（定档→Phase 0 路由表；设计决策→graph adr create；改决定→DEC-7 分流；审批→approve 凭据话术）+ 强度分档（quick 轻量/standard·program 全量深挖）。serve 人审话术改为对「已画好的图」跑 grilling 质检（覆盖原 quiz 三问的三类结构决策：粒度/阻塞边真门槛/合并或再拆），用户批准后 designer 调一次 approve 落凭据。model-invoked、无命令。
+- **plan/DoD 写作规范与上下文卫生（WF03/WF04）**：manual §2.8 写作规范四原则一正一反（耐久＞精确/行为式/可独立验证/显式范围，反例即 lint 三类规则码）；§4.4 上下文卫生四要点（一节点一会话为默认/checkpoint=阶段边界/compact 失败模式/stale 是心跳不是事故）；plumber-execute SKILL 双副本同步增「上下文卫生」节。
+- **F16 文案 lint（DEC-3，warning 级三通道同源）**：`src/core/style-lint.ts` 纯函数规则组——a 脆弱定位（路径+行号/函数名共现，板块级文件落点不报）/ b 行号式 / c 不可验证措辞（词表+裸词干守卫 `(?<![不非])词干(?![性化界地])`，IL-014 验收发现漏报后二轮补洞）；CLI validate / MCP graph_validate / sp-check-design W8 三通道同源透传，warning 不影响退出码。
+- **ADR 与术语**：六张 ADR 转正——adr_0001（审批凭据非硬门禁）、adr_0002（三级路由）、adr_0003（纪律分层判据）、adr_0004（自主入场）、adr_0005（skills 入口策略+纪律族）随版 accepted，加 adr_0012（过程问题前馈回路，设计期已转正）；CONTEXT.md 增三术语（工作类/审批凭据/提示旗标）。
+- **治理账（docs/issue-log.md 前馈回路）**：IL-001 置层准则成文（SKILL 置层准则节 + manual §2.9，33 层事故实证入文；doctor W9 层数>8 评估结论在案留 0.8.x）；IL-002 批量操作守则（manual §2.10：glob 排除 *.deleted*/先快照/批量后 validate+抽查）；IL-014 c 类词表二轮修复；IL-015 外部驱动 roots 回退教训入账。manual §6.1/§6.2/§1 计数同步（28 命令/25 工具）。
+- **插件清单**：`.claude-plugin/plugin.json` version 自 0.6.3 对齐至 0.8.0（历史停滞导致市场插件未跟上 0.7.x，随版修正），skills 注册面 2→3（sp-grilling，command=null）。
+- 回归：后端 65 文件 605 用例绿（0.7.1 为 560）+ web-ui 68 用例不回归、`graph validate` 0 error（本图另有 7 条自指性 lint warning 属预期信号）、`sync-integrations.mjs` 一致性门禁通过。
+- 发布动作：npm 0.8.0（latest）+ GitHub tag v0.8.0。
+
 ## [0.7.1] — 2026-08-30（patch：多图知识视图按图名分离 + 0.7.0 遗留修复批清账 + 边类型与契约工效）
 
 - **多图工作区知识视图按图名分离（adr_0013，根治 A1 跨图视图挤占）**：多图工作区中 `graph export --docs` 与 snapshot 自动导出默认落 `docs/<图名>/{adr,contexts,CONTEXT-MAP.md}`，各图视图互不挤占、不再产生 `.retired/` 误归档与 CONTEXT-MAP 翻烧饼；单图工作区路径完全不变（向后兼容）；显式 `--adr-dir/--ctx-dir` 透传仍优先。多图工作区升级后视图落点有变化，旧共享目录成为冻结历史视图。

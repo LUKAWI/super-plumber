@@ -350,3 +350,39 @@ export function updateGraph(
     return graph;
   });
 }
+
+// ── DEC-1（g080-approve-core）：设计审核凭据写入 ──
+// approve 双通道（CLI approve / MCP graph_approve）共用的核心原语：
+//   1. graph.yaml 写入 review 字段（status/by/at，self=quick 自签与 approved=人工审核可区分）；
+//   2. events.jsonl 追加 design_approved 事件（payload 含 by/status）；
+//   3. writeGraphCore 内含 invalidateIndex——调度缓存失效，review_flag 判定立即可见。
+// 红线：review 仅记录、零门禁——不触碰任何节点状态机规则，调度面只做提示。
+// 幂等语义：重复 approve 覆盖旧凭据（最新一次审核生效）。
+export interface ApproveGraphParams {
+  /** 审核人（quick 自签时为 quick 操作者名） */
+  by: string;
+  /** 审核状态：approved=人工审核（默认）| self=quick 自签 */
+  status?: "approved" | "self";
+}
+
+export function approveGraph(
+  rootDir: string,
+  params: ApproveGraphParams,
+  opts: { actor?: string } = {},
+): GraphSchema {
+  if (typeof params.by !== "string" || params.by === "") {
+    throw new Error("approve 需要非空审核人（--by <名> / by 参数）");
+  }
+  const status = params.status ?? "approved";
+  return withGraphLock(rootDir, () => {
+    const graph = readGraph(rootDir); // 未初始化/schema 损坏直接报错
+    graph.review = { status, by: params.by, at: new Date().toISOString() };
+    writeGraphCore(rootDir, graph); // 写前校验 + 落盘 + invalidateIndex
+    appendEvent(rootDir, {
+      actor: opts.actor ?? params.by, // 审核动作的行为主体就是审核人
+      kind: "design_approved",
+      detail: `by=${params.by}, status=${status}`,
+    });
+    return graph;
+  });
+}

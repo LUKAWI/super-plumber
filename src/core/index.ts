@@ -15,6 +15,7 @@ export * from "./graph.js";
 export * from "./snapshot.js";
 export * from "./graph-dir.js";
 export * from "./domain.js";
+export * from "./style-lint.js";
 export * from "./eventlog.js";
 export * from "./docs-export.js";
 export * from "./index-service.js";

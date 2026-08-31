@@ -38,7 +38,7 @@ async function loadCore() {
     }
   }
 }
-const { readGraph, readNode, readEdge } = await loadCore();
+const { readGraph, readNode, readEdge, lintNodeWording } = await loadCore();
 
 const TOPO_TYPES = new Set(["depends_on", "validates"]);
 const EDGE_TYPES = new Set([
@@ -307,6 +307,17 @@ function main() {
       code: "W7",
       msg: `${realWf.length} 个工作流节点但 context 顶点 = 0：若需求跨多个关注点，请评估 bounded context 划分（领域建模 → 手册 §2.4）；确属单关注点任务可忽略本提示`,
     });
+  }
+
+  // --- W8: plan/DoD 文案 lint（manual §2.8 三类规则码 a 脆弱定位/b 行号式/c 不可验证措辞）---
+  // 规则单源：经 loadCore() 消费 @lukawi/super-plumber/core 的 lintNodeWording
+  // （src/core/style-lint.ts），脚本侧零复制——与 graph validate / MCP graph_validate 同源。
+  // lint 恒为 warning（文案规范不参与退出码）；message 内嵌规则码〔a/b/c〕与 manual §2.8 判据。
+  for (const n of nodes) {
+    if (n.id === "exit" || n.id === "entry") continue;
+    for (const li of lintNodeWording(n)) {
+      issues.push({ level: "warning", code: "W8", msg: li.message });
+    }
   }
 
   // --- 输出 ---

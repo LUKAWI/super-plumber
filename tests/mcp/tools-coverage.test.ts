@@ -42,12 +42,13 @@ describe("f10 MCP 工具补全（S2-1）", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("TC-01 工具注册数与头注释一致（24 个，graph_validate/graph_events 在列）", async () => {
+  it("TC-01 工具注册数与头注释一致（25 个，graph_validate/graph_events/graph_approve 在列）", async () => {
     const tools = await client.listTools();
     const names = tools.tools.map((t) => t.name);
-    expect(tools.tools.length).toBe(24);
+    expect(tools.tools.length).toBe(25);
     expect(names).toContain("graph_validate");
     expect(names).toContain("graph_events");
+    expect(names).toContain("graph_approve");
   });
 
   it("TC-02 干净小图 graph_validate → ok=true 无错误", async () => {

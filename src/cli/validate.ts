@@ -3,6 +3,7 @@ import { cliGraphDir } from "./graph-ctx.js";
 import { readGraph } from "../core/parser.js";
 import { topologicalSort, detectCycles, detectHiddenCycles } from "../core/graph.js";
 import { validateDomainRules } from "../core/domain.js";
+import { lintNodeWording } from "../core/style-lint.js";
 import { aggregateCheckpointStatus } from "../core/state-machine.js";
 import {
   loadNodeFile,
@@ -169,6 +170,12 @@ export const validateCommand = new Command("validate").alias("v")
     for (const d of validateDomainRules(nodes, edges)) {
       if (d.level === "error") err(d.message);
       else warn(d.message);
+    }
+
+    // F16：plan/DoD 文案 lint（core/style-lint.ts：规则码 a 脆弱定位/b 行号式/c 不可验证措辞，
+    // manual §2.8 四原则）。恒为 warning——文案规范不参与退出码
+    for (const node of nodes) {
+      for (const li of lintNodeWording(node)) warn(li.message);
     }
 
     // 4. 拓扑排序 + 循环检测

@@ -27,6 +27,18 @@
 
 拓扑图的终点。由人类定义，表达最终交付物和验收标准。对应 L0 层级。
 
+### 工作类（work class）
+
+一张图在创建时归属的流程档位（quick / standard / program），决定设计审核、质检与执行协议的繁简。
+
+### 审批凭据（review receipt）
+
+图级 `review` 字段 + `design_approved` 事件，记录"该图的设计经谁在何时审核通过"；仅记录，不强制。
+
+### 提示旗标（review flag）
+
+调度与认领响应中对未审核图的 one-line 提示，机制同 adr_flags。
+
 ---
 
 ## 节点

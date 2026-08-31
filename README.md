@@ -39,8 +39,8 @@ Todo 工具给 agent 的是文本，它得猜顺序、猜验收。这里给的�
 `ready` 门禁拦截跳步、`passed` 硬门禁拒绝没有交接单的"我做完了"。agent 想糊弄？状态机先不答应。
 
 **② Agent 是一等用户，人是监督者**
-24 个 MCP 工具覆盖设计→执行→裁决全流程：原子认领（并发只有一个成功）、checkpoint 逐步上报、
-交接单（summary + artifacts）落盘、死认领回收、审计日志逐条可追查。读接口全面分页——
+25 个 MCP 工具覆盖设计→执行→裁决全流程：原子认领（并发只有一个成功）、checkpoint 逐步上报、
+交接单（summary + artifacts）落盘、死认领回收、设计审批凭据（approve）、审计日志逐条可追查。读接口全面分页——
 大图不再撑爆 agent 的上下文窗口。
 
 **③ 独此一家的星空监控台**
@@ -76,12 +76,12 @@ branch/merge 直接交给 Git。
 | 🛡️ **Schema 校验** | 读入层逐文件校验 YAML（枚举/类型/必填），手改拼错即时报可读错误，`graph validate` 逐文件定位 + 六条领域规则（悬空归属=error、同 context 术语重复=warning、跨 context 缺契约=warning、relates 端点=error、孤儿 ADR=warning、decides 来源=error） |
 | 🗂️ **版本控制** | `snapshot` / `diff` / `rollback` 三原语（回滚自动备份、必须确认；**design-only 回滚**保留执行进度只回卷设计），Branch/Merge 由 Git 承担 |
 | 🧾 **事件日志** | `.graph/events.jsonl` append-only 审计：谁在何时创建/删除/流转/claim/越权/重置/回滚/ADR 生命周期（adr_created/accepted/superseded），`graph events` 一键追查 |
-| 🤖 **MCP 原生接入** | 24 个 `graph_*` 工具：设计期（批量建图/建边/编辑 entry-exit/**graph_create_adr**）、执行期（原子 claim 附管辖 ADR 指针/checkpoint/report/**reclaim 回收死认领**）、裁决（verdict）、版本（snapshot/diff/rollback）、自检（**graph_validate** 结构+领域规则+引用漂移）、审计（**graph_events** 事件回溯）全流程覆盖，zod 参数校验 |
+| 🤖 **MCP 原生接入** | 25 个 `graph_*` 工具：设计期（批量建图/建边/编辑 entry-exit/**graph_create_adr**/**graph_approve 审批凭据**）、执行期（原子 claim 附管辖 ADR 指针/checkpoint/report/**reclaim 回收死认领**）、裁决（verdict）、版本（snapshot/diff/rollback）、自检（**graph_validate** 结构+领域规则+引用漂移）、审计（**graph_events** 事件回溯）全流程覆盖，zod 参数校验 |
 | 🎯 **调度决策** | `graph next` / `graph_get_next_actions` 一屏返回可认领 / **可转 ready（ready_eligible，冷启动入口）** / 等依赖 / 执行中 / 疑似卡住，每桶分页 + truncated 标记，ready/ready_eligible 按节点 `priority` 排序，stale 判据=最后活动时间（上报即心跳），条目可含 `adr_flags`（决策依据已过时 ⚠️），知识顶点永不进调度桶，agent 规划循环首选 |
 | 📉 **上下文经济** | MCP 读接口全面分页：`graph_get_graph` 默认 summary 模式（紧凑字段）+ full 分页、`graph_search` limit、`graph_traverse` max_nodes、`graph_get_node` 可附拓扑邻居——大图不再 token 爆炸；ADR 只注入标题级指针，永不全文推送 |
 | ⚡ **大图热路径** | 索引两级缓存（内存 + 磁盘 graph.json）：门禁/调度从"每次全图扫描"（10k 图 ~9s）降为查表 + 单文件读；调度 O(N+M)；**写路径主动失效缓存**（不赌文件系统 mtime，长驻进程写后读一致） |
 | 📁 **纯文件存储** | 每个节点/边一个 YAML 文件，Git 是唯一真相源，人类可直接编辑，无数据库 |
-| 🧩 **agent 协作协议** | 内置 `plumber-design`（拓扑设计+领域建模+ADR 甄别+预览审核闸门）与 `plumber-execute`（拓扑执行+三层验收+管辖 ADR 纪律）双阶段 skill + 2 个专用 subagent（拆解 / 裁决） |
+| 🧩 **agent 协作协议** | 内置 `plumber-design`（拓扑设计+领域建模+ADR 甄别+预览审核闸门）与 `plumber-execute`（拓扑执行+三层验收+管辖 ADR 纪律）双阶段 skill，加纪律技能 `sp-grilling`（v0.8.0：意图对齐与决策纠正的对话核心）+ 2 个专用 subagent（拆解 / 裁决） |
 
 ---
 
@@ -113,7 +113,7 @@ npm install -g @lukawi/super-plumber
 
 ```bash
 graph --version     # 输出版本号即成功
-graph --help        # 查看全部 27 个命令
+graph --help        # 查看全部 28 个命令
 which graph         # 确认命令位置（Windows: where graph）
 ```
 
@@ -298,7 +298,7 @@ graph serve                           # 打开 http://localhost:8934 看星空�
 
 ---
 
-## CLI 命令参考（27 个）
+## CLI 命令参考（28 个）
 
 | 命令 | 功能 | 常用参数 |
 |------|------|----------|
@@ -314,6 +314,7 @@ graph serve                           # 打开 http://localhost:8934 看星空�
 | `graph reclaim` | 回收死认领：running → pending（清空执行者 + 回收记录） | `-i <id>`；`--by <actor>` |
 | `graph update-node` | 更新节点详情 | `-i <id>` `--plan-desc` `--add-dod <item>`（可多次）`--clear-dod` `--add-checkpoint '<JSON>'`（可多次）`--set-assigned <agent>` `--label <text>` `--max-attempts <n>` `--set-priority <n>` `--set-context <ctx_id>` `--boundary <text>` `--glossary-add '<JSON>'`（可多次）`--reset-attempts`（显式归零，写审计事件）`--show` |
 | `graph update-graph` | 编辑 entry/exit/验收标准/图名（不再手写 graph.yaml） | `--entry-desc` `--exit-desc` `--add-criteria <item>`（可多次）`--clear-criteria` `--label` `--set-context '<json>'` |
+| `graph approve` | 写入设计审批凭据（v0.8.0：review 字段 + design_approved 事件；仅记录零门禁，quick 档自签） | `--by <名>`（必填）；`--status approved\|self`（默认 approved） |
 | `graph adr` | ADR 生命周期命令组（v0.5）：create 即落 proposed，accept/supersede 归裁决方 | `create -t <标题> -d <决策>`；`accept -i <id>`；`supersede -i <id> --by <id>`；`list [-s <状态>]` |
 | `graph delete-node` | 软删除节点；有引用边默认拒绝 | `-i <id>`；`--cascade` 连同引用边一起删 |
 | `graph delete-edge` | 软删除边 | `-i <id>` |
@@ -447,15 +448,15 @@ npm install -g @lukawi/super-plumber
 >
 > 单一固定图/测试场景才需要显式指定：`"command": "graph-mcp", "args": ["--root", "/path/to/graph"]`。
 
-### 24 个工具
+### 25 个工具
 
 **调度**：`graph_get_next_actions` — 一次返回可认领（ready）/ **可转 ready（ready_eligible，门禁已满足的 pending/failed——冷启动入口）** / 等依赖（blocked，附未满足前驱）/ 执行中（running，附时长）/ 疑似卡住（stale_running），每桶分页（`limit` + `truncated`），条目可含 `adr_flags`（决策依据已过时 ⚠️），是 agent 规划循环的首选。
 
-**多图（v0.5.2）**：`graph_switch`（进程内切换当前图：带名切换+摘要 / 无参查当前，重启回落工作区默认）、`graph_list_graphs`（列全部图含 is_current / 查单图详情）；**全部 24 个工具响应统一附 graph 名回显**；跨图智能纠错（当前图缺失的节点/边 id → 报错附『它存在于图 X，请先 graph_switch』，提示绝不代切）。
+**多图（v0.5.2）**：`graph_switch`（进程内切换当前图：带名切换+摘要 / 无参查当前，重启回落工作区默认）、`graph_list_graphs`（列全部图含 is_current / 查单图详情）；**全部 25 个工具响应统一附 graph 名回显**；跨图智能纠错（当前图缺失的节点/边 id → 报错附『它存在于图 X，请先 graph_switch』，提示绝不代切）。
 
 **读取**：`graph_get_node`（节点 + 合法转换 + checkpoint 聚合 + 门禁状态 + **governing_adrs 管辖 ADR 指针**，可附拓扑邻居）、`graph_get_graph`（默认 summary 紧凑模式，`mode=full` + `offset/limit` 分页）、`graph_traverse`（`max_nodes` 上限）、`graph_search`（`limit` 上限 + 紧凑结果，可按 `--type adr/context` 查知识顶点）。
 
-**设计期写入**：`graph_create_node`（一次带 plan/DoD/checkpoints 完整压缩包，支持 `type=context/adr` 与 `context` 归属）、`graph_create_adr`（**v0.5**：自动编号 adr_NNNN + 落 proposed——提议/裁决分离，accept/supersede 归 Super Mario/人类）、`graph_batch_create`（批量 nodes+edges，先全量预校验报全部冲突）、`graph_add_edge`（含 `decides`/`relates` 知识边与 `contract`/`rel_kind`）、`graph_update_node`（含领域字段 `set_context`/`boundary`/`glossary_add`/`superseded_by`）、`graph_update_graph`（entry/exit/验收标准）、`graph_delete_node`（有引用边默认拒绝，`cascade` 连删）、`graph_delete_edge`。
+**设计期写入**：`graph_create_node`（一次带 plan/DoD/checkpoints 完整压缩包，支持 `type=context/adr` 与 `context` 归属）、`graph_create_adr`（**v0.5**：自动编号 adr_NNNN + 落 proposed——提议/裁决分离，accept/supersede 归 Super Mario/人类）、`graph_batch_create`（批量 nodes+edges，先全量预校验报全部冲突）、`graph_add_edge`（含 `decides`/`relates` 知识边与 `contract`/`rel_kind`）、`graph_update_node`（含领域字段 `set_context`/`boundary`/`glossary_add`/`superseded_by`）、`graph_update_graph`（entry/exit/验收标准）、`graph_approve`（**v0.8.0**：设计审批凭据——review 字段 + design_approved 事件，仅记录零门禁；未审核图调度与 claim 附 review_flag 提示）、`graph_delete_node`（有引用边默认拒绝，`cascade` 连删）、`graph_delete_edge`。
 
 **执行期写入**：`graph_update_node_status`（`status=running` 传 `claim_by` 完成**原子认领**，并发只有第一个成功，**响应附 governing_adrs 指针**；**force 在 MCP 通道被协议级拒绝**——人类运维走 CLI `--force`，留 force_override 审计事件；ADR 三态机经此工具流转，superseded 两步法=先 `graph_update_node {superseded_by}` 再置状态）、`graph_update_checkpoint`（checkpoint 状态机 + 幂等）、`graph_update_execution_report`（交接单 + `verification` 裁决结论）、`graph_reclaim_node`（回收死认领：running → pending）。`graph_update_node` 的 attempts 重置必须显式 `reset_attempts: true`（改 plan 不再隐式重置，重置必留审计事件）。
 
@@ -522,7 +523,7 @@ graph serve
 
 ## Pi Agent 生态：subagent + skill
 
-项目内置 2 个专用 subagent（`.pi/agents/`）与 2 个阶段化 skill（`.pi/skills/plumber-design/` + `.pi/skills/plumber-execute/`）：
+项目内置 2 个专用 subagent（`.pi/agents/`）与 3 个 skill（`.pi/skills/plumber-design/` + `.pi/skills/plumber-execute/` + `.pi/skills/sp-grilling/` 纪律技能，v0.8.0 起）：
 
 | Agent | 角色 | 职责 |
 |-------|------|------|
@@ -547,7 +548,7 @@ graph serve
 
 装好后你会得到：
 
-- **2 个斜杠命令**：`/plumber-design`——设计期编排（需求拆解 → 拓扑建图 → validate/doctor 双绿 → 浏览器预览 → 请求用户审核）；`/plumber-execute`——执行期编排（claim → 逐 checkpoint 上报 → 交接单 → 三层验收）。pi 无斜杠命令，由 `.pi/skills/` 的两阶段 skill 直接驱动同一流程。
+- **2 个斜杠命令**：`/plumber-design`——设计期编排（需求拆解 → 拓扑建图 → validate/doctor 双绿 → 浏览器预览 → 请求用户审核）；`/plumber-execute`——执行期编排（claim → 逐 checkpoint 上报 → 交接单 → 三层验收）。pi 无斜杠命令，由 `.pi/skills/` 的两阶段 skill 直接驱动同一流程。另含纪律技能 `sp-grilling`（v0.8.0）：model-invoked、无命令，按触发语自动进入（grill/拷问/对齐/深挖）。
 - **2 个 subagent**：`sp-designer`（拓扑设计师）与 `super-mario`（裁决主控），由 skill 按派单模板调度；检测不到 subagent 时走 skill 内 solo 分支。
 - **Operations 手册**：操作语法唯一正本。pi 侧读仓库根 `integrations/shared/manual.md`，插件用户读插件包内 `manual.md`（构建期同步的正本拷贝）；提示词/skill 写「Read 手册 §N」时按此寻址（约定见手册 §11）。
 
@@ -613,7 +614,7 @@ graph --version
 ## 项目状态
 
 ```text
-Tests: 534（后端）+ 68（前端）✅ | CLI: 27 命令 | MCP: 24 工具 | 状态机: 7 态 + ready 门禁 + max_attempts + passed 硬门禁 + 事件日志审计 + ADR 三态机（知识顶点豁免） | 边类型: 9 种 | 版本控制: snapshot/diff/rollback（含 design-only）| Web UI: Svelte 5 + D3.js 星空观测台（v0.7.0 深空仪器舱）
+Tests: 605（后端）+ 68（前端）✅ | CLI: 28 命令 | MCP: 25 工具 | 状态机: 7 态 + ready 门禁 + max_attempts + passed 硬门禁 + 事件日志审计 + ADR 三态机（知识顶点豁免）+ 设计审批凭据（v0.8.0） | 边类型: 9 种 | 版本控制: snapshot/diff/rollback（含 design-only）| Web UI: Svelte 5 + D3.js 星空观测台（v0.7.0 深空仪器舱）
 ```
 
 - **npm**: [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)

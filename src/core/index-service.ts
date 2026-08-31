@@ -31,7 +31,7 @@ import {
   EDGES_DIR,
 } from "./types.js";
 import { listNodeFileNames, listEdgeFileNames } from "./schema.js";
-import { readNode, readEdge } from "./parser.js";
+import { readNode, readEdge, readGraph } from "./parser.js";
 import { adrFlagsFor } from "./domain.js";
 import { toGraphDir } from "./graph-dir.js";
 
@@ -242,11 +242,38 @@ export function invalidateIndex(rootDir: string): void {
 
 // ── 调度决策（agent 规划循环的核心减负工具）──
 
+// DEC-1（g080-approve-core）：review_flag 注入面（core 侧）。
+// 图级判定一次：图无 review 凭据 → ready_eligible 条目附 review_flag（≤10 token，
+// 风格对齐 adr_flags——只提示不拦截）。红线：review 仅记录、零门禁，核心状态机
+// 不因此新增任何拒绝规则。文案定稿在 0.8.2，当前先写字面量。
+export const REVIEW_FLAG_UNREVIEWED = "unreviewed";
+
+/** 图级 review_flag 判定（一次读 graph.yaml，不进索引缓存）：
+ * 无 review 字段 → 'unreviewed'；有 → undefined（不注入）。
+ * 图未初始化/不可读同样视为未审核（提示不阻塞调度）。 */
+export function reviewFlagFor(rootDir: string): string | undefined {
+  try {
+    return readGraph(rootDir).review === undefined
+      ? REVIEW_FLAG_UNREVIEWED
+      : undefined;
+  } catch {
+    return REVIEW_FLAG_UNREVIEWED;
+  }
+}
+
 export interface NextActionsResult {
   /** 可认领节点（状态 ready），按 priority 升序 → level → id 排序 */
   ready: { id: string; label: string; priority?: number; adr_flags?: string[] }[];
-  /** 门禁已满足、可转 ready 的 pending/failed 节点（冷启动与重试入口），同上排序 */
-  ready_eligible: { id: string; label: string; priority?: number; adr_flags?: string[] }[];
+  /** 门禁已满足、可转 ready 的 pending/failed 节点（冷启动与重试入口），同上排序。
+   * DEC-1：图无 review 凭据时条目附 review_flag（仅提示、零门禁；只在
+   * ready_eligible 注入，ready 桶不注入） */
+  ready_eligible: {
+    id: string;
+    label: string;
+    priority?: number;
+    adr_flags?: string[];
+    review_flag?: string;
+  }[];
   /** pending/failed 且门控前驱未齐的节点 */
   blocked: {
     id: string;
@@ -284,6 +311,8 @@ export function computeNextActions(
   // adr_flags：superseded 的 ADR 沿 decides 边把"决策依据已过时"传播到工作流条目。
   const workflowNodes = nodes.filter((n) => !isKnowledgeType(n.type));
   const adrFlags = adrFlagsFor(nodes, edges);
+  // DEC-1：review_flag 图级判定一次——无 review 凭据的图，ready_eligible 条目统一注入
+  const reviewFlag = reviewFlagFor(rootDir);
 
   const summary = {
     total: workflowNodes.length,
@@ -352,6 +381,7 @@ export function computeNextActions(
         readyEligible.push({
           ...schedEntry(n),
           ...(adrFlags.get(n.id) ? { adr_flags: adrFlags.get(n.id) } : {}),
+          ...(reviewFlag !== undefined ? { review_flag: reviewFlag } : {}),
         });
       }
     }
