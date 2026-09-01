@@ -11,6 +11,7 @@
 | ADR · accepted | adr_0004 | 自主入场：冷启动加入协议 + sp-executor subagent 定义（DEC-5） | 2026-08-30T23:32:50.322Z |
 | ADR · accepted | adr_0005 | skills 入口策略修订 + 纪律技能族自建（DEC-6） | 2026-08-30T23:32:50.554Z |
 | ADR · accepted | adr_0006 | 改图协议 amend：三级分流 + 三条轻机器约束，不新增 skill（DEC-7） | 2026-09-01T05:11:26.877Z |
+| ADR · accepted | adr_0007 | 雾区进 schema：轻字段 + 只提示不阻止（0.9.0 设计基准） | 2026-09-01T16:15:49.179Z |
 | ADR · accepted | adr_0012 | 过程问题前馈回路：失败与用户反馈一律入账、转图节点、按常规流程治理 | 2026-08-30T09:33:39.056Z |
 | ADR · accepted | adr_0013 | 多图工作区知识视图导出按图名分离存放（根治 A1 跨图视图挤占） | 2026-08-30T11:39:27.326Z |
 | ADR · accepted | adr_0014 | sp-grilling 纪律技能：意图对齐与决策纠正的统一对话核心（替代 quiz 三问） | 2026-08-30T14:27:35.303Z |
@@ -44,8 +45,14 @@
 | task · passed | v081-tooling | [0.8.1] F14 delete-node --reason 双通道 + F15 DECISIONS.md 决议索引 | 2026-08-31T13:29:04.791Z |
 | task · passed | v081-verify | [0.8.1] 0.8.1 交叉验证 | 2026-08-31T14:12:04.933Z |
 | task · passed | v081-webui | [0.8.1] web-ui 前沿一键视图 + Avoid 呈现 | 2026-08-31T13:38:23.157Z |
+| task · passed | v082-adr | [0.8.2] S08：accept adr_0006（改图协议经 WF16/F21 实践检验） | 2026-09-01T05:13:36.260Z |
 | task · passed | v082-amend-skill | [0.8.2] WF16 execute 上报出口节 + 改图三级分流话术 | 2026-09-01T04:03:25.463Z |
 | task · passed | v082-amend-tooling | [0.8.2] F21 改图三约束双通道 | 2026-09-01T04:40:43.986Z |
 | task · passed | v082-fog-recon | [0.8.2] WF08 雾区约定版试跑 | 2026-09-01T04:09:43.373Z |
 | task · passed | v082-join | [0.8.2] S10/WF15 plumber-join skill + 命令三通道（skills 2→3，commands 2→3） | 2026-09-01T04:27:23.489Z |
+| task · passed | v082-release | [0.8.2] 0.8.2 发布收尾 | 2026-09-01T06:11:05.784Z |
 | task · passed | v082-tooling | [0.8.2] 待拍板收口：class 字段（F03/F13）+ review_flag 文案定稿 | 2026-09-01T04:51:01.942Z |
+| task · passed | v082-verify | [0.8.2] 0.8.2 交叉验证 | 2026-09-01T05:24:28.338Z |
+| task · passed | v090-chartwork | [0.9.0] WF09 chart/work 两模式进 skill | 2026-09-01T15:59:51.645Z |
+| task · passed | v090-fog-schema | [0.9.0] F04/F05/F17 雾区机器面 | 2026-09-01T15:44:26.780Z |
+| task · passed | v090-fogui | [0.9.0] web-ui 雾区呈现（虚线云团） | 2026-09-01T16:08:45.400Z |

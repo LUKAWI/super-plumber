@@ -9,6 +9,7 @@
     EDGE_TYPE_LABELS,
     statusColorOf,
     type GraphIndex,
+    type GraphFog,
     type NodeSchema,
     type NodeStatus,
     type EdgeSchema,
@@ -65,6 +66,8 @@
   let currentGraph: GraphIndex | null = null;
   let byIdCache: Map<string, NodeSchema> = new Map();
   let currentContextColors: Map<string, string> = new Map();
+  /** 图级雾区（adr_0007）：随全量数据刷新（renderGraph/syncEdges）重建；无雾 null */
+  let currentFog: GraphFog | null = null;
 
   interface HullRender {
     contextId: string;
@@ -83,6 +86,13 @@
   const NODE_R = 20;
   const CONTEXT_R = 26; // context 顶点（领域视图）：虚线大圆
   const HULL_PAD = NODE_R + 20; // 星云云体外扩半径（罩住成员星芒主体）
+
+  // 雾区云团（adr_0007 呈现面，090-fogui）：虚线椭圆云体悬在星座包围盒正下方，
+  // 低饱和玻璃雾——克制的透明度与描边，不遮挡节点
+  const FOG_COLOR = "#9aa7c9"; // 低饱和蓝灰（避开全部状态色相）
+  const FOG_RX = 88;
+  const FOG_RY = 54;
+  const FOG_GAP = 64; // 云团与星座包围盒下缘的间距
 
   function nodeR(d: SimNode): number {
     return d.type === "context" ? CONTEXT_R : NODE_R;
@@ -530,6 +540,128 @@
     });
   }
 
+  // ── 雾区云团（adr_0007 呈现面，090-fogui）────────────────────────
+  // 图级 fog 字段 → 虚线云团。分层与样式参照领域星云（g.hulls）：
+  // d3 生成 DOM（样式走 :global）、径向渐变走 objectBoundingBox、整组置于
+  // zoomGroup 最底层；云团悬在星座包围盒正下方（不遮挡节点，tick 跟随）。
+  // 数据驱动：fog 字段随 /api/graph（ws graph:full / graph:update）刷新——
+  // 毕业后字段消失 → 整组连渐变 defs 一并移除，零 DOM 残留。
+
+  /** 雾区云团几何：星座包围盒（有限坐标）正下方；空图/未结算时落画布中下部 */
+  function fogGeometry(): { cx: number; cy: number; rx: number; ry: number } | null {
+    if (!currentFog) return null;
+    const { w, h } = getContainerSize();
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const n of currentNodes) {
+      if (!Number.isFinite(n.x) || !Number.isFinite(n.y)) continue;
+      minX = Math.min(minX, n.x as number);
+      maxX = Math.max(maxX, n.x as number);
+      maxY = Math.max(maxY, n.y as number);
+    }
+    if (minX === Infinity) {
+      return { cx: w / 2, cy: h / 2 + FOG_RY + FOG_GAP, rx: FOG_RX, ry: FOG_RY };
+    }
+    return { cx: (minX + maxX) / 2, cy: maxY + FOG_GAP + FOG_RY, rx: FOG_RX, ry: FOG_RY };
+  }
+
+  function showFogTooltip(fog: GraphFog, event: MouseEvent) {
+    if (!tooltipEl || !wrapperEl) return;
+    const ignited = fog.ignited?.length ? `\n已点火：${fog.ignited.join("、")}` : "";
+    tooltipEl.textContent = `${fog.id}\n${fog.description}\n毕业：${fog.graduation}${ignited}`;
+    tooltipEl.style.whiteSpace = "pre-line";
+    tooltipEl.style.display = "block";
+    const rect = wrapperEl.getBoundingClientRect();
+    tooltipEl.style.left = `${event.clientX - rect.left + 12}px`;
+    tooltipEl.style.top = `${event.clientY - rect.top - 8}px`;
+  }
+
+  function hideFogTooltip() {
+    if (tooltipEl) tooltipEl.style.display = "none";
+  }
+
+  /** 全量/增量数据刷新时调用：有雾则建/换云团（内容变化才重建子元素），无雾则整组移除 */
+  function refreshFogCloud() {
+    if (!zoomGroup || !svgEl) return;
+    const existing = zoomGroup.select<SVGGElement>("g.fog-cloud");
+    if (!currentFog) {
+      existing.remove();
+      d3.select(svgEl).select("defs").select("#fog-grad").remove();
+      hideFogTooltip();
+      return;
+    }
+    const defs = d3.select(svgEl).select("defs");
+    if (defs.select("#fog-grad").empty()) {
+      // 云体径向渐变（低饱和玻璃雾：内 0.12 → 外 0，与星云同浓度档）
+      const grad = defs.append("radialGradient").attr("id", "fog-grad");
+      grad.append("stop").attr("offset", "0%").attr("stop-color", FOG_COLOR).attr("stop-opacity", 0.12);
+      grad.append("stop").attr("offset", "60%").attr("stop-color", FOG_COLOR).attr("stop-opacity", 0.05);
+      grad.append("stop").attr("offset", "100%").attr("stop-color", FOG_COLOR).attr("stop-opacity", 0);
+    }
+    const fogG = existing.empty()
+      ? // 最底层（hulls/edges/nodes 之前）：即便与云缘相交也压不到任何星体
+        zoomGroup.insert<SVGGElement>("g", ":first-child").attr("class", "fog-cloud")
+      : existing;
+    const fog = currentFog;
+    const key = `${fog.id}\u0000${fog.description}\u0000${fog.graduation}\u0000${fog.ignited?.length ?? 0}`;
+    if (fogG.attr("data-key") === key) {
+      updateFogCloud();
+      return;
+    }
+    fogG.attr("data-key", key);
+    fogG.selectAll("*").remove();
+    // 云体：虚线描边椭圆 + 渐变雾芯（不参与拾取）
+    fogG.append("ellipse").attr("class", "fog-body")
+      .attr("fill", "url(#fog-grad)")
+      .attr("stroke", FOG_COLOR)
+      .attr("stroke-opacity", 0.4)
+      .attr("stroke-width", 1)
+      .attr("stroke-dasharray", "6 5")
+      .style("pointer-events", "none");
+    // 命中域：hover 出 tooltip（id + 描述 + 毕业条件），可聚焦（读屏走 aria-label）
+    fogG.append("ellipse").attr("class", "fog-hit")
+      .attr("fill", "transparent")
+      .attr("tabindex", 0)
+      .attr("role", "img")
+      .attr("aria-label", `雾区 ${fog.id}：${fog.description}（毕业条件：${fog.graduation}）`)
+      .style("cursor", "help")
+      .on("mouseenter", (event: MouseEvent) => showFogTooltip(fog, event))
+      .on("mouseleave", hideFogTooltip)
+      .on("focus", () => fogG.classed("fog-hot", true))
+      .on("blur", () => fogG.classed("fog-hot", false));
+    // 云上标签：雾 id（截断同 context 标签口径）
+    const label = fog.id.length > 18 ? `${fog.id.slice(0, 16)}…` : fog.id;
+    fogG.append("text").attr("class", "fog-label")
+      .text(label)
+      .attr("text-anchor", "middle")
+      .attr("font-family", "var(--font-sans)")
+      .attr("font-size", "11px")
+      .attr("font-weight", "600")
+      .attr("fill", FOG_COLOR)
+      .attr("paint-order", "stroke")
+      .attr("stroke", "#000000")
+      .attr("stroke-width", "3px")
+      .attr("stroke-linejoin", "round")
+      .style("pointer-events", "none")
+      .style("user-select", "none");
+    updateFogCloud();
+  }
+
+  /** 每 tick 同步云团位置（跟随星座包围盒漂移，始终悬在星体下方） */
+  function updateFogCloud() {
+    if (!zoomGroup || !currentFog) return;
+    const geom = fogGeometry();
+    const g = zoomGroup.select<SVGGElement>("g.fog-cloud");
+    if (!geom || g.empty()) return;
+    g.select("ellipse.fog-body")
+      .attr("cx", geom.cx).attr("cy", geom.cy).attr("rx", geom.rx).attr("ry", geom.ry);
+    g.select("ellipse.fog-hit")
+      .attr("cx", geom.cx).attr("cy", geom.cy).attr("rx", geom.rx).attr("ry", geom.ry);
+    g.select("text.fog-label")
+      .attr("x", geom.cx).attr("y", geom.cy - geom.ry - 10);
+  }
+
   // ── 边层渲染（全量/增量共用）──
   function renderEdgeLayer(
     parent: d3.Selection<SVGGElement, unknown, null, undefined>,
@@ -904,6 +1036,7 @@
 
     // 渲染上下文重建
     currentGraph = graph;
+    currentFog = graph.fog ?? null;
     byIdCache = new Map(graph.nodes.map((n) => [n.id, n]));
     currentContextColors = contextColors(graph.nodes.filter((n) => n.type === "context").map((n) => n.id));
 
@@ -1012,6 +1145,8 @@
 
     // hull / 徽章数据（叠加视图才有）
     refreshOverlayDecorations();
+    // 雾区云团（图级 fog 字段；插到最底层）
+    refreshFogCloud();
 
     simulation?.stop();
     const chargeStrength = -Math.min(800, 300 + nodes.length * 25);
@@ -1060,6 +1195,7 @@
       zoomGroup?.selectAll<SVGGElement, SimNode>(".nodes > g.node")
         .attr("transform", (d: SimNode) => `translate(${d.x ?? 0},${d.y ?? 0})`);
       updateHullsAndBadges();
+      updateFogCloud();
 
       // fit 挂接模拟收敛（alpha ≤ 0.3 ≈ 布局可用），每次渲染只取景一次
       if (!fitDone && !pinned && simulation && simulation.alpha() <= 0.3) {
@@ -1106,6 +1242,7 @@
       return;
     }
     currentGraph = graph;
+    currentFog = graph.fog ?? null;
     byIdCache = new Map(graph.nodes.map((n) => [n.id, n]));
     currentContextColors = contextColors(graph.nodes.filter((n) => n.type === "context").map((n) => n.id));
     const edges = graph.edges
@@ -1114,6 +1251,7 @@
     currentEdges = edges;
     renderEdgeLayer(zoomGroup, edges);
     refreshOverlayDecorations();
+    refreshFogCloud();
     simulation.force("link", d3.forceLink<SimNode, SimEdge>(edges).id((d) => d.id).distance(160));
     simulation.alpha(0.3).restart();
     applyFiltersAndDiff();
@@ -1199,14 +1337,17 @@
   function autoFit() {
     if (!svgEl || !zoomBehavior) return;
     const { w, h } = getContainerSize();
-    const t = computeFitTransform(
-      currentNodes.filter(
-        (n) => nodeRendered(n) && n.x !== undefined && n.y !== undefined,
-      ) as { x: number; y: number }[],
-      w,
-      h,
-      { nodeRadius: NODE_R + 8 },
-    );
+    const pts = currentNodes.filter(
+      (n) => nodeRendered(n) && n.x !== undefined && n.y !== undefined,
+    ) as { x: number; y: number }[];
+    // 雾区云团纳入取景（090-fogui）：有雾时雾心也进点集，并加大边距——
+    // 云体（rx 88）比单点 r=28 外扩更大，不加大边距会被视口下缘裁切
+    const fog = fogGeometry();
+    if (fog) pts.push({ x: fog.cx, y: fog.cy });
+    const t = computeFitTransform(pts, w, h, {
+      nodeRadius: NODE_R + 8,
+      ...(fog ? { padding: 96 } : {}),
+    });
     if (!t) return;
     d3.select(svgEl)
       .transition().duration(prefersReducedMotion ? 0 : 500)
@@ -2338,6 +2479,29 @@
 
   .graph-canvas :global(g.hull.core-selected.core-hot .hull-core-sel) {
     transform: scale(1.12);
+  }
+
+  /* ── 雾区云团（adr_0007 / 090-fogui）：d3 生成 DOM → 样式走 :global ──
+     克制的呼吸（仅 opacity，9s 慢档）表达「雾是活的」；键盘焦点雾缘提亮 */
+  :global {
+    @keyframes fog-breathe {
+      0%, 100% { opacity: 0.82; }
+      50% { opacity: 1; }
+    }
+    .graph-canvas g.fog-cloud .fog-body {
+      animation: fog-breathe 9s ease-in-out infinite;
+    }
+    .graph-canvas g.fog-cloud .fog-hit:focus {
+      outline: none;
+    }
+    .graph-canvas g.fog-cloud.fog-hot .fog-body {
+      stroke-opacity: 0.75;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .graph-canvas g.fog-cloud .fog-body {
+        animation: none;
+      }
+    }
   }
 
   @media (max-width: 1000px) {

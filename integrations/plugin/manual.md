@@ -14,8 +14,8 @@
 
 | 层 | 形态 | 能做什么 | 不能做什么 |
 |----|------|---------|-----------|
-| CLI `graph` | 28 个子命令入口（§6.1），bash 友好 | 全流程：init 建图、多图管理、设计读写、执行流转、verdict 裁决、快照回滚、events 审计、export/serve；**唯一人类运维通道**（--force、rename-graph、delete-graph） | agent 不使用 `--force`；非 JSON 的输出需 `--json` 供解析 |
-| MCP `graph_*` | 25 个工具（§6.2），zod 强校验 | 设计+执行+裁决+版本几乎全能，校验最强——agent 首选 | 刻意不设通道：init 建新图、rename-graph、delete-graph、export --docs（走 CLI）；`force:true` 被**协议级拒绝** |
+| CLI `graph` | 29 个子命令入口（§6.1），bash 友好 | 全流程：init 建图、多图管理、设计读写、执行流转、verdict 裁决、快照回滚、events 审计、export/serve；**唯一人类运维通道**（--force、rename-graph、delete-graph） | agent 不使用 `--force`；非 JSON 的输出需 `--json` 供解析 |
+| MCP `graph_*` | 26 个工具（§6.2），zod 强校验 | 设计+执行+裁决+版本几乎全能，校验最强——agent 首选 | 刻意不设通道：init 建新图、rename-graph、delete-graph、export --docs（走 CLI）；`force:true` 被**协议级拒绝** |
 | 脚本 `sp-*.mjs` | 7 个文件（§7），薄包装 | 无 MCP 客户端时的 claim / checkpoint / report / 状态流转 / 读节点 / 遍历 | 只是核心引擎的包装，能力面窄于前两层；从含 `.graph/` 的 cwd 运行 |
 
 优先级：**MCP > CLI > 脚本**。执行期一切状态流转必须经这三者之一——**绝不手改 `.graph/` YAML 伪造状态**。
@@ -49,9 +49,18 @@ graph serve                                                  # 预览，贯穿�
 graph update-graph \
   --label "<图名>" --entry-desc "<text>" --exit-desc "<text>" \
   --add-criteria "<item>" \
-  --set-context '{"tech":"ts"}'
+  --set-context '{"tech":"ts"}' \
+  --set-fog '{"id":"ra","description":"哪里模糊","graduation":"怎样算想清楚","ignited":["r1"]}' \
+  --class program
 # --add-criteria 可重复追加；清空验收标准用 --clear-criteria；
-# --set-context 设置 root_context（JSON 对象）。实测参数全集即上六项（MCP graph_update_graph 同名字段）。
+# --set-context 设置 root_context（JSON 对象）；
+# --set-fog 登记/更新雾区（整体 upsert，0.9.0 F04/adr_0007）；--class 标注工作类 quick|standard|program（DEC-2）。
+# 实测参数全集即上八项（MCP graph_update_graph 同名字段）。
+
+# 雾区毕业（0.9.0 F05）：清除 fog 字段 + fog_graduated 专用事件 + DEC-7 amend 守卫
+graph graduate-fog [--produced r1,r2] [--reason "<结论摘要>"]
+# 无雾时报错（毕业是事实陈述，不是清理操作）；毕业属结构修订：自动快照 + review 回置 unreviewed（增量人审提示，零门禁）
+# validate 对图中有雾只提示不阻止（F17）："图中有未毕业雾区 <id>（毕业条件：…）——执行期照常推进"
 ```
 
 ### 2.3 节点与边的读写
@@ -391,13 +400,13 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 
 何时查这章：拼写参数、找某能力在哪一层、核对工具是否存在时。**绝不发明工具名/参数**；以下两表经 v0.6.0 CLI `--help` 与 MCP 工具清单实测。行尾〔已校〕表示与旧版 reference 文档不一致、以实测为准。
 
-### 6.1 CLI 子命令表（28 个入口〔已校〕，旧档记 20–21）
+### 6.1 CLI 子命令表（29 个入口〔已校〕，旧档记 20–21）
 
 几乎所有子命令支持全局选项 `--graph <名>`（缺省按环境变量 SUPER_PLUMBER_GRAPH > `.graph/active` > default 解析）。
 
 | 命令 | 用途 | 关键参数 |
 |------|------|---------|
-| `init` / `i` | 初始化图 / 旧仓库迁移 | `[name]`（新仓库必填）、`-l <label>`、`-f/--force` |
+| `init` / `i` | 初始化图 / 旧仓库迁移 | `[name]`（新仓库必填）、`-l <label>`、`--class quick/standard/program`（0.9.0 预设）、`-f/--force` |
 | `create-node` / `cn` | 建节点（可带全压缩包） | `-i -l -t --level --priority --context --assigned-to --plan-desc --dod ×N`〔已校：无 --max-attempts、新增 --priority/--context〕 |
 | `get-node` / `gn` | 读节点全文+合法转换+门禁 | `-i --json --neighbors up/down/none` |
 | `add-edge` / `ae` | 建边（校验端点存在） | `-i -s -t --type --rel-kind --contract` |
@@ -405,6 +414,7 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 | `export` / `x` | 导出（Mermaid/领域文档；顶点形状/边样式/文件头约定见 §2.5；mermaid 默认按 level 分期带 subgraph 分组） | `--mermaid --docs --adr-dir --ctx-dir -o --levels <1,2> --band-name <level>=<名>`〔已校：--docs 及目录参数；0.8.1 增 --levels/--band-name，--docs 增发 DECISIONS.md〕 |
 | `serve` / `sv` | Web UI 预览 | `-p`（默认 8934）`--no-open` |
 | `approve` | 写入设计审核凭据（DEC-1：review 字段 + design_approved 事件；仅记录，零门禁） | `--by <名>`（必填）`--status approved/self`〔已校：新增〕 |
+| `graduate-fog` | 雾区毕业：清除图级 fog + fog_graduated 事件（DEC-7 amend 守卫） | `--produced <id,id>` `--reason <text>`；无雾报错〔0.9.0 新增〕 |
 | `delete-node` / `dn` | 软删除节点（理由是凭据非拒绝条件） | `-i --cascade --reason <text>`〔已校：--reason 0.8.1 增，进 .deleted.yaml 归档与 node_deleted 事件〕 |
 | `delete-edge` / `de` | 软删除边 | `-i` |
 | `validate` / `v` | 结构完整性校验 | `--json` |
@@ -426,7 +436,7 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 | `rename-graph` / `rg` | 重命名图（仅人类通道） | `-o <旧名> -n <新名>`〔已校：新增〕 |
 | `delete-graph` / `dg` | 删图（软删除至 .trash，仅人类通道） | `-i <图名> --confirm`〔已校：新增〕 |
 
-### 6.2 MCP 工具表（25 个〔已校〕，旧档记 19）
+### 6.2 MCP 工具表（26 个〔已校〕，旧档记 19）
 
 | 分组 | 工具 | 用途 | 注意 |
 |------|------|------|------|
@@ -439,8 +449,9 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 | 写·设计 | `graph_batch_create` | 批量建 nodes+edges（先全量预校验） | 每批 ≤200 节点 |
 | 写·设计 | `graph_add_edge` | 建边 | type/rel_kind/contract |
 | 写·设计 | `graph_update_node` | 编辑 plan/DoD/checkpoints/归属/boundary/glossary 等 | reset_attempts 显式传 true |
-| 写·设计 | `graph_update_graph` | 图级字段编辑 | 同 §2.2 六字段 |
+| 写·设计 | `graph_update_graph` | 图级字段编辑（label/entry/exit/criteria/root_context/fog/class） | 同 §2.2 八字段；fog 整体 upsert，毕业走 graph_graduate_fog |
 | 写·设计 | `graph_approve` | DEC-1 写入设计审核凭据（review 字段 + design_approved 事件） | status approved=人工（默认）/self=quick 自签；幂等覆盖；仅记录零门禁〔已校：新增〕 |
+| 写·设计 | `graph_graduate_fog` | 雾区毕业（fog 字段清除 + fog_graduated 事件 + amend 守卫） | produced/reason 进事件 payload；无雾 isError〔0.9.0 新增〕 |
 | 写·设计 | `graph_create_adr` | 创建 ADR（自动编号+proposed） | 〔已校：新增〕孤儿 ADR 会被警告 |
 | 写·设计 | `graph_delete_node` | 软删除节点 | cascade:true 连边删；reason 写审计凭据（0.8.1） |
 | 写·设计 | `graph_delete_edge` | 软删除边 | — |

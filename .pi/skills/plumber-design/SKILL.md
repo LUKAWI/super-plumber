@@ -37,7 +37,7 @@ description: Use when 接到新需求/任务需要拆解成任务拓扑图、设
 |------|------|------|
 | **quick** | 无雾 + 装得下 | 单节点图：entry=任务一句话、exit=验收一句话；跳过 serve 人审与 doctor 质检，只跑 `graph validate`；执行协议减为 claim→report→passed（checkpoint 可选）；init 后立即 `graph approve --by <agent 名> --status self` 自签（自签是话术约定：无 --self 参数，用 `--status self` 表达） |
 | **standard** | 无雾 + 装不下 | 本 skill 现状全流程（Step 1–5 一项不减） |
-| **program** | 有雾 / 跨会话 / 跨图 | 本版不做：登记方向即可，注明雾区渐进 0.9.0 落地 |
+| **program** | 有雾 / 跨会话 / 跨图 | 走下文「chart the graph 模式」：绘图会话只画图不解题，解雾交 work 模式（0.9.0 雾区进 schema） |
 
 定档拿不准时升档执行（存疑按 standard 走）；定档后冒出雾 → 回本表重定档。
 
@@ -80,6 +80,18 @@ description: Use when 接到新需求/任务需要拆解成任务拓扑图、设
 - 用户**否决/提意见** → 回 Step 2 修改 → Step 3 重验 → 浏览器刷新后再次请求审核。
 - 用户**批准** → designer 调一次 `graph approve --by <审核者>` 落审批凭据（DEC-1：status 默认 approved；凭据只记录、不替代审核对话），随后才可进入 `plumber-execute`（建议用户明确说"开始执行"触发）。
 - **绝不**在未获批准时 claim 节点或改动节点状态；**绝不**自行调用 plumber-execute 开始执行任何节点——**设计完成 ≠ 可以执行**。
+
+---
+
+## chart the graph 模式（program 档：绘图会话只画图不解题）
+
+Phase 0 定档 program（有雾 / 跨会话 / 跨图）→ 本 skill 切 chart 模式：说得清的骨架照画（entry/exit、已知节点与边、领域结构），说不出精确问题的未知区登记为**雾区**，把「想清楚」本身拆成 research 型票交给 work 会话——本会话不解题、不冒充精确。
+
+1. **登记雾区**（图级字段，单一真相源；不做雾节点载体）：CLI `graph update-graph --set-fog '{"id":"ra","description":"哪里模糊","graduation":"怎样算想清楚","ignited":["r1"]}' --class program`；MCP `graph_update_graph` 同名字段（`fog:{id,description,graduation,ignited?}` 整体 upsert；`class` 标 quick|standard|program）。参数全集 → 手册 §2.2。
+2. **点火 research 票，绝不建边**：research 票 = 普通 task + plan 自述调研目标；fan_out 点火关系由雾侧 `ignited` 字段（或票 plan 自述）承载，**绝不建 depends_on 边**——雾不是票、无状态机，fog→票 边会把票永久锁死在 ready 门禁外（试跑实证死锁，不存在合法边能表达点火）。
+3. **一次会话一张票**：research/原型节点按单票范式登记——一票 = 一个会话装得下的调研量；chart 端按此拆票，work 端按此解题。
+4. **收尾照旧**：validate 照跑（图有雾只提示不阻止）、serve 人审照走；人审通过后交棒 `plumber-execute` 的 work the graph 模式逐票解雾，雾毕业前图不宣告「精确」。
+5. 本节为正文允许节承载，S02 附件化收编（wayfinder-mode.md）归 0.9.4。
 
 ---
 

@@ -76,7 +76,7 @@ branch/merge 直接交给 Git。
 | 🛡️ **Schema 校验** | 读入层逐文件校验 YAML（枚举/类型/必填），手改拼错即时报可读错误，`graph validate` 逐文件定位 + 六条领域规则（悬空归属=error、同 context 术语重复=warning、跨 context 缺契约=warning、relates 端点=error、孤儿 ADR=warning、decides 来源=error） |
 | 🗂️ **版本控制** | `snapshot` / `diff` / `rollback` 三原语（回滚自动备份、必须确认；**design-only 回滚**保留执行进度只回卷设计），Branch/Merge 由 Git 承担 |
 | 🧾 **事件日志** | `.graph/events.jsonl` append-only 审计：谁在何时创建/删除/流转/claim/越权/重置/回滚/ADR 生命周期（adr_created/accepted/superseded），`graph events` 一键追查 |
-| 🤖 **MCP 原生接入** | 25 个 `graph_*` 工具：设计期（批量建图/建边/编辑 entry-exit/**graph_create_adr**/**graph_approve 审批凭据**）、执行期（原子 claim 附管辖 ADR 指针/checkpoint/report/**reclaim 回收死认领**）、裁决（verdict）、版本（snapshot/diff/rollback）、自检（**graph_validate** 结构+领域规则+引用漂移）、审计（**graph_events** 事件回溯）全流程覆盖，zod 参数校验 |
+| 🤖 **MCP 原生接入** | 26 个 `graph_*` 工具：设计期（批量建图/建边/编辑 entry-exit/**graph_create_adr**/**graph_approve 审批凭据**/**graph_graduate_fog 雾区毕业**）、执行期（原子 claim 附管辖 ADR 指针/checkpoint/report/**reclaim 回收死认领**）、裁决（verdict）、版本（snapshot/diff/rollback）、自检（**graph_validate** 结构+领域规则+引用漂移）、审计（**graph_events** 事件回溯）全流程覆盖，zod 参数校验 |
 | 🎯 **调度决策** | `graph next` / `graph_get_next_actions` 一屏返回可认领 / **可转 ready（ready_eligible，冷启动入口）** / 等依赖 / 执行中 / 疑似卡住，每桶分页 + truncated 标记，ready/ready_eligible 按节点 `priority` 排序，stale 判据=最后活动时间（上报即心跳），条目可含 `adr_flags`（决策依据已过时 ⚠️），知识顶点永不进调度桶，agent 规划循环首选 |
 | 📉 **上下文经济** | MCP 读接口全面分页：`graph_get_graph` 默认 summary 模式（紧凑字段）+ full 分页、`graph_search` limit、`graph_traverse` max_nodes、`graph_get_node` 可附拓扑邻居——大图不再 token 爆炸；ADR 只注入标题级指针，永不全文推送 |
 | ⚡ **大图热路径** | 索引两级缓存（内存 + 磁盘 graph.json）：门禁/调度从"每次全图扫描"（10k 图 ~9s）降为查表 + 单文件读；调度 O(N+M)；**写路径主动失效缓存**（不赌文件系统 mtime，长驻进程写后读一致） |
@@ -113,7 +113,7 @@ npm install -g @lukawi/super-plumber
 
 ```bash
 graph --version     # 输出版本号即成功
-graph --help        # 查看全部 28 个命令
+graph --help        # 查看全部 29 个命令
 which graph         # 确认命令位置（Windows: where graph）
 ```
 
@@ -298,7 +298,7 @@ graph serve                           # 打开 http://localhost:8934 看星空�
 
 ---
 
-## CLI 命令参考（28 个）
+## CLI 命令参考（29 个）
 
 | 命令 | 功能 | 常用参数 |
 |------|------|----------|
@@ -313,8 +313,9 @@ graph serve                           # 打开 http://localhost:8934 看星空�
 | `graph update-status` | 状态流转（状态机 + ready 门禁 + max_attempts + passed 硬门禁） | `-i <id>` `-s <status>`；`--claim-by <agent>` 认领；`--force` 仅人类运维 |
 | `graph reclaim` | 回收死认领：running → pending（清空执行者 + 回收记录） | `-i <id>`；`--by <actor>` |
 | `graph update-node` | 更新节点详情 | `-i <id>` `--plan-desc` `--add-dod <item>`（可多次）`--clear-dod` `--add-checkpoint '<JSON>'`（可多次）`--set-assigned <agent>` `--label <text>` `--max-attempts <n>` `--set-priority <n>` `--set-context <ctx_id>` `--boundary <text>` `--glossary-add '<JSON>'`（可多次）`--reset-attempts`（显式归零，写审计事件）`--show` |
-| `graph update-graph` | 编辑 entry/exit/验收标准/图名（不再手写 graph.yaml） | `--entry-desc` `--exit-desc` `--add-criteria <item>`（可多次）`--clear-criteria` `--label` `--set-context '<json>'` |
+| `graph update-graph` | 编辑 entry/exit/验收标准/图名/雾区/工作类（不再手写 graph.yaml） | `--entry-desc` `--exit-desc` `--add-criteria <item>`（可多次）`--clear-criteria` `--label` `--set-context '<json>'` `--set-fog '<json>'`（v0.9.0：`{"id","description","graduation","ignited[]"}` 整体 upsert）`--class quick\|standard\|program` |
 | `graph approve` | 写入设计审批凭据（v0.8.0：review 字段 + design_approved 事件；仅记录零门禁，quick 档自签） | `--by <名>`（必填）；`--status approved\|self`（默认 approved） |
+| `graph graduate-fog` | 雾区毕业（v0.9.0：清除图级 fog + fog_graduated 专用事件，复用 DEC-7 改图守卫；validate 对有雾图只提示不阻止） | `--produced <id,id>` 毕业产物；`--reason <text>` 结论摘要；无雾报错 |
 | `graph adr` | ADR 生命周期命令组（v0.5）：create 即落 proposed，accept/supersede 归裁决方 | `create -t <标题> -d <决策>`；`accept -i <id>`；`supersede -i <id> --by <id>`；`list [-s <状态>]` |
 | `graph delete-node` | 软删除节点；有引用边默认拒绝；拒绝理由作审计凭据（v0.8.1：进 .deleted.yaml 与 node_deleted 事件，缺省行为不变） | `-i <id>`；`--cascade` 连同引用边一起删；`--reason <text>` |
 | `graph delete-edge` | 软删除边 | `-i <id>` |

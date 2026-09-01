@@ -5,6 +5,8 @@ import {
   type NodeSchema,
   type EdgeSchema,
   type GraphSchema,
+  type GraphFog,
+  type GraphClass,
   NODES_DIR,
   EDGES_DIR,
   GRAPH_FILE,
@@ -366,7 +368,8 @@ export function writeEdge(rootDir: string, edge: EdgeSchema): void {
   });
 }
 
-// ── 图级字段编辑（entry/exit/label/root_context，需求 4.2 创建图 + P2-1）──
+// ── 图级字段编辑（entry/exit/label/root_context，需求 4.2 创建图 + P2-1；
+//    0.9.0 F04/F03：+ fog / class，adr_0007 + DEC-2）──
 export type UpdateGraphParams = {
   label?: string;
   entry_description?: string;
@@ -374,6 +377,11 @@ export type UpdateGraphParams = {
   add_criteria?: string[];
   clear_criteria?: boolean;
   root_context?: Record<string, unknown>;
+  /** adr_0007（F04）：登记/更新雾区（整体 upsert——雾是单字段，毕业走 graduateFog
+   * 拿专用凭据，不走这里清空） */
+  fog?: GraphFog;
+  /** DEC-2（F03/F13）：工作类标注 quick|standard|program */
+  class?: GraphClass;
 };
 
 export function updateGraph(
@@ -402,9 +410,72 @@ export function updateGraph(
     if (params.root_context !== undefined) {
       graph.root_context = params.root_context;
     }
+    if (params.fog !== undefined) {
+      graph.fog = params.fog;
+    }
+    if (params.class !== undefined) {
+      graph.class = params.class;
+    }
     writeGraphCore(rootDir, graph);
     return graph;
   });
+}
+
+// ── F05（adr_0007，0.9.0）：雾区毕业 ──
+// 毕业 = 清除图级 fog 字段 + fog_graduated 专用审计事件（试跑报告卡点 3：毕业
+// 落进通用 node_deleted 无法与删错节点区分）。毕业动作属结构修订，复用 DEC-7
+// amend 机制（自动快照 + graph_amended 事件 + review 回置），红线同源：守卫
+// 失败不阻断毕业本身。幂等性：无雾时毕业报错（毕业是事实陈述，不是清理操作）。
+export interface GraduateFogParams {
+  /** 毕业产物节点 id 列表（雾想清楚后落成的票/决议，进事件 payload 可追溯） */
+  produced?: string[];
+  /** 毕业理由/结论摘要（进事件 payload；理由是凭据不是条件，缺省不写） */
+  reason?: string;
+}
+
+export function graduateFog(
+  rootDir: string,
+  params: GraduateFogParams = {},
+  opts: { actor?: string } = {},
+): { fog: GraphFog; graph: GraphSchema } {
+  const initial = readGraph(rootDir);
+  const fog = initial.fog;
+  if (fog === undefined) {
+    throw new Error("图中没有雾区（graph.yaml 无 fog 字段），无雾可毕业");
+  }
+  const actor = opts.actor ?? "unknown";
+  // 结构修订守卫第一阶段（自动快照）：必须在不持图锁时调用——锁序恒为
+  // 实体锁→图锁且图锁不可重入，本函数不能持图锁跨越 complete()
+  // （其内 resetGraphReview 要取图锁；deleteNode 先例=持实体锁不持图锁）。
+  const amend = beginStructuralAmend(rootDir, {
+    action: "graduate-fog",
+    target: fog.id,
+    actor,
+    detail: params.reason ? `reason="${params.reason}"` : undefined,
+  });
+  // 清除 fog：持图锁读-改-写（与并发 updateGraph 互斥）；锁外快照已落
+  withGraphLock(rootDir, () => {
+    const graph = readGraph(rootDir);
+    delete graph.fog;
+    writeGraphCore(rootDir, graph);
+  });
+  const detailParts = [
+    `fog=${fog.id}`,
+    ...(params.produced && params.produced.length > 0
+      ? [`produced=${params.produced.join(",")}`]
+      : []),
+    ...(params.reason ? [`reason="${params.reason}"`] : []),
+  ];
+  appendEvent(rootDir, {
+    actor,
+    kind: "fog_graduated",
+    detail: detailParts.join("; "),
+  });
+  // 守卫收尾（graph_amended 事件 + review 回置）在图锁外执行——红线：
+  // 回置失败不阻断毕业（complete 内部已吞错留痕）
+  amend.complete();
+  // 返回毕业后的最新图（review 回置结果可被调用方直接观察，供提示文案判定）
+  return { fog, graph: readGraph(rootDir) };
 }
 
 // ── F21 (b)（DEC-7 / adr_0006）：结构修订后的 review 凭据回置 ──

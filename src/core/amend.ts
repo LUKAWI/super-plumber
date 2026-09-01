@@ -27,7 +27,8 @@ export type StructuralAmendAction =
   | "remove-node" // deleteNode
   | "add-edge" // createEdge
   | "remove-edge" // deleteEdge
-  | "batch-create"; // graph_batch_create（整批一次快照/一次事件）
+  | "batch-create" // graph_batch_create（整批一次快照/一次事件）
+  | "graduate-fog"; // graduateFog（F05，adr_0007：雾毕业=图级字段清除，属结构修订）
 
 export interface StructuralAmendInfo {
   action: StructuralAmendAction;

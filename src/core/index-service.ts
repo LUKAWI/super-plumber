@@ -21,6 +21,7 @@ import * as path from "node:path";
 import {
   type NodeSchema,
   type EdgeSchema,
+  type GraphFog,
   NodeStatus,
   TOPOLOGICAL_EDGE_TYPES,
   GATE_EDGE_TYPES,
@@ -265,6 +266,16 @@ export function reviewFlagFor(rootDir: string): string | undefined {
   }
 }
 
+// F04（adr_0007，0.9.0）：雾区概要读面（调度结果透出用）。
+// 与 reviewFlagFor 同款：一次读 graph.yaml、不进索引缓存，图不可读 → undefined。
+export function fogSummaryFor(rootDir: string): GraphFog | undefined {
+  try {
+    return readGraph(rootDir).fog;
+  } catch {
+    return undefined;
+  }
+}
+
 export interface NextActionsResult {
   /** 可认领节点（状态 ready），按 priority 升序 → level → id 排序 */
   ready: { id: string; label: string; priority?: number; adr_flags?: string[] }[];
@@ -295,6 +306,8 @@ export interface NextActionsResult {
   }[];
   /** 超过 staleMs 无更新的"疑似卡住"节点（默认 30 分钟） */
   stale_running: { id: string; label: string; elapsed_ms: number }[];
+  /** F04（adr_0007）：雾区概要（图无雾时缺省；读面透出，零门禁） */
+  fog?: GraphFog;
   /** 工作流顶点状态分布（知识顶点不参与——"全部 task 节点 passed 即完成"排除它们） */
   summary: Record<NodeStatus, number> & { total: number };
 }
@@ -410,12 +423,16 @@ export function computeNextActions(
   ready.sort(bySched);
   readyEligible.sort(bySched);
 
+  // F04：雾区概要随调度结果透出（与 review_flag 同源读法，零门禁）
+  const fog = fogSummaryFor(rootDir);
+
   return {
     ready,
     ready_eligible: readyEligible,
     blocked,
     running,
     stale_running: staleRunning,
+    ...(fog !== undefined ? { fog } : {}),
     summary,
   };
 }

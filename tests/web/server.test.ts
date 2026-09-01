@@ -9,6 +9,7 @@ import * as path from "node:path";
 import { startServer } from "../../src/web/server.js";
 import { createNode } from "../../src/core/node.js";
 import { createEdge } from "../../src/core/edge.js";
+import { graduateFog, updateGraph, writeGraph } from "../../src/core/parser.js";
 import { NodeType, EdgeType } from "../../src/core/types.js";
 
 let tmpDir: string;
@@ -63,6 +64,30 @@ describe("web server static serving", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/html");
     expect(await res.text()).toContain("<!doctype html>");
+  });
+
+  it("GET /api/graph 透出雾区/工作类概要（F04，web-ui 云团数据源）；毕业后消失", async () => {
+    // 该测试工作区是裸 nodes 目录（无 graph.yaml）——先落骨架图
+    writeGraph(tmpDir, {
+      id: "g-web",
+      version: "0.9.0",
+      label: "web-fog",
+      entry: { description: "e", defined_by: "human", level: 0 },
+      exit: { description: "x", acceptance_criteria: [], defined_by: "human", level: 0 },
+      nodes: [],
+      edges: [],
+    });
+    updateGraph(tmpDir, {
+      fog: { id: "ra", description: "d", graduation: "g", ignited: ["a"] },
+      class: "program",
+    });
+    const res = await fetch(`http://127.0.0.1:${port}/api/graph`);
+    const body = (await res.json()) as Record<string, any>;
+    expect(body.fog).toEqual({ id: "ra", description: "d", graduation: "g", ignited: ["a"] });
+    expect(body.class).toBe("program");
+    graduateFog(tmpDir, {});
+    const after = await (await fetch(`http://127.0.0.1:${port}/api/graph`)).json();
+    expect(after.fog).toBeUndefined();
   });
 
   it("GET /index.html 200", async () => {

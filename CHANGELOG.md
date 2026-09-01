@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.9.0] — 2026-09-01（minor：雾中绘图——wayfinder 化核心）
+
+> 主题：「图一次画完」不再强迫认知未到处假装精确——**雾区进 schema**（adr_0007），还没想清楚的领域可登记、可观测、可毕业；program 档 chart the graph / work the graph 两模式附着其上。
+
+- **F04 雾区图级字段（双通道）**：`graph.yaml` 可选 `fog: { id, description, graduation, ignited? }`——图级轻字段**单一真相源，不做节点载体**（v0.8.2 试跑五卡点实证收口：`_fog` 过不了 ID 规则、双载体必漂移）；**点火不建边**（fog→票 depends_on 死锁 ready 门禁），research 票挂接走 `ignited` 字段；编辑走 `graph update-graph --set-fog '<json>'` 与 MCP `graph_update_graph`（fog 参数整体 upsert，写前校验拒畸形）；`--class quick|standard|program` 工作类标注（F03/F13，用户 2026-09-01 预批随雾区机制进 schema，`graph init --class` 预设）；读面透出：CLI `status`/`next --json`、MCP `graph_get_next_actions`/`graph_get_graph`、serve `/api/graph`（web-ui 云团数据源）。
+- **F05 fog_graduated 毕业凭据（双通道）**：新命令 `graph graduate-fog --produced <id,id> --reason <text>` 与 MCP `graph_graduate_fog`——清除 fog 字段 + **fog_graduated 专用审计事件**（payload 带毕业产物与结论，与 node_deleted 明确区分）；毕业动作属结构修订，**复用 DEC-7 amend 守卫**（自动快照 + graph_amended + review 回置 unreviewed，增量人审提示零门禁）；无雾报错——毕业是事实陈述不是清理操作。实现注记：graduateFog 修掉一处锁序隐患（图锁不可重入，守卫收尾在锁外执行）。
+- **F17 validate 雾区提示（只提示不阻止）**：图中有未毕业雾区 → 一条 warning（含雾 id 与毕业条件），执行期照常推进、零新拒绝规则；`core/fog.ts` fogWarnings 单源，CLI `graph validate` 与 MCP `graph_validate` 同文案；零工作流节点不重复提示。
+- **WF09 chart/work 两模式进 skill**：plumber-design SKILL 增「chart the graph 模式」（绘图会话只画图不解题：雾区登记、research 型点火、一次会话一张票）；plumber-execute SKILL 增「work the graph 模式」（取前沿→解一张→毕业雾→决议回写 ADR/术语→to-standard 交棒）；毕业话术引用 DEC-7 改图协议不复制；双副本 diff 仅寻址行差异。
+- **web-ui 雾区呈现**：星空视图把 fog 渲染为虚线云团（低饱和雾芯 + id/描述/毕业条件 tooltip，置于星座下方不遮星体）；数据一律来自既有读接口（`/api/graph` 顶层 fog 字段），毕业后数据刷新云团即消失（零 DOM 残留）；prefers-reduced-motion 关停呼吸动画。
+- 测试：后端 75 文件 **676 用例**全绿（0.8.2 为 656；+20 雾区用例含零迁移/零默认拒绝/锁序回归断言）+ web-ui **109 用例**全绿（+3 雾云团）、svelte-check 0 错；`graph validate` 0 error；`sync-integrations.mjs --check` 通过（含版本面一致）。
+- 计数面：CLI 28→**29** 命令、MCP 25→**26** 工具（manual §1/§2.2/§6.1/§6.2 + README 同步）；`tools-coverage` TC-01 断言 26。
+- 治理：**adr_0007 accepted**（雾区进 schema：轻字段 + 只提示不阻止——0.9.0 设计基准，2026-09-01 交叉验证随裁决转正）；docs/adr 视图与 DECISIONS.md 已刷新。
+- 发布动作：npm 0.9.0（latest）+ GitHub tag v0.9.0。
+
 ## [0.8.2] — 2026-09-01（minor：plumber-join 冷启动第三口 + 改图协议落地 + 待拍板三项收口）
 
 > 主题：任意新会话变自给自足工人（S10/WF15）；执行中改图从「能改但无声」到三级分流 + 三条轻机器约束（DEC-7/adr_0006）；设计文档三项待拍板全部收口。

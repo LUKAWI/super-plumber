@@ -9,9 +9,17 @@ export const initCommand = new Command("init").alias("i")
   .description("初始化图：新仓库必须带图名（内容命名，如 refactor-auth）；旧仓库带名 init = 一次性迁移 + 建新图")
   .argument("[name]", "图名（^小写[a-z0-9-]，内容命名；新仓库必填）")
   .option("-l, --label <label>", "图显示名", "untitled")
+  .option(
+    "--class <class>",
+    "工作类预设：quick | standard | program（DEC-2 三级路由；缺省不标注）",
+  )
   .option("-f, --force", "（仅旧式无名单图）已初始化时强制覆盖，慎用")
   .action((name: string | undefined, options) => {
     const rootDir = process.cwd();
+    if (options.class !== undefined && !["quick", "standard", "program"].includes(options.class)) {
+      console.error(`❌ --class 仅允许 quick | standard | program（收到: ${options.class}）`);
+      process.exit(1);
+    }
     const existing = listGraphNames(rootDir);
     const isLegacySingle = existing.length > 0 &&
       fs.existsSync(path.join(rootDir, ".graph", "graph.yaml"));
@@ -29,7 +37,7 @@ export const initCommand = new Command("init").alias("i")
           trashGraph(rootDir, name, "cli");
           console.log(`📦 已存在同名图 "${name}"，--force 已将旧图移入 .trash/ 后重建`);
         }
-        createGraph(rootDir, name, options.label, { actor: "cli", version: VERSION });
+        createGraph(rootDir, name, options.label, { actor: "cli", version: VERSION, class: options.class });
         if (wasLegacy) {
           console.log(`📦 旧布局已一次性迁移至 .graph/default/（建第二图触发，锁内原子）`);
         }
@@ -73,7 +81,7 @@ export const initCommand = new Command("init").alias("i")
       console.log(`📦 旧布局已迁移至 .graph/default/（${moved.length} 项）`);
     }
     trashGraph(rootDir, "default", "cli");
-    createGraph(rootDir, "default", options.label, { actor: "cli", version: VERSION });
+    createGraph(rootDir, "default", options.label, { actor: "cli", version: VERSION, class: options.class });
     writeWorkspaceDefault(rootDir, "default", "cli");
     writeSchemaDoc();
     console.log(`✅ 已整目录重置旧式单图: ${path.join(rootDir, ".graph", "default")}（旧内容在 .graph/.trash/ 可手工救回）`);
@@ -127,5 +135,8 @@ const SCHEMA_DOC = `# Super Plumber — 节点/边/图 schema 说明（v${VERSIO
 # entry/exit: { description, defined_by: human|llm, level }
 # exit.acceptance_criteria: string[]
 # nodes/edges: [{ file }] | root_context: object
+# class: quick|standard|program                （F03/F13 可选工作类标注，DEC-2；缺省不标注）
+# fog: { id, description, graduation, ignited?[] }
+#            （F04 adr_0007 可选雾区：单雾起步；毕业=graph graduate-fog 清除 + fog_graduated 事件）
 `;
 

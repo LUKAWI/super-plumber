@@ -48,7 +48,10 @@ export type GraphEventKind =
   | "design_approved"
   // F21（DEC-7 / adr_0006）：结构修订凭据（增删节点/边、batch_create 落盘成功后追加；
   // payload：action/target/auto_snapshot 见 detail，graph 级事件不带 node/edge 字段）
-  | "graph_amended";
+  | "graph_amended"
+  // F05（adr_0007，0.9.0）：雾区毕业凭据——与 node_deleted 明确区分（试跑报告卡点 3：
+  // 毕业落进通用 node_deleted 无法与删错节点区分）；payload：fog/produced/reason 见 detail
+  | "fog_graduated";
 
 const EVENTS_LOCK = "__events__";
 const EVENTS_FILE = "events.jsonl";

@@ -4,6 +4,7 @@ import { readGraph } from "../core/parser.js";
 import { topologicalSort, detectCycles, detectHiddenCycles } from "../core/graph.js";
 import { validateDomainRules } from "../core/domain.js";
 import { lintNodeWording } from "../core/style-lint.js";
+import { fogWarnings } from "../core/fog.js";
 import { aggregateCheckpointStatus } from "../core/state-machine.js";
 import {
   loadNodeFile,
@@ -99,6 +100,11 @@ export const validateCommand = new Command("validate").alias("v")
     }
     if (nodes.length === 0) {
       warn("图中没有节点");
+    }
+    // F17（adr_0007）：雾区提示——只提示不阻止，零新拒绝规则（core/fog.ts 单源，
+    // 与 MCP graph_validate 同文案）
+    for (const fw of fogWarnings(graph, nodes)) {
+      warn(fw);
     }
     for (const node of nodes) {
       if (!node.id || !node.label) {

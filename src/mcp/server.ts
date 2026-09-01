@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // src/mcp/server.ts
-// Super Plumber MCP Server（stdio）— 25 个 graph_* 工具。
+// Super Plumber MCP Server（stdio）— 26 个 graph_* 工具。
 // 设计原则（agent 原生化）：
 //   1. 设计期/执行期/裁决期全流程 MCP 覆盖（建图→调度→claim→checkpoint→report→verdict→验收）
 //   2. zod 参数校验（缺参/非法枚举 → 协议错误），错误消息可读可自纠
@@ -30,7 +30,7 @@ import {
 } from "../core/node.js";
 import { createEdge as createEdgeOp, listEdges } from "../core/edge.js";
 import { readGraph } from "../core/parser.js";
-import { deleteNode, deleteEdge, updateGraph, rebuildGraphRefs, approveGraph } from "../core/parser.js";
+import { deleteNode, deleteEdge, updateGraph, rebuildGraphRefs, approveGraph, graduateFog } from "../core/parser.js";
 import { beginStructuralAmend, planAmendNudge } from "../core/amend.js";
 import {
   buildGraphIndex,
@@ -43,6 +43,7 @@ import {
 import { allowedTransitionsFor, aggregateCheckpointStatus } from "../core/state-machine.js";
 import { validateDomainRules } from "../core/domain.js";
 import { lintNodeWording } from "../core/style-lint.js";
+import { fogWarnings } from "../core/fog.js";
 import {
   NODE_ID_RE,
   loadNodeFile,
@@ -477,6 +478,18 @@ server.registerTool(
       edge_total: index.edges.length,
       offset,
       limit,
+      // F04（adr_0007）：雾区/工作类概要随图拓扑透出（图无则缺省；零门禁）
+      ...(() => {
+        try {
+          const g = readGraph(rootDir);
+          return {
+            ...(g.fog !== undefined ? { fog: g.fog } : {}),
+            ...(g.class !== undefined ? { class: g.class } : {}),
+          };
+        } catch {
+          return {};
+        }
+      })(),
       nodes,
       edges,
       adjacency: Object.fromEntries(index.adjacency),
@@ -540,6 +553,8 @@ server.registerTool(
         running: running.length > limit,
         stale_running: stale.length > limit,
       },
+      // F04（adr_0007）：雾区概要随调度结果透出（图无雾缺省；零门禁）
+      ...(r.fog !== undefined ? { fog: r.fog } : {}),
       summary: r.summary,
     });
   },
@@ -726,6 +741,8 @@ server.registerTool(
       else for (const i of r.issues) errors.push(`nodes/${f}: ${i.field}: ${i.message}`);
     }
     if (nodes.length === 0) warnings.push("图中没有节点");
+    // F17（adr_0007）：雾区提示——只提示不阻止，零新拒绝规则（core/fog.ts 单源，与 CLI validate 同文案）
+    for (const fw of fogWarnings(graph, nodes)) warnings.push(fw);
     for (const node of nodes) {
       // S2-5：max_attempts=0 表示不限重试，不参与超限判定
       if (node.max_attempts > 0 && node.attempts > node.max_attempts) {
@@ -1372,8 +1389,9 @@ server.registerTool(
   "graph_update_graph",
   {
     description:
-      "编辑图级字段：label / entry.description / exit.description / exit.acceptance_criteria / root_context。Use during design to define the human-authored entry (需求) and exit (验收标准) without hand-editing graph.yaml. " +
-      "acceptance_criteria are the ground truth for the final three-layer acceptance check.",
+      "编辑图级字段：label / entry.description / exit.description / exit.acceptance_criteria / root_context / fog（雾区，adr_0007）/ class（工作类，DEC-2）。Use during design to define the human-authored entry (需求) and exit (验收标准) without hand-editing graph.yaml. " +
+      "acceptance_criteria are the ground truth for the final three-layer acceptance check. " +
+      "fog 为整体 upsert（登记/更新雾区 {id, description, graduation, ignited?}）；毕业清雾走 graph_graduate_fog（专用凭据）。",
     inputSchema: {
       label: z.string().optional(),
       entry_description: z.string().optional(),
@@ -1381,12 +1399,25 @@ server.registerTool(
       add_criteria: z.array(z.string()).optional().describe("追加验收标准"),
       clear_criteria: z.boolean().optional().describe("清空验收标准"),
       root_context: z.record(z.string(), z.unknown()).optional(),
+      fog: z
+        .object({
+          id: z.string().min(1).describe("雾区标识（非节点 id，如 release-automation）"),
+          description: z.string().min(1).describe("哪里模糊、为什么暂时不展开"),
+          graduation: z.string().min(1).describe("毕业条件：怎样算想清楚了"),
+          ignited: z.array(z.string()).optional().describe("已点火的 research 票节点 id（字段承载，不建边）"),
+        })
+        .optional()
+        .describe("登记/更新雾区（整体 upsert；F04 adr_0007）"),
+      class: z
+        .enum(["quick", "standard", "program"])
+        .optional()
+        .describe("工作类标注（DEC-2；F08 渐进审批仅对 program 生效）"),
     },
   },
-  async ({ label, entry_description, exit_description, add_criteria, clear_criteria, root_context }) => {
+  async ({ label, entry_description, exit_description, add_criteria, clear_criteria, root_context, fog, class: graphClass }) => {
     const gctx = await resolveGraphCtx();
     const rootDir = gctx.dir;
-    return jsonGraph(gctx, 
+    return jsonGraph(gctx,
       updateGraph(rootDir, {
         ...(label !== undefined ? { label } : {}),
         ...(entry_description !== undefined ? { entry_description } : {}),
@@ -1394,8 +1425,46 @@ server.registerTool(
         ...(add_criteria ? { add_criteria } : {}),
         ...(clear_criteria ? { clear_criteria } : {}),
         ...(root_context !== undefined ? { root_context } : {}),
+        ...(fog !== undefined ? { fog } : {}),
+        ...(graphClass !== undefined ? { class: graphClass } : {}),
       }),
     );
+  },
+);
+
+// F05（adr_0007，0.9.0）：雾区毕业（MCP 通道）。与 CLI graduate-fog 共用核心原语
+// graduateFog——清除 fog 字段 + fog_graduated 专用事件 + DEC-7 amend 守卫
+// （自动快照 + graph_amended + review 回置）。无雾时报错（毕业是事实陈述）。
+server.registerTool(
+  "graph_graduate_fog",
+  {
+    description:
+      "雾区毕业：清除图级 fog 字段并落 fog_graduated 审计事件（payload 带毕业产物节点与理由），复用 DEC-7 amend 守卫（自动快照 + graph_amended + review 回置提示）。" +
+      "无雾时报错——毕业是事实陈述，不是清理操作。与 CLI graph graduate-fog 双通道同源。",
+    inputSchema: {
+      produced: z
+        .array(z.string())
+        .optional()
+        .describe("毕业产物节点 id 列表（雾想清楚后落成的票/决议，进事件 payload 可追溯）"),
+      reason: z.string().optional().describe("毕业理由/结论摘要（审计凭据，缺省不写）"),
+    },
+  },
+  async ({ produced, reason }) => {
+    const gctx = await resolveGraphCtx();
+    const { fog, graph } = graduateFog(
+      gctx.dir,
+      {
+        ...(produced !== undefined && produced.length > 0 ? { produced } : {}),
+        ...(reason !== undefined ? { reason } : {}),
+      },
+      { actor: mcpActor() },
+    );
+    return jsonGraph(gctx, {
+      graduated: fog.id,
+      ...(produced !== undefined && produced.length > 0 ? { produced } : {}),
+      ...(reason !== undefined ? { reason } : {}),
+      review_status: graph.review?.status,
+    });
   },
 );
 

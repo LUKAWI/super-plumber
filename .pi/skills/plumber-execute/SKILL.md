@@ -42,6 +42,18 @@ description: Use when 拓扑图已设计并审核通过、需要执行 .graph/ �
 
 ---
 
+## work the graph 模式（program 档：工作会话解雾）
+
+图带未毕业雾区（class=program）→ 本 skill 切 work 模式：不跑整图，按「取前沿 → 解一张 → 毕业雾 → 决议回写 → 交棒」循环——解票是为了把雾想清楚，不是为了清桶赶进度。
+
+1. **取前沿**：`graph_get_next_actions` 五桶（CLI `graph next`）里挑一张 research 票（雾 `ignited` 点过火、或 plan 自述调研目标）；票照常 claim——票与雾之间**没有边**，点火关系在雾字段与 plan 文字里，不在拓扑上。
+2. **解一张**：一次会话只解一张票，走满 0–5 步协议（claim→report 全循环）；调研产物落真实 artifact，结论写进执行报告。
+3. **毕业雾**：毕业条件达成 → CLI `graph graduate-fog --produced <票id,票id> --reason "<结论摘要>"`；MCP `graph_graduate_fog {produced, reason}`。毕业 = 清除 fog + fog_graduated 事件，无雾时报错（毕业是事实陈述，不是清理操作）。**毕业属结构修订，按 DEC-7 amend 协议执行**（影响评估 + 增量人审；命令自带守卫：自动快照、graph_amended 事件、review 回置 unreviewed）——协议全文不在此复制 → `plumber-design` amend 模式与手册 §2.2。
+4. **决议回写**：结论够 ADR 三判据 → `graph adr create`（MCP `graph_create_adr`）落 proposed，accept/supersede 归裁决方（super-mario/人）；术语沉淀进所属 context 顶点 glossary。
+5. **to-standard 交棒**：雾清零 → `graph update-graph --class standard`，图回常规档；其余节点回归上文标准执行协议（0–5 步 + 三层验收）。
+
+---
+
 ## 发现图错的上报出口（改图三级分流）
 
 执行中发现图有问题，按风险三级分流——改自己节点的内容与动图结构，边界要清楚：

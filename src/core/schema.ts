@@ -56,6 +56,8 @@ const DEFINED_BY = ["human", "llm"];
 // DEC-1（g080-approve-core）：设计审核凭据的合法状态（self=quick 自签、approved=人工审核）
 // F21（DEC-7）：+ unreviewed=结构修订后回置（resetGraphReview 只写凭据字段，零门禁）
 const REVIEW_STATUSES = ["approved", "self", "unreviewed"];
+// DEC-2：图级工作类标注合法值（F03/F13，0.9.0 随雾区机制进 schema）
+const GRAPH_CLASSES = ["quick", "standard", "program"];
 
 // ── 实体 ID 规则（S0-3 路径穿越防护）──
 // ID 直接拼入文件路径（nodes/<id>.yaml、edges/<id>.yaml）：禁路径分隔符、
@@ -508,6 +510,22 @@ export function validateGraph(data: unknown): SchemaIssue[] {
       optString(rev, "at", issues);
     }
   }
+  // adr_0007（0.9.0 F04）：fog 为可选字段——同 review 的宽容缺省/严格存在策略。
+  // 单雾起步（试跑报告建议 1：宁轻勿重，多雾留数组扩展）；id 不做节点 ID 规则
+  // 校验（不拼文件路径），仅要求非空字符串。
+  if (data.fog !== undefined) {
+    if (!isRecord(data.fog)) {
+      issues.push(issue("fog", "必须是对象"));
+    } else {
+      const fog = data.fog as Record<string, unknown>;
+      reqString(fog, "id", issues);
+      reqString(fog, "description", issues);
+      reqString(fog, "graduation", issues);
+      optStringArray(fog, "ignited", issues);
+    }
+  }
+  // F03/F13（DEC-2）：class 为可选枚举（quick|standard|program），缺省=未标注
+  optEnum(data, "class", GRAPH_CLASSES, issues);
   return issues;
 }
 

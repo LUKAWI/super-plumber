@@ -273,7 +273,7 @@ export function createGraph(
   wsRoot: string,
   name: string,
   label: string,
-  opts: { actor?: string; version?: string } = {},
+  opts: { actor?: string; version?: string; class?: "quick" | "standard" | "program" } = {},
 ): string {
   assertValidGraphName(name);
   const dg = dotGraph(wsRoot);
@@ -305,6 +305,8 @@ export function createGraph(
     edges: [],
   };
   if (opts.version) skeleton.version = opts.version;
+  // F03/F13（DEC-2）：init --class 工作类预设（缺省不标注，schema 可选枚举）
+  if (opts.class) skeleton.class = opts.class;
   fs.writeFileSync(
     path.join(dir, GRAPH_FILE),
     yaml.dump(skeleton, { indent: 2, lineWidth: 120 }),

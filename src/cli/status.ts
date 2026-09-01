@@ -55,6 +55,9 @@ export const statusCommand = new Command("status").alias("s")
             id: graph.id,
             label: graph.label,
             version: graph.version,
+            ...(graph.class !== undefined ? { class: graph.class } : {}),
+            ...(graph.review !== undefined ? { review: graph.review } : {}),
+            ...(graph.fog !== undefined ? { fog: graph.fog } : {}),
             nodes: nodes.length,
             edges: edges.length,
             by_status: counts,
@@ -69,8 +72,18 @@ export const statusCommand = new Command("status").alias("s")
     }
 
     console.log(`图: ${gctx.name} — ${graph.label} (${graph.id})`);
+    if (graph.class !== undefined) {
+      console.log(`工作类: ${graph.class}`);
+    }
     console.log(`节点数: ${nodes.length}`);
     console.log(`边数: ${edges.length}`);
+    if (graph.fog !== undefined) {
+      console.log(`\n🌫️ 雾区: ${graph.fog.id} — ${graph.fog.description}`);
+      console.log(`   毕业条件: ${graph.fog.graduation}`);
+      if (graph.fog.ignited && graph.fog.ignited.length > 0) {
+        console.log(`   已点火: ${graph.fog.ignited.join(", ")}`);
+      }
+    }
     console.log(`\n节点状态分布:`);
     for (const [status, count] of Object.entries(counts)) {
       console.log(`  ${status}: ${count}`);

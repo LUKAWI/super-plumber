@@ -15,7 +15,7 @@ import {
   workspaceOf,
 } from "../core/graph-dir.js";
 import { listSnapshots, diffSnapshot } from "../core/snapshot.js";
-import { GRAPH_DIR, GRAPH_FILE } from "../core/types.js";
+import { GRAPH_DIR, GRAPH_FILE, type GraphFog } from "../core/types.js";
 
 // 静态资源根目录：dist/web/server.js → ../../web-ui/dist
 // 用 fileURLToPath 而非 import.meta.dirname，兼容 Node 20.0–20.10
@@ -120,11 +120,26 @@ export function routeGraphEvent(
  * 传入 rootDir（图目录）时附带图元信息（name/label/id/version，UI 展示用；读取失败静默降级）。
  */
 export function serializeGraphIndex(index: GraphIndex, rootDir?: string, name?: string) {
-  let meta: { name?: string; id?: string; label?: string; version?: string } = {};
+  let meta: {
+    name?: string;
+    id?: string;
+    label?: string;
+    version?: string;
+    fog?: GraphFog;
+    class?: string;
+  } = {};
   if (rootDir) {
     try {
       const g = readGraph(rootDir);
-      meta = { id: g.id, label: g.label, version: g.version };
+      // F04（adr_0007，0.9.0）：雾区/工作类概要随 /api/graph 透出——web-ui 雾区
+      // 云团呈现（v090-fogui）的数据源；图无则缺省
+      meta = {
+        id: g.id,
+        label: g.label,
+        version: g.version,
+        ...(g.fog !== undefined ? { fog: g.fog } : {}),
+        ...(g.class !== undefined ? { class: g.class } : {}),
+      };
     } catch {
       /* graph.yaml 不可读：元信息留空 */
     }

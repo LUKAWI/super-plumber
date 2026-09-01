@@ -124,6 +124,20 @@ export interface EdgeSchema {
 	rel_kind?: string;
 }
 
+// adr_0007（0.9.0）：图级雾区概要——/api/graph 与 ws graph:full/graph:update
+// 载荷顶层透出（serializeGraphIndex），图无雾时字段缺省；毕业后刷新即消失。
+// 与后端 src/core/types.ts 的 GraphFog 对齐（前端不 import 后端）。
+export interface GraphFog {
+	/** 雾区标识（非节点 id；如 "release-automation"） */
+	id: string;
+	/** 雾区描述：哪里模糊、为什么暂时不展开 */
+	description: string;
+	/** 毕业条件：怎样算想清楚了 */
+	graduation: string;
+	/** 已点火的 research 票节点 id */
+	ignited?: string[];
+}
+
 // next-actions 条目（ready / ready_eligible）：与后端 index-service.ts 的 schedEntry 对齐
 export interface NextActionEntry {
 	id: string;
@@ -139,6 +153,8 @@ export interface GraphIndex {
 	name?: string;
 	label?: string;
 	version?: string;
+	/** adr_0007（0.9.0）：图级雾区概要（可选；图无雾缺省，毕业刷新后消失） */
+	fog?: GraphFog;
 	nodes: NodeSchema[];
 	edges: EdgeSchema[];
 	adjacency?: Record<string, string[]>;

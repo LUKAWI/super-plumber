@@ -212,6 +212,25 @@ export interface GraphReview {
   at: string; // ISO 8601
 }
 
+// adr_0007（0.9.0）：雾区——"还没想清楚的区域"进 schema 为图级轻字段。
+// 试跑结论（docs/fog-recon-trial-report.md 卡点 2/4）定生死：**单一真相源，
+// 不做节点载体**（`_fog` 过不了 ID 规则；双载体必漂移）。点火不建边（卡点 1：
+// fog→票 depends_on 死锁 ready 门禁）——research 票与雾的挂接走 ignited 字段承载。
+export interface GraphFog {
+  /** 雾区标识（非节点 id，不拼文件路径；如 "release-automation"） */
+  id: string;
+  /** 雾区描述：哪里模糊、为什么暂时不展开 */
+  description: string;
+  /** 毕业条件：怎样算想清楚了（F17 validate 提示与 Q3 毕业率观测的依据） */
+  graduation: string;
+  /** 已点火的 research 票节点 id（字段承载，非拓扑边，零门禁） */
+  ignited?: string[];
+}
+
+// DEC-2 三级工作类路由（F03/F13 随 0.9.0 雾区机制进 schema，用户 2026-09-01 预批）：
+// quick=单节点轻流程 | standard=全流程（缺省心智） | program=雾区渐进（F08 渐进审批仅对它生效）
+export type GraphClass = "quick" | "standard" | "program";
+
 export interface GraphSchema {
   id: string;
   version: string;
@@ -223,6 +242,10 @@ export interface GraphSchema {
   root_context?: Record<string, unknown>;
   /** DEC-1：设计审核凭据（可选，缺省=未审核；写入走 approveGraph） */
   review?: GraphReview;
+  /** adr_0007（0.9.0 F04）：雾区（可选，单雾起步；缺省不存在=零迁移零默认拒绝） */
+  fog?: GraphFog;
+  /** DEC-2：工作类标注（可选，缺省=未标注；init --class 预设，update_graph 可改） */
+  class?: GraphClass;
 }
 
 // ── 目录常量（v0.5.2：图内相对——相对"图目录"而非工作区根；
