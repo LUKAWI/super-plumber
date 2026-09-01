@@ -45,7 +45,10 @@ export type GraphEventKind =
   | "adr_superseded"
   // DEC-1（g080-approve-core）：设计审核凭据写入（payload：by/status 见 detail；
   // review 仅记录、零门禁，不伴随任何状态机变更）
-  | "design_approved";
+  | "design_approved"
+  // F21（DEC-7 / adr_0006）：结构修订凭据（增删节点/边、batch_create 落盘成功后追加；
+  // payload：action/target/auto_snapshot 见 detail，graph 级事件不带 node/edge 字段）
+  | "graph_amended";
 
 const EVENTS_LOCK = "__events__";
 const EVENTS_FILE = "events.jsonl";

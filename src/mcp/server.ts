@@ -31,6 +31,7 @@ import {
 import { createEdge as createEdgeOp, listEdges } from "../core/edge.js";
 import { readGraph } from "../core/parser.js";
 import { deleteNode, deleteEdge, updateGraph, rebuildGraphRefs, approveGraph } from "../core/parser.js";
+import { beginStructuralAmend, planAmendNudge } from "../core/amend.js";
 import {
   buildGraphIndex,
   computeNextActions,
@@ -1045,6 +1046,15 @@ server.registerTool(
     }
 
     // 2. 写盘（跳过逐次引用同步，最后一次性重建 graph.yaml 引用列表：O(n²) → O(n)）
+    // F21 (a)(b)（DEC-7 / adr_0006）：batch_create 是一次结构修订——整批统一守卫
+    // 一次（落盘前自动快照 + 成功后 graph_amended 事件/review 回置），逐节点/边
+    // 调用传 skipAmendGuard 跳过，防一次批量操作产生 N+M 份快照。预校验失败路径
+    // （上方 conflicts 早退）不守卫——未落图的修订不留凭据。
+    const amend = beginStructuralAmend(rootDir, {
+      action: "batch-create",
+      detail: `nodes=${nodes.length}, edges=${edges.length}`,
+      actor: mcpActor(),
+    });
     for (const n of nodes) {
       createNodeOp(
         rootDir,
@@ -1061,7 +1071,7 @@ server.registerTool(
           assigned_to: n.assigned_to,
           max_attempts: n.max_attempts,
         },
-        { syncRef: false, actor: mcpActor() },
+        { syncRef: false, actor: mcpActor(), skipAmendGuard: true },
       );
     }
     for (const e of edges) {
@@ -1075,10 +1085,11 @@ server.registerTool(
           ...(e.rel_kind !== undefined ? { rel_kind: e.rel_kind } : {}),
           ...(e.contract !== undefined ? { contract: e.contract as EdgeSchema["contract"] } : {}),
         },
-        { syncRef: false, actor: mcpActor() },
+        { syncRef: false, actor: mcpActor(), skipAmendGuard: true },
       );
     }
     rebuildGraphRefs(rootDir);
+    amend.complete();
     return jsonGraph(gctx, { ok: true, nodes: nodes.length, edges: edges.length });
   },
 );
@@ -1199,12 +1210,15 @@ server.registerTool(
     if (Object.keys(updates).length === 0 && !reset_attempts) {
       throw new Error("没有指定任何更新项（至少传一个可选参数）");
     }
-    return jsonGraph(gctx, 
-      updateNodeContent(rootDir, id, updates, {
-        actor: mcpActor(),
-        ...(reset_attempts ? { resetAttempts: true } : {}),
-      }),
-    );
+    // F21 (c)（DEC-7 / adr_0006）：改 passed/blocked 节点 plan 的响应 nudge——
+    // 纯提示不改状态、不拦截写操作；与 CLI update-node 共用同一实现（双通道一致）。
+    // node 为更新前快照：nudge 判据 = 更新前状态 + 本次请求是否涉及 plan。
+    const nudge = planAmendNudge(node, { planChanged: plan_description !== undefined });
+    const updated = updateNodeContent(rootDir, id, updates, {
+      actor: mcpActor(),
+      ...(reset_attempts ? { resetAttempts: true } : {}),
+    });
+    return jsonGraph(gctx, nudge ? { ...updated, plan_amend_nudge: nudge } : updated);
   },
 );
 

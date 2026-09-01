@@ -25,6 +25,10 @@ import {
 import { withLockSync } from "./lock.js";
 import { toGraphDir } from "./graph-dir.js";
 import { appendEvent } from "./eventlog.js";
+// 循环依赖说明：parser → amend（deleteNode/deleteEdge 的 F21 守卫）与
+// amend → parser（resetGraphReview）互为环，两侧都只在函数体内调用对方导出，
+// ESM 函数声明提升下安全（同 parser↔index-service 先例）。
+import { beginStructuralAmend } from "./amend.js";
 // 循环依赖说明：index-service ← parser（读原语）与 parser ← index-service
 //（invalidateIndex 写后失效）互为环，但两侧都只在函数体内调用对方导出，
 // ESM 函数声明提升下安全。fix_index_cache：写路径必须主动失效索引缓存。
@@ -236,7 +240,7 @@ function softDelete(
 export function deleteNode(
   rootDir: string,
   id: string,
-  opts: { cascade?: boolean; actor?: string; reason?: string } = {},
+  opts: { cascade?: boolean; actor?: string; reason?: string; skipAmendGuard?: boolean } = {},
 ): void {
   return withLockSync(rootDir, id, () => {
     const filePath = nodeFilePath(rootDir, id);
@@ -256,9 +260,27 @@ export function deleteNode(
         `直接删除会留下悬挂引用。使用 --cascade 连同这些边一起删除`,
       );
     }
+    // F21 (a)(b)：结构修订落图前自动快照 + 落盘成功后 graph_amended 事件/review 回置。
+    // 拒绝路径（上方 not found / 悬挂引用）不留快照；cascade 删除的边由本层统一
+    // 守卫一次，内层 deleteEdge 传 skipAmendGuard 跳过（防一次操作多份快照）。
+    const reason = opts.reason?.trim();
+    const amend =
+      opts.skipAmendGuard
+        ? undefined
+        : beginStructuralAmend(rootDir, {
+            action: "remove-node",
+            target: id,
+            actor: opts.actor,
+            detail: [
+              ...(reason ? [`reason="${reason}"`] : []),
+              ...(opts.cascade && referencing.length > 0
+                ? [`cascade edges: ${referencing.join(", ")}`]
+                : []),
+            ].join("; ") || undefined,
+          });
     if (opts.cascade) {
       for (const edgeId of referencing) {
-        deleteEdge(rootDir, edgeId, { actor: opts.actor });
+        deleteEdge(rootDir, edgeId, { actor: opts.actor, skipAmendGuard: true });
       }
     }
 
@@ -270,8 +292,7 @@ export function deleteNode(
     softDelete(filePath, { reason: opts.reason, actor: opts.actor });
     invalidateIndex(rootDir); // 目录内容变了（rename 不改源文件 mtime 语义），主动失效
     // F14：删除理由写入审计事件（detail）。理由与 cascade 说明可并存（"；"连接）；
-    // 缺省理由时 detail 保持既有语义（仅 cascade 时才有）。
-    const reason = opts.reason?.trim();
+    // 缺省理由时 detail 保持既有语义（仅 cascade 时才有）。（reason 取守卫段声明）
     const detailParts = [
       ...(reason ? [`reason="${reason}"`] : []),
       ...(opts.cascade ? [`cascade 删除边: ${referencing.join(", ")}`] : []),
@@ -282,17 +303,28 @@ export function deleteNode(
       node: id,
       ...(detailParts.length > 0 ? { detail: detailParts.join("；") } : {}),
     });
+    // F21 (b)：写盘成功后补 graph_amended 事件 + review 回置（写失败时上面抛出，
+    // 不为未发生的修订留凭据）
+    amend?.complete();
   });
 }
 
 export function deleteEdge(
   rootDir: string,
   id: string,
-  opts: { actor?: string } = {},
+  opts: { actor?: string; skipAmendGuard?: boolean } = {},
 ): void {
   return withLockSync(rootDir, id, () => {
     const filePath = edgeFilePath(rootDir, id);
     if (!fs.existsSync(filePath)) throw new Error(`Edge ${id} not found`);
+    // F21 (a)(b)：结构修订守卫（cascade 路径由 deleteNode 外层统一守卫，此处跳过）
+    const amend = opts.skipAmendGuard
+      ? undefined
+      : beginStructuralAmend(rootDir, {
+          action: "remove-edge",
+          target: id,
+          actor: opts.actor,
+        });
     // S1-11：先撤引用再软删文件（理由同 deleteNode——防快照致命混装）
     removeGraphRef(rootDir, "edge", id);
     softDelete(filePath);
@@ -302,6 +334,7 @@ export function deleteEdge(
       kind: "edge_deleted",
       edge: id,
     });
+    amend?.complete();
   });
 }
 
@@ -371,6 +404,34 @@ export function updateGraph(
     }
     writeGraphCore(rootDir, graph);
     return graph;
+  });
+}
+
+// ── F21 (b)（DEC-7 / adr_0006）：结构修订后的 review 凭据回置 ──
+// 图已有 review 凭据 → 回置 status=unreviewed（by=触发修订的通道/actor，
+// at=now，凭据形状与 approveGraph 一致），review_flag nudge 重新亮起走增量人审；
+// 图从未审核（无 review 字段）→ 原样不动（返回 false）。红线：只写凭据字段，
+// 零门禁——不触碰任何节点状态机规则，不新增任何拒绝规则。返回是否发生了回置。
+export function resetGraphReview(
+  rootDir: string,
+  opts: { actor?: string } = {},
+): boolean {
+  return withGraphLock(rootDir, () => {
+    let graph: GraphSchema;
+    try {
+      graph = readGraph(rootDir);
+    } catch (err: any) {
+      if (err?.code === "ENOENT") return false; // 图未初始化：无凭据可回置
+      throw err;
+    }
+    if (graph.review === undefined) return false;
+    graph.review = {
+      status: "unreviewed",
+      by: opts.actor ?? "unknown",
+      at: new Date().toISOString(),
+    };
+    writeGraphCore(rootDir, graph); // 写前校验 + 落盘 + invalidateIndex
+    return true;
   });
 }
 

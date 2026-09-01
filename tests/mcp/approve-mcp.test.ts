@@ -7,6 +7,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execSync } from "node:child_process";
+import { REVIEW_FLAG_UNREVIEWED } from "../../src/core/index-service.js";
 
 const SDK = "@modelcontextprotocol/sdk";
 
@@ -47,7 +48,7 @@ describe("DEC-1 graph_approve（MCP 通道）", () => {
     expect(tools.tools.map((t) => t.name)).toContain("graph_approve");
   });
 
-  it("AP-02 图未审核时 claim 响应注入 review_flag='unreviewed'（仅提示，认领成功）", async () => {
+  it("AP-02 图未审核时 claim 响应注入定稿文案 review_flag（仅提示，认领成功）", async () => {
     const rReady = await client.callTool({
       name: "graph_update_node_status",
       arguments: { id: "a", status: "ready" },
@@ -60,7 +61,7 @@ describe("DEC-1 graph_approve（MCP 通道）", () => {
     expect(r.isError).toBeFalsy(); // 零门禁：未审核不拦截 claim
     const body = parseBody(r.content![0].text);
     expect(body.graph).toBe("t");
-    expect(body.review_flag).toBe("unreviewed");
+    expect(body.review_flag).toBe(REVIEW_FLAG_UNREVIEWED);
     expect(body.node.status).toBe("running");
   });
 
@@ -148,7 +149,7 @@ describe("DEC-1 graph_approve（MCP 通道）", () => {
     expect(ev.events[1].detail).toContain("status=self");
   });
 
-  it("AP-08 graph_get_next_actions：审核后 ready_eligible 条目无 review_flag", async () => {
+  it("AP-08 graph_get_next_actions：审核后结构修订（create-node）→ review_flag 重新亮起（F21 回置）", async () => {
     execSync(`node "${path.resolve(process.cwd(), "dist/cli/index.js")}" create-node --id c --label C`, {
       cwd: tmpDir,
     });
@@ -158,6 +159,9 @@ describe("DEC-1 graph_approve（MCP 通道）", () => {
     });
     const body = parseBody(r.content![0].text);
     expect(body.ready_eligible.map((n: any) => n.id)).toContain("c");
-    expect(JSON.stringify(body.ready_eligible)).not.toContain("review_flag");
+    // F21（DEC-7）：审核后发生结构修订（create-node）→ review 回置 unreviewed，
+    // ready_eligible 的 review_flag nudge 重新亮起走增量人审（仅提示，零门禁）
+    const c = body.ready_eligible.find((n: any) => n.id === "c");
+    expect(c?.review_flag).toBe(REVIEW_FLAG_UNREVIEWED);
   });
 });

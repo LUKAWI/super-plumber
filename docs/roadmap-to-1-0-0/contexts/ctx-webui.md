@@ -6,6 +6,6 @@
 
 - **前沿（frontier）**: ready 与 ready_eligible 两桶的合并视图——「现在就能干的活」的一键档；不是新调度桶，只是呈现层合并。
 - **雾区云团**: 星空对 graph 级 fog 字段的呈现形态（虚线云团），不引入独立数据面。
-- **Avoid 呈现**: 术语 definition 尾部 `Avoid:` 约定的识别与高亮呈现，先按约定解析、schema 字段后置。
+- **Avoid 呈现**: 术语 definition 尾部反模式尾注（Avoid 尾注，记法约定见 manual §2.4）的识别与高亮呈现，先按约定解析、schema 字段后置。
 
 > 本文由 `graph export` 从 context 顶点 ctx-webui 生成（节点即文档，图是真相源）。

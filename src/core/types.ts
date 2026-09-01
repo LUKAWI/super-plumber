@@ -202,11 +202,13 @@ export interface GraphExit {
 // DEC-1（g080-approve-core）：设计审核凭据——approve 双通道（CLI approve /
 // MCP graph_approve）写入 graph.yaml，仅记录、零门禁：核心状态机不加任何
 // 拒绝规则，调度面只在 ready_eligible 与 claim 响应以 review_flag 提示。
-// status: 'approved'=人工审核 | 'self'=quick 自签（可区分）。
+// status: 'approved'=人工审核 | 'self'=quick 自签（可区分）
+//       | 'unreviewed'=结构修订后回置（F21/DEC-7：resetGraphReview 只写凭据字段，
+//         review_flag nudge 重新亮起，走增量人审）。
 // 可选字段：缺省不存在（存量图零迁移、零默认拒绝）。
 export interface GraphReview {
-  status: "approved" | "self";
-  by: string; // 审核人（quick 自签时为 quick 操作者名）
+  status: "approved" | "self" | "unreviewed";
+  by: string; // 审核人（quick 自签时为 quick 操作者名；回置时为触发修订的通道/actor）
   at: string; // ISO 8601
 }
 

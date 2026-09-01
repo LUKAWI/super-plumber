@@ -28,14 +28,21 @@ function buildChainGraph(): string {
     nodes: [],
     edges: [],
   });
+  // F21 起逐次结构写自带守卫（落图前自动快照）——5k 次紧循环是批量构建场景，
+  // 与 MCP batch_create 同理传 skipAmendGuard 跳过逐次快照（防 O(n²) 快照风暴），
+  // 守卫本身的行为由 tests/core/amend.test.ts 专测。
   for (let i = 0; i < N; i++) {
-    createNode(tmpDir, { id: "n" + i, type: NodeType.Task, label: "n" + i, level: 1 }, { syncRef: false });
+    createNode(
+      tmpDir,
+      { id: "n" + i, type: NodeType.Task, label: "n" + i, level: 1 },
+      { syncRef: false, skipAmendGuard: true },
+    );
   }
   for (let i = 0; i < N - 1; i++) {
     createEdge(
       tmpDir,
       { id: "e" + i, source: "n" + i, target: "n" + (i + 1), type: EdgeType.DependsOn },
-      { syncRef: false },
+      { syncRef: false, skipAmendGuard: true },
     );
   }
   rebuildGraphRefs(tmpDir);

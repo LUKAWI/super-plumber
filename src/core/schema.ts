@@ -54,7 +54,8 @@ const VERIFIERS = ["auto", "cross_review", "human"];
 const VERDICTS = ["pending", "passed", "failed"];
 const DEFINED_BY = ["human", "llm"];
 // DEC-1（g080-approve-core）：设计审核凭据的合法状态（self=quick 自签、approved=人工审核）
-const REVIEW_STATUSES = ["approved", "self"];
+// F21（DEC-7）：+ unreviewed=结构修订后回置（resetGraphReview 只写凭据字段，零门禁）
+const REVIEW_STATUSES = ["approved", "self", "unreviewed"];
 
 // ── 实体 ID 规则（S0-3 路径穿越防护）──
 // ID 直接拼入文件路径（nodes/<id>.yaml、edges/<id>.yaml）：禁路径分隔符、

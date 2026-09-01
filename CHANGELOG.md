@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.8.2] — 2026-09-01（minor：plumber-join 冷启动第三口 + 改图协议落地 + 待拍板三项收口）
+
+> 主题：任意新会话变自给自足工人（S10/WF15）；执行中改图从「能改但无声」到三级分流 + 三条轻机器约束（DEC-7/adr_0006）；设计文档三项待拍板全部收口。
+
+- **plumber-join skill（DEC-5/DEC-6，S10/WF15）**：新增独立冷启动加入协议 skill——零前文新会话仅凭 skill 名与图名自主完成 list/switch → status → next（前沿五桶按 priority 挑）→ claim_by（governing_adrs 必读、adr_flags ⚠️ 即停）→ 干活（单节点工作协议**指** plumber-execute 不复制）→ checkpoint/report → verdict → passed → 回队列直到无前沿；多会话并行是预期场景（原子认领互斥、stale 是心跳走 reclaim、绝不 cancel）。`/plumber-join [图名]` 命令正本 + 插件拷贝（sync 自动传导零漂移）+ plugin.json 注册（工作流入口 skills 2→3，物理条目 3→4 含 grilling；commands 2→3）。零前文实测通过：全新会话无任何协议转述完成全循环（事件链+实物双证）；并行互斥实测通过：两会话抢同一节点，败者按协议换节点不重试。
+- **WF16 execute 上报出口**：plumber-execute SKILL（双副本）新增「发现图错的上报出口（改图三级分流）」节——小修（plan/DoD 文案、checkpoint 增删）执行会话内直接改 + 报告注明「计划已修订」；结构修订（增删节点/边、雾区毕业、拆分、取消子树、ADR supersede 连锁）不自己动手，路由回 designer amend 模式；failed 裁决触发同样路由。话术守 DEC-4 no-op：只写何时上报、报给谁，不复述机器行为细节。
+- **F21 改图三约束（DEC-7 配套，双通道）**：(a) 结构修订落图前自动 snapshot——拦截在 core 公共写入口一层（增删节点/边、batch 整批一次），message 形如 `auto: structural amend (add-node n1) by cli`，拒绝路径不留快照、安全网快照跳过 docs 导出；(b) `graph_amended` 审计事件 + 已审核图 review 回置 `unreviewed`（by=触发修订的通道/actor，review_flag nudge 重新亮起走增量人审）；(c) 改 passed/blocked 节点 plan 的响应 nudge（CLI 提示行 / MCP 响应 `plan_amend_nudge` 字段，纯提示不改状态）。三约束全为 nudge/凭据类，零硬门禁（DEC-1 哲学）；CLI/MCP/脚本三通道天然一致。
+- **三项待拍板收口（设计文档 §4）**：① **class 字段纯约定先行、不进 schema**（按 §4-1 既有倾向落地：零工具改动，档位约定留 plumber-design Phase 0 路由表；字段随首个需要它的机制——0.9.0 雾区/0.9.2 渐进审批——一起进，反转路径已成文）；② **review_flag 文案定稿**：「设计审核凭据缺失或已失效——仅提示，可照常认领」（句式对齐 adr_flags「状态——含义，建议动作」，覆盖无凭据与结构修订回置两种触发；断言改锚 `REVIEW_FLAG_UNREVIEWED` 常量）；③ **雾区约定版试跑完成**（docs/fog-recon-trial-report.md）：真实模糊需求「发布链自动化」走完登记→点火→一票→毕业全程，5 卡点实证（fog→票 depends_on 边死锁 research 票 ready 门禁、`_fog` 命名过不了 ID 规则、毕业无专用凭据、双载体漂移、知识顶点计数三口径）直接输入 0.9.0 F04/F05/F17 schema 设计。
+- **adr_0006 转正（S08）**：改图协议（三级分流 + 三约束）经 WF16/F21 实践检验后 accepted（裁决位 super-mario 独立取证：adr 内容三判据 + 两实现节点交付实况 + 全量测试绿）；`docs/adr/roadmap-to-1-0-0/` 隔离导出刷新（A1 口径，默认 docs/adr/ 零触碰）。
+- **治理账（docs/issue-log.md 前馈回路）**：IL-022（共享 MCP server 会话内 `graph init/switch` 全局副作用事故——并行执行期 active 图被翻转，零脏写恢复；防复发纪律成文）、IL-023（sp-\*.mjs 无 `--graph`/`SUPER_PLUMBER_GRAPH` 寻址，绑 0.9.4 S03 收敛）记录即可；v082-verify 观察项：审计日志不记并发认领失败事件（backlog 候选）。
+- 回归：后端 72 文件 **656 用例绿**（0.8.1 为 634，F21 新增 22 条）+ 交叉验证独立复核（verify-t1 双会话互斥实测、双进程机械复现认领互斥、F21 三约束隔离图正反向实证：快照/事件/回置/nudge 四断言 + review_flag 亮灭双向）。
+- 发布动作：npm 0.8.2（**latest**）+ GitHub tag v0.8.2；beta tag 保留指向 0.8.2-beta.1（npm dist-tag 不可删，latest 由本版接管）。
+
 ## [0.8.2-beta.1] — 2026-08-31（beta：super-mario 工具供给实验 + 签署代录成文）
 
 > 实验性测试版：检验「super-mario 零工具系 tools 显式声明所致」假设（IL-021），随版带 IL-020 签署代录模式。**验证结论出来前请勿依赖本版——latest 仍为 0.8.1。**

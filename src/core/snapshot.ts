@@ -107,7 +107,7 @@ function collectSourceFiles(rootDir: string): string[] {
 export function createSnapshot(
   rootDir: string,
   message?: string,
-  opts: { actor?: string } = {},
+  opts: { actor?: string; skipDocsExport?: boolean } = {},
 ): SnapshotManifest {
   return withGraphLock(rootDir, () =>
     createSnapshotUnlocked(rootDir, message, opts),
@@ -117,7 +117,7 @@ export function createSnapshot(
 function createSnapshotUnlocked(
   rootDir: string,
   message?: string,
-  opts: { actor?: string } = {},
+  opts: { actor?: string; skipDocsExport?: boolean } = {},
 ): SnapshotManifest {
   const now = new Date();
   const id = `${now.toISOString().replace(/[:.]/g, "-")}-${Math.random()
@@ -146,15 +146,21 @@ function createSnapshotUnlocked(
   );
   // v0.5.1：快照即设计定稿点——创建快照时自动导出领域文档视图（纯工具行为，无 LLM 决策）：
   // CONTEXT-MAP.md + docs/contexts/*.md + docs/adr/*.md 随快照点落盘，git 一并提交即冻结。
-  // adr_0013（fix-v080-a1）：导出经 runDocsExport 统一默认——多图工作区自动落
-  // docs/<图名>/ 分离目录（快照不再挤占其他图的视图）；单图工作区路径不变。
+  // F21（DEC-7）：结构修订的自动快照（amend.ts）是回滚安全网、不是设计定稿点——
+  // skipDocsExport 跳过导出（零文档副作用、零额外写放大；文档视图仍由显式
+  // snapshot 落盘）。adr_0013：导出经 runDocsExport 统一默认——多图工作区自动落
+  // docs/<图名>/ 分离目录；单图工作区路径不变。
   // 非致命：导出失败不回滚快照（图仍是真相源），失败原因记入事件。
   let docsDetail = "";
-  try {
-    const docs = runDocsExport(rootDir);
-    docsDetail = ` docs_exported=${docs.written.length}`;
-  } catch (err: any) {
-    docsDetail = ` docs_export_failed=${err?.message ?? "unknown"}`;
+  if (opts.skipDocsExport) {
+    docsDetail = " docs_export=skipped";
+  } else {
+    try {
+      const docs = runDocsExport(rootDir);
+      docsDetail = ` docs_exported=${docs.written.length}`;
+    } catch (err: any) {
+      docsDetail = ` docs_export_failed=${err?.message ?? "unknown"}`;
+    }
   }
   appendEvent(rootDir, {
     actor: opts.actor ?? "unknown",

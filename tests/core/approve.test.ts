@@ -97,7 +97,7 @@ describe("approveGraph（核心写入）", () => {
 });
 
 describe("review_flag（core 注入面：ready_eligible 桶）", () => {
-  it("图无 review 字段 → ready_eligible 条目注入 'unreviewed'；ready 桶不注入", () => {
+  it("图无 review 字段 → ready_eligible 条目注入定稿文案；ready 桶不注入", () => {
     createNode(tmpDir, { id: "a", type: NodeType.Task, label: "A" });
     createNode(tmpDir, { id: "b", type: NodeType.Task, label: "B" });
     updateNodeStatus(tmpDir, "b", NodeStatus.Ready); // b 无前驱 → ready
@@ -105,7 +105,6 @@ describe("review_flag（core 注入面：ready_eligible 桶）", () => {
     // a 冷启动在 ready_eligible；b 在 ready
     const a = r.ready_eligible.find((n) => n.id === "a");
     expect(a?.review_flag).toBe(REVIEW_FLAG_UNREVIEWED);
-    expect(a?.review_flag).toBe("unreviewed");
     const bReady = r.ready.find((n) => n.id === "b");
     expect(bReady).toBeDefined();
     expect(JSON.stringify(r.ready)).not.toContain("review_flag");
@@ -114,16 +113,16 @@ describe("review_flag（core 注入面：ready_eligible 桶）", () => {
   it("approve 后 review_flag 消失（写入失效调度缓存，立即可见）", () => {
     createNode(tmpDir, { id: "a", type: NodeType.Task, label: "A" });
     let r = computeNextActions(tmpDir);
-    expect(r.ready_eligible.find((n) => n.id === "a")?.review_flag).toBe("unreviewed");
+    expect(r.ready_eligible.find((n) => n.id === "a")?.review_flag).toBe(REVIEW_FLAG_UNREVIEWED);
     approveGraph(tmpDir, { by: "alice", status: "self" });
     r = computeNextActions(tmpDir);
     expect(r.ready_eligible.find((n) => n.id === "a")?.review_flag).toBeUndefined();
     expect(JSON.stringify(r.ready_eligible)).not.toContain("review_flag");
   });
 
-  it("reviewFlagFor：无凭据 → 'unreviewed'；有凭据（self 也算已审）→ undefined", () => {
+  it("reviewFlagFor：无凭据 → 定稿文案；有凭据（self 也算已审）→ undefined", () => {
     createNode(tmpDir, { id: "a", type: NodeType.Task, label: "A" });
-    expect(reviewFlagFor(tmpDir)).toBe("unreviewed");
+    expect(reviewFlagFor(tmpDir)).toBe(REVIEW_FLAG_UNREVIEWED);
     approveGraph(tmpDir, { by: "q", status: "self" });
     expect(reviewFlagFor(tmpDir)).toBeUndefined();
   });

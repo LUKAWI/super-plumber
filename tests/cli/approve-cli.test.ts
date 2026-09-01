@@ -7,6 +7,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { spawnSync } from "node:child_process";
+import { REVIEW_FLAG_UNREVIEWED } from "../../src/core/index-service.js";
 
 const CLI = path.resolve("dist/cli/index.js");
 
@@ -111,7 +112,7 @@ describe("graph approve（CLI 通道）", () => {
       run(["next", "--json"]).stdout,
     );
     const aBefore = before.ready_eligible.find((n: any) => n.id === "a");
-    expect(aBefore?.review_flag).toBe("unreviewed");
+    expect(aBefore?.review_flag).toBe(REVIEW_FLAG_UNREVIEWED);
 
     run(["approve", "--by", "alice", "--status", "self"]);
     const after = JSON.parse(run(["next", "--json"]).stdout);

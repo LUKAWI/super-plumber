@@ -245,15 +245,19 @@ export function invalidateIndex(rootDir: string): void {
 // DEC-1（g080-approve-core）：review_flag 注入面（core 侧）。
 // 图级判定一次：图无 review 凭据 → ready_eligible 条目附 review_flag（≤10 token，
 // 风格对齐 adr_flags——只提示不拦截）。红线：review 仅记录、零门禁，核心状态机
-// 不因此新增任何拒绝规则。文案定稿在 0.8.2，当前先写字面量。
-export const REVIEW_FLAG_UNREVIEWED = "unreviewed";
+// 不因此新增任何拒绝规则。文案已定稿（v082-tooling，设计文档 §4-4 收口）。
+export const REVIEW_FLAG_UNREVIEWED =
+  "设计审核凭据缺失或已失效——仅提示，可照常认领";
 
 /** 图级 review_flag 判定（一次读 graph.yaml，不进索引缓存）：
- * 无 review 字段 → 'unreviewed'；有 → undefined（不注入）。
+ * 无 review 字段或 status=unreviewed → 注入定稿文案；有凭据 → undefined（不注入）。
+ * F21（DEC-7）：结构修订把 review 回置为 status=unreviewed（只写凭据字段）——
+ * 该状态同样视为未审核，nudge 重新亮起走增量人审。
  * 图未初始化/不可读同样视为未审核（提示不阻塞调度）。 */
 export function reviewFlagFor(rootDir: string): string | undefined {
   try {
-    return readGraph(rootDir).review === undefined
+    const review = readGraph(rootDir).review;
+    return review === undefined || review.status === "unreviewed"
       ? REVIEW_FLAG_UNREVIEWED
       : undefined;
   } catch {

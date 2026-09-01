@@ -523,7 +523,7 @@ graph serve
 
 ## Pi Agent 生态：subagent + skill
 
-项目内置 2 个专用 subagent（`.pi/agents/`）与 3 个 skill（`.pi/skills/plumber-design/` + `.pi/skills/plumber-execute/` + `.pi/skills/sp-grilling/` 纪律技能，v0.8.0 起）：
+项目内置 2 个专用 subagent（`.pi/agents/`）与 4 个 skill（`.pi/skills/plumber-design/` + `.pi/skills/plumber-execute/` + `.pi/skills/plumber-join/` 冷启动加入协议（v0.8.2 起）+ `.pi/skills/sp-grilling/` 纪律技能，v0.8.0 起）：
 
 | Agent | 角色 | 职责 |
 |-------|------|------|
@@ -548,7 +548,7 @@ graph serve
 
 装好后你会得到：
 
-- **2 个斜杠命令**：`/plumber-design`——设计期编排（需求拆解 → 拓扑建图 → validate/doctor 双绿 → 浏览器预览 → 请求用户审核）；`/plumber-execute`——执行期编排（claim → 逐 checkpoint 上报 → 交接单 → 三层验收）。pi 无斜杠命令，由 `.pi/skills/` 的两阶段 skill 直接驱动同一流程。另含纪律技能 `sp-grilling`（v0.8.0）：model-invoked、无命令，按触发语自动进入（grill/拷问/对齐/深挖）。
+- **3 个斜杠命令**：`/plumber-design`——设计期编排（需求拆解 → 拓扑建图 → validate/doctor 双绿 → 浏览器预览 → 请求用户审核）；`/plumber-execute`——执行期编排（claim → 逐 checkpoint 上报 → 交接单 → 三层验收）；`/plumber-join`（v0.8.2）——冷启动加入（新会话/单体 agent 零前文自主入场：list/switch → status → next → claim → 干活到 passed → 回队列）。pi 无斜杠命令，由 `.pi/skills/` 的 skill 直接驱动同一流程。另含纪律技能 `sp-grilling`（v0.8.0）：model-invoked、无命令，按触发语自动进入（grill/拷问/对齐/深挖）。
 - **2 个 subagent**：`sp-designer`（拓扑设计师）与 `super-mario`（裁决主控），由 skill 按派单模板调度；检测不到 subagent 时走 skill 内 solo 分支。
 - **Operations 手册**：操作语法唯一正本。pi 侧读仓库根 `integrations/shared/manual.md`，插件用户读插件包内 `manual.md`（构建期同步的正本拷贝）；提示词/skill 写「Read 手册 §N」时按此寻址（约定见手册 §11）。
 

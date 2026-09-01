@@ -196,9 +196,12 @@ describe("多图隔离（每图独立锁/索引/事件/快照）", () => {
     const gA = path.join(tmpDir, ".graph", "graph-a");
     const gB = path.join(tmpDir, ".graph", "graph-b");
 
-    createNode(gA, { id: "n1", type: NodeType.Task, label: "A 的节点" });
-    createNode(gB, { id: "n1", type: NodeType.Task, label: "B 的同名节点" }); // 同 id 不同图互不冲突
-    createEdge(gA, { id: "e1", source: "n1", target: "n1", type: "depends_on" });
+    // F21 起结构写自带 amend 守卫（自动快照 + graph_amended 事件）——本用例主旨是
+    // 多图隔离（锁/索引/事件/快照各图独立），传 skipAmendGuard 保持计数与事件流
+    // 断言聚焦既有语义；守卫行为由 tests/core/amend.test.ts 专测。
+    createNode(gA, { id: "n1", type: NodeType.Task, label: "A 的节点" }, { skipAmendGuard: true });
+    createNode(gB, { id: "n1", type: NodeType.Task, label: "B 的同名节点" }, { skipAmendGuard: true }); // 同 id 不同图互不冲突
+    createEdge(gA, { id: "e1", source: "n1", target: "n1", type: "depends_on" }, { skipAmendGuard: true });
 
     // 事件流独立
     expect(readEvents(gA).some((e) => e.kind === "node_created" && e.node === "n1")).toBe(true);

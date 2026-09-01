@@ -162,9 +162,11 @@ describe("graph snapshot / snapshots / diff / rollback", () => {
     const snapOut = runOk(["snapshot", "-m", "v1"]);
     const snapId = snapOut.trim().split("\n")[0].split(":")[1].trim();
 
-    // 修改：改状态 + 增节点
-    runOk(["update-status", "-i", "a", "-s", "ready"]);
+    // 修改：改状态 + 增节点（F21 起 create-node 前会自动快照——该自动快照即
+    // "最新快照"、成为 diff 的 from 基线；先增节点后改状态，保证基线里 a 仍是
+    // pending，下方 modified/status_changes 断言与 F21 前语义一致）
     runOk(["create-node", "-i", "b", "-l", "B"]);
+    runOk(["update-status", "-i", "a", "-s", "ready"]);
 
     // diff：最新快照 vs working
     const diffOut = runOk(["diff", "--json"]);

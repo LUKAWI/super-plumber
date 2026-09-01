@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { cliGraphDir } from "./graph-ctx.js";
 import { getNode, updateNodeContent, buildNodeUpdates } from "../core/node.js";
+import { planAmendNudge } from "../core/amend.js";
 import { CHECKPOINT_STATUSES } from "../core/checkpoint.js";
 import { coerceInt } from "./coerce.js";
 
@@ -185,6 +186,10 @@ export const updateNodeCommand = new Command("update-node").alias("un")
         ...(options.resetAttempts ? { resetAttempts: true } : {}),
       });
       console.log(`✅ 已更新节点: ${options.id}`);
+      // F21 (c)（DEC-7 / adr_0006）：改 passed/blocked 节点 plan 的响应 nudge——
+      // 纯提示，不改状态、不拦截；与 MCP graph_update_node 共用同一实现（双通道一致）
+      const nudge = planAmendNudge(node, { planChanged: options.planDesc !== undefined });
+      if (nudge) console.log(nudge);
     } catch (err: any) {
       if (isNodeNotFound(err)) {
         console.error(`❌ 节点不存在: ${options.id}`);
