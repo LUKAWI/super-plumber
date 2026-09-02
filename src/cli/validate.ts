@@ -1,19 +1,9 @@
 import { Command } from "commander";
 import { cliGraphDir } from "./graph-ctx.js";
-import { readGraph } from "../core/parser.js";
-import { topologicalSort, detectCycles, detectHiddenCycles } from "../core/graph.js";
-import { validateDomainRules } from "../core/domain.js";
-import { lintNodeWording } from "../core/style-lint.js";
-import { fogWarnings } from "../core/fog.js";
-import { aggregateCheckpointStatus } from "../core/state-machine.js";
-import {
-  loadNodeFile,
-  loadEdgeFile,
-  listNodeFileNames,
-  listEdgeFileNames,
-  SchemaValidationError,
-} from "../core/schema.js";
-import type { NodeSchema, EdgeSchema, GraphSchema } from "../core/types.js";
+// arch-c3b：validate 编排单源（core/validate.ts）——步骤编排与警告文案正文住 core，
+// 本命令只做呈现：错误/警告逐条渲染（加图标前缀，不改写正文）、进度行、退出码语义
+// （errors 非空 → exit 1；未初始化/schema 损坏/目录损坏同属 errors，保持非 0 退出）。
+import { validateGraphDir } from "../core/validate.js";
 
 export const validateCommand = new Command("validate").alias("v")
   .description("校验整个拓扑图的结构完整性（schema + 引用 + 拓扑 + 环）")
@@ -21,237 +11,39 @@ export const validateCommand = new Command("validate").alias("v")
   .action((options) => {
     const rootDir = cliGraphDir(process.cwd());
     const jsonMode = !!options.json;
-    const jsonErrors: string[] = [];
-    const jsonWarnings: string[] = [];
-    let errors = 0;
-    let warnings = 0;
+    const r = validateGraphDir(rootDir);
 
-    const err = (msg: string) => {
-      errors++;
-      jsonErrors.push(msg);
-      if (!jsonMode) console.error(`❌  ${msg}`);
-    };
-    const warn = (msg: string) => {
-      warnings++;
-      jsonWarnings.push(msg);
-      if (!jsonMode) console.warn(`⚠️  ${msg}`);
-    };
-
-    const printResult = (code: number): void => {
-      if (jsonMode) {
-        console.log(
-          JSON.stringify(
-            { ok: code === 0, errors: jsonErrors, warnings: jsonWarnings },
-            null,
-            2,
-          ),
-        );
-      } else {
-        console.log(`\n📊 结果: ${errors} 错误, ${warnings} 警告`);
+    if (!jsonMode) {
+      for (const e of r.errors) {
+        console.error(`❌  ${e}`);
       }
-    };
-
-    // 1. 检查图根文件
-    let graph: GraphSchema;
-    try {
-      graph = readGraph(rootDir);
-    } catch (e: any) {
-      if (e?.code === "ENOENT") {
-        err("无法读取 graph.yaml，图未初始化");
-      } else if (e instanceof SchemaValidationError) {
-        err(`${e.file}: ${e.message}`);
-      } else {
-        err(`无法读取 graph.yaml: ${e.message}`);
+      for (const w of r.warnings) {
+        console.warn(`⚠️  ${w}`);
       }
-      printResult(1);
-      process.exit(1); // 未初始化/schema 损坏必须非 0 退出，供脚本/CI 判断
-    }
-    if (!graph.entry.description) {
-      warn("图入口(entry)描述为空");
-    }
-    // D1 修复（v0.5.1）：拆分出口检查——原 `!exit.description || criteria 为空` 的或逻辑
-    // 会在"description 空但验收标准实有"时误报"验收标准为空"；两个关注点各自警告
-    if (!graph.exit.description) {
-      warn("图出口(exit)描述为空");
-    }
-    if (graph.exit.acceptance_criteria.length === 0) {
-      warn("图出口(exit)验收标准为空");
-    }
-
-    // 2. 检查节点（逐文件读取 + schema 校验，单文件损坏不中断其余）
-    let nodeFiles: string[];
-    try {
-      nodeFiles = listNodeFileNames(rootDir);
-    } catch (e: any) {
-      err(`无法读取 nodes/ 目录: ${e.message}`);
-      printResult(1);
-      process.exit(1); // 错误路径必须非 0 退出，供脚本/CI 判断
-    }
-    const nodes: NodeSchema[] = [];
-    for (const f of nodeFiles) {
-      const r = loadNodeFile(rootDir, f);
-      if (r.ok) {
-        nodes.push(r.data);
-      } else {
-        for (const i of r.issues) {
-          err(`nodes/${f}: ${i.field}: ${i.message}`);
-        }
-      }
-    }
-    if (nodes.length === 0) {
-      warn("图中没有节点");
-    }
-    // F17（adr_0007）：雾区提示——只提示不阻止，零新拒绝规则（core/fog.ts 单源，
-    // 与 MCP graph_validate 同文案）
-    for (const fw of fogWarnings(graph, nodes)) {
-      warn(fw);
-    }
-    for (const node of nodes) {
-      if (!node.id || !node.label) {
-        err("节点缺少 id 或 label");
-      }
-      // S2-5：max_attempts=0 表示不限重试，不参与超限判定
-      if (node.max_attempts > 0 && node.attempts > node.max_attempts) {
-        warn(`节点 ${node.id} 已超出最大重试次数 (${node.attempts}/${node.max_attempts})`);
-      }
-      // checkpoint 聚合态（供裁决 agent 快速判断节点是否可进入完成裁决）
-      if (node.checkpoints && node.checkpoints.length > 0) {
-        const agg = aggregateCheckpointStatus(node.checkpoints);
-        if (!jsonMode) {
+      // 进度行仅在全流程走完时渲染（提前终止阶段没有对应产出，不渲染假成功行）
+      if (r.fatal_stage === null) {
+        for (const cs of r.checkpoint_summaries) {
           console.log(
-            `    · ${node.id} checkpoint 聚合: ${agg} (${node.checkpoints.length} 个)`,
+            `    · ${cs.node_id} checkpoint 聚合: ${cs.aggregate} (${cs.count} 个)`,
           );
         }
-      }
-    }
-    if (!jsonMode) console.log(`✅  节点: ${nodes.length} 个`);
-
-    // 3. 检查边（逐文件读取 + schema 校验）
-    let edgeFiles: string[];
-    try {
-      edgeFiles = listEdgeFileNames(rootDir);
-    } catch (e: any) {
-      err(`无法读取 edges/ 目录: ${e.message}`);
-      printResult(1);
-      process.exit(1); // 错误路径必须非 0 退出，供脚本/CI 判断
-    }
-    const edges: EdgeSchema[] = [];
-    for (const f of edgeFiles) {
-      const r = loadEdgeFile(rootDir, f);
-      if (r.ok) {
-        edges.push(r.data);
-      } else {
-        for (const i of r.issues) {
-          err(`edges/${f}: ${i.field}: ${i.message}`);
+        console.log(`✅  节点: ${r.node_count} 个`);
+        console.log(`✅  边: ${r.edge_count} 条`);
+        if (r.node_count > 1) {
+          if (r.topo_ok) console.log(`✅  拓扑排序: ${r.node_count} 节点通过`);
+          if (!r.cycles_found) console.log(`✅  循环检测: 无环路`);
         }
       }
-    }
-    const nodeIds = new Set(nodes.map((n) => n.id));
-    for (const edge of edges) {
-      if (!nodeIds.has(edge.source)) {
-        err(`边 ${edge.id} 引用了不存在的源节点: ${edge.source}`);
-      }
-      if (!nodeIds.has(edge.target)) {
-        err(`边 ${edge.id} 引用了不存在的目标节点: ${edge.target}`);
-      }
-    }
-    if (!jsonMode) console.log(`✅  边: ${edges.length} 条`);
-
-    // FIX-B1（评审 B 级·运行时边装饰性）：运行时控制流边无运行时语义，显式警告
-    for (const edge of edges) {
-      if (edge.type === "fallback" || edge.type === "iterates") {
-        warn(
-          `边 ${edge.id} (${edge.type}) 为运行时控制流边，但工具未实现其运行时语义（不执行回退/迭代）——当前仅文档性标注`,
-        );
-      }
-    }
-    const ctxEdges = edges.filter((e) => e.type === "shares_context");
-    if (ctxEdges.length > 0) {
-      warn(
-        `检测到 ${ctxEdges.length} 条 shares_context 边：不参与门禁与拓扑排序，仅表达上下文共享意图`,
+      console.log(`\n📊 结果: ${r.errors.length} 错误, ${r.warnings.length} 警告`);
+    } else {
+      // --json 输出形状保持不变（{ok, errors, warnings}），供脚本/agent 消费
+      console.log(
+        JSON.stringify(
+          { ok: r.ok, errors: r.errors, warnings: r.warnings },
+          null,
+          2,
+        ),
       );
     }
-
-    // v0.5 领域语义六规则（core/domain.ts：悬空归属/术语重复/跨context契约/relates端点/孤儿ADR/decides源）
-    for (const d of validateDomainRules(nodes, edges)) {
-      if (d.level === "error") err(d.message);
-      else warn(d.message);
-    }
-
-    // F16：plan/DoD 文案 lint（core/style-lint.ts：规则码 a 脆弱定位/b 行号式/c 不可验证措辞，
-    // manual §2.8 四原则）。恒为 warning——文案规范不参与退出码
-    for (const node of nodes) {
-      for (const li of lintNodeWording(node)) warn(li.message);
-    }
-
-    // 4. 拓扑排序 + 循环检测
-    if (nodes.length > 1) {
-      try {
-        const order = topologicalSort(
-          nodes.map((n) => n.id),
-          edges,
-        );
-        if (!jsonMode) console.log(`✅  拓扑排序: ${order.length} 节点通过`);
-      } catch (e: any) {
-        err(`拓扑排序失败: ${e.message}`);
-      }
-
-      const cycles = detectCycles(
-        nodes.map((n) => n.id),
-        edges,
-      );
-      if (cycles.length > 0) {
-        for (const cycle of cycles) {
-          err(`检测到循环依赖: ${cycle.join(" → ")}`);
-        }
-      } else if (!jsonMode) {
-        console.log(`✅  循环检测: 无环路`);
-      }
-
-      // FIX-B1：隐藏环路（fan 门控边闭合的互等环——ready 门禁今天就会死锁，
-      // 但拓扑排序不可见。fallback/iterates 闭合属设计内回退/迭代，仅 per-edge 警告）
-      const hidden = detectHiddenCycles(
-        nodes.map((n) => n.id),
-        edges,
-      );
-      for (const cycle of hidden) {
-        warn(
-          `隐藏环路（fan_out/fan_in 门控边闭合: ${cycle.join(" → ")}）：门禁互等，节点可能永远无法 ready`,
-        );
-      }
-    }
-
-    // 5. 引用完整性（双向）
-    for (const n of graph.nodes) {
-      const nid = n.file.replace(/^nodes\//, "").replace(/\.yaml$/, "");
-      if (!nodeIds.has(nid)) {
-        warn(`graph.yaml 引用了不存在的节点文件: ${n.file}`);
-      }
-    }
-    const edgeFileSet = new Set(edges.map((e) => e.id));
-    for (const e of graph.edges) {
-      const eid = e.file.replace(/^edges\//, "").replace(/\.yaml$/, "");
-      if (!edgeFileSet.has(eid)) {
-        warn(`graph.yaml 引用了不存在的边文件: ${e.file}`);
-      }
-    }
-    // S2-6：反方向——文件存在但 graph.yaml 未引用（丢引用竞态 S1-4、
-    // 半重置 S1-10 产生的正是这个方向的漂移，此前完全不可见）
-    const refNodeIds = new Set(graph.nodes.map((n) => n.file.replace(/^nodes\//, "").replace(/\.yaml$/, "")));
-    for (const f of nodeFiles) {
-      const id = f.replace(/\.yaml$/, "");
-      if (!refNodeIds.has(id)) {
-        warn(`graph.yaml 未引用已存在的节点文件: nodes/${f}（引用列表与目录漂移，请检查 graph.yaml）`);
-      }
-    }
-    const refEdgeIds = new Set(graph.edges.map((e) => e.file.replace(/^edges\//, "").replace(/\.yaml$/, "")));
-    for (const f of edgeFiles) {
-      const id = f.replace(/\.yaml$/, "");
-      if (!refEdgeIds.has(id)) {
-        warn(`graph.yaml 未引用已存在的边文件: edges/${f}（引用列表与目录漂移，请检查 graph.yaml）`);
-      }
-    }
-
-    printResult(errors > 0 ? 1 : 0);
-    process.exit(errors > 0 ? 1 : 0);
+    process.exit(r.ok ? 0 : 1); // 未初始化/schema 损坏/目录损坏均含 errors，非 0 退出供脚本/CI 判断
   });

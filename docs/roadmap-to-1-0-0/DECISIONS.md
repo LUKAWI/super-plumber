@@ -16,6 +16,12 @@
 | ADR · accepted | adr_0013 | 多图工作区知识视图导出按图名分离存放（根治 A1 跨图视图挤占） | 2026-08-30T11:39:27.326Z |
 | ADR · accepted | adr_0014 | sp-grilling 纪律技能：意图对齐与决策纠正的统一对话核心（替代 quiz 三问） | 2026-08-30T14:27:35.303Z |
 | ADR · accepted | adr_0015 | Codex 渠道采用官方 .codex-plugin 插件路线 | 2026-08-31T12:08:23.380Z |
+| ADR · accepted | adr_0016 | 档位凭据命令 /plumber-class：用户直发 class + class_changed 凭据 + 方向性请示纪律 | 2026-09-01T23:39:45.659Z |
+| task · passed | arch-c2-scheduler-split | [0.9.1·架构] C2 调度策略与索引缓存分家（scheduler.ts 新家） | 2026-09-02T16:31:19.594Z |
+| task · passed | arch-c3a-claim-nudges | [0.9.1·架构] C3a 认领提示包 core 单源（CLI 补齐 review_flag） | 2026-09-02T14:27:38.813Z |
+| task · passed | arch-c3b-validate-core | [0.9.1·架构] C3b validate 七步编排下沉 core（单源结果、双渠道薄渲染） | 2026-09-02T14:55:24.731Z |
+| task · passed | arch-c4a-fog-home | [0.9.1·架构] C4a 雾区概念成家（fog.ts 收写路径）+ class 枚举单源 | 2026-09-02T15:16:39.559Z |
+| task · passed | arch-c7a-view-tree-gate | [0.9.1·架构] C7a ADR 导出视图合树 + export --check 门禁 + 散文锚点即修 | 2026-09-02T14:55:24.764Z |
 | task · passed | fix-v080-a1 | [fix·0.7.0] A1 根治：ADR 编号×共享知识视图目录冲突（方案系统测试后定） | 2026-08-30T11:39:27.258Z |
 | task · passed | fix-v080-b1 | [fix·0.7.0] B1 短期门禁：skill 双副本 diff 检查项落地 | 2026-08-30T11:39:27.202Z |
 | task · passed | fix-v080-b2 | [fix·0.7.0] B2 manual §2.3 契约边示例修订为实测形状 | 2026-08-30T11:39:27.229Z |
@@ -40,6 +46,7 @@
 | task · passed | il-011-edge-type-ergonomics | [IL-011] 通用性问题：边类型选择面虚胖——9 种类型设计者实际只用 1 种，且 MCP/CLI 默认行为不一致 | 2026-08-30T14:53:54.656Z |
 | task · passed | il-012-contract-by-context-pair | [IL-012] 通用性问题：跨 context 契约逐边手写——仪式成本应按 context 对收敛 | 2026-08-30T14:38:18.027Z |
 | task · passed | il-016-manifest-version-gate | [IL-016] 发版版本面一致性门禁 | 2026-08-31T13:04:15.359Z |
+| task · passed | il-017-sp-traverse-drift | [IL-017] sp-traverse.mjs 脚本层 DFS 语义漂移（与 MCP traverse 修复不同步） | 2026-09-02T14:27:38.763Z |
 | task · passed | v081-release | [0.8.1] 0.8.1 发布收尾 | 2026-08-31T14:29:04.697Z |
 | task · passed | v081-skills | [0.8.1] WF05 出图前查拒绝理由 + WF06 Avoid 约定 + WF07 纪律互通映射 | 2026-08-31T13:50:32.861Z |
 | task · passed | v081-tooling | [0.8.1] F14 delete-node --reason 双通道 + F15 DECISIONS.md 决议索引 | 2026-08-31T13:29:04.791Z |
@@ -56,3 +63,9 @@
 | task · passed | v090-chartwork | [0.9.0] WF09 chart/work 两模式进 skill | 2026-09-01T15:59:51.645Z |
 | task · passed | v090-fog-schema | [0.9.0] F04/F05/F17 雾区机器面 | 2026-09-01T15:44:26.780Z |
 | task · passed | v090-fogui | [0.9.0] web-ui 雾区呈现（虚线云团） | 2026-09-01T16:08:45.400Z |
+| task · passed | v090-release | [0.9.0] 0.9.0 发布收尾 | 2026-09-01T23:43:11.069Z |
+| task · passed | v090-verify | [0.9.0] 0.9.0 交叉验证 + accept adr_0007 | 2026-09-01T16:16:56.409Z |
+| task · passed | v091-class-command | [0.9.1] F22 /plumber-class 档位凭据命令（用户直发 class + provenance 事件） | 2026-09-02T15:41:47.039Z |
+| task · passed | v091-skills | [0.9.1] WF10 journey prompts + WF11 人机介入正交决策表 | 2026-09-02T14:27:38.788Z |
+| task · passed | v091-tooling | [0.9.1] F06 requires_human 派生标注 + F07 等真人标记与 human stale 阈值 | 2026-09-02T17:17:03.986Z |
+| task · passed | v091-verify | [0.9.1] 0.9.1 交叉验证 | 2026-09-02T17:34:29.424Z |

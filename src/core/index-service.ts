@@ -1,10 +1,13 @@
 // src/core/index-service.ts
-// 图索引服务：buildGraphIndex / computeNextActions 的实现与两级缓存。
+// 图索引服务：buildGraphIndex 的实现与两级缓存（索引缓存基础设施）。
+// arch-c2 分家：next 五桶调度策略（computeNextActions）、旗标装配（reviewFlagFor /
+// fogSummaryFor / classNudgeFor）与认领提示包（buildClaimNudgePackage）已迁至
+// scheduler.ts（依赖方向 scheduler → index-service，取缓存索引）；本文件只留
+// "读得快"的缓存设施，不再含任何调度决策。
 //
 // 为什么单独成文件：checkReadyGate（node.ts）与 computeNextActions 都是 agent
 // 每轮必调的热路径。若每次调用都全量 listNodes + listEdges（10k 图 ≈ 2 万次文件读
-// + YAML 解析 + schema 校验，实测 ~9s），多 agent 长程运行会被磁盘 I/O 拖垮；
-// 而 computeNextActions 的 blocked 检测是 O(N×M)（16k 节点实测 15.9s）。
+// + YAML 解析 + schema 校验，实测 ~9s），多 agent 长程运行会被磁盘 I/O 拖垮。
 //
 // 缓存设计（双轨，新鲜度校验均为精确的逐文件 mtime 比对——跨进程写入可见）：
 // 1. 进程内内存缓存：命中时零文件读；2 万次 stat 实测 ~0.4s，比 2 万次读+解析
@@ -13,27 +16,23 @@
 //    stat 校验 + JSON.parse 替代全量文件读，冷路径从 ~9s 降到 <1.5s。
 //
 // 旧格式磁盘缓存（缺 gateReverseAdj 字段）在加载时从 edges 就地推导，保持兼容。
-// 新增 gateReverseAdj（4 种门控边的反向邻接）是 checkReadyGate 与
-// computeNextActions 从"全图扫描"变为"按需查表"的关键数据结构。
+// 新增 gateReverseAdj（4 种门控边的反向邻接）是 checkReadyGate（node.ts）与
+// computeNextActions（scheduler.ts）从"全图扫描"变为"按需查表"的关键数据结构。
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   type NodeSchema,
   type EdgeSchema,
-  type GraphFog,
-  NodeStatus,
   TOPOLOGICAL_EDGE_TYPES,
   GATE_EDGE_TYPES,
-  isKnowledgeType,
   GRAPH_FILE,
   INDEX_DIR,
   NODES_DIR,
   EDGES_DIR,
 } from "./types.js";
 import { listNodeFileNames, listEdgeFileNames } from "./schema.js";
-import { readNode, readEdge, readGraph } from "./parser.js";
-import { adrFlagsFor } from "./domain.js";
+import { readNode, readEdge } from "./parser.js";
 import { toGraphDir } from "./graph-dir.js";
 
 export interface GraphIndex {
@@ -239,208 +238,4 @@ export function invalidateIndex(rootDir: string): void {
   } catch {
     /* 磁盘缓存删除失败不影响正确性（下次 isFresh 会回源重建） */
   }
-}
-
-// ── 调度决策（agent 规划循环的核心减负工具）──
-
-// DEC-1（g080-approve-core）：review_flag 注入面（core 侧）。
-// 图级判定一次：图无 review 凭据 → ready_eligible 条目附 review_flag（≤10 token，
-// 风格对齐 adr_flags——只提示不拦截）。红线：review 仅记录、零门禁，核心状态机
-// 不因此新增任何拒绝规则。文案已定稿（v082-tooling，设计文档 §4-4 收口）。
-export const REVIEW_FLAG_UNREVIEWED =
-  "设计审核凭据缺失或已失效——仅提示，可照常认领";
-
-/** 图级 review_flag 判定（一次读 graph.yaml，不进索引缓存）：
- * 无 review 字段或 status=unreviewed → 注入定稿文案；有凭据 → undefined（不注入）。
- * F21（DEC-7）：结构修订把 review 回置为 status=unreviewed（只写凭据字段）——
- * 该状态同样视为未审核，nudge 重新亮起走增量人审。
- * 图未初始化/不可读同样视为未审核（提示不阻塞调度）。 */
-export function reviewFlagFor(rootDir: string): string | undefined {
-  try {
-    const review = readGraph(rootDir).review;
-    return review === undefined || review.status === "unreviewed"
-      ? REVIEW_FLAG_UNREVIEWED
-      : undefined;
-  } catch {
-    return REVIEW_FLAG_UNREVIEWED;
-  }
-}
-
-// F04（adr_0007，0.9.0）：雾区概要读面（调度结果透出用）。
-// 与 reviewFlagFor 同款：一次读 graph.yaml、不进索引缓存，图不可读 → undefined。
-export function fogSummaryFor(rootDir: string): GraphFog | undefined {
-  try {
-    return readGraph(rootDir).fog;
-  } catch {
-    return undefined;
-  }
-}
-
-export interface NextActionsResult {
-  /** 可认领节点（状态 ready），按 priority 升序 → level → id 排序 */
-  ready: { id: string; label: string; priority?: number; adr_flags?: string[] }[];
-  /** 门禁已满足、可转 ready 的 pending/failed 节点（冷启动与重试入口），同上排序。
-   * DEC-1：图无 review 凭据时条目附 review_flag（仅提示、零门禁；只在
-   * ready_eligible 注入，ready 桶不注入） */
-  ready_eligible: {
-    id: string;
-    label: string;
-    priority?: number;
-    adr_flags?: string[];
-    review_flag?: string;
-  }[];
-  /** pending/failed 且门控前驱未齐的节点 */
-  blocked: {
-    id: string;
-    label: string;
-    unmet: { id: string; status: string }[];
-  }[];
-  /** 执行中节点（含认领者与已运行时长） */
-  running: {
-    id: string;
-    label: string;
-    assigned_to?: string;
-    started_at?: string;
-    elapsed_ms: number | null;
-    adr_flags?: string[];
-  }[];
-  /** 超过 staleMs 无更新的"疑似卡住"节点（默认 30 分钟） */
-  stale_running: { id: string; label: string; elapsed_ms: number }[];
-  /** F04（adr_0007）：雾区概要（图无雾时缺省；读面透出，零门禁） */
-  fog?: GraphFog;
-  /** 工作流顶点状态分布（知识顶点不参与——"全部 task 节点 passed 即完成"排除它们） */
-  summary: Record<NodeStatus, number> & { total: number };
-}
-
-/**
- * 调度决策（O(N+M)，基于缓存索引）：
- * ready / ready_eligible / blocked / running / stale_running 一屏返回。
- */
-export function computeNextActions(
-  rootDir: string,
-  opts: { staleMs?: number } = {},
-): NextActionsResult {
-  const staleMs = opts.staleMs ?? 30 * 60 * 1000;
-  const index = buildGraphIndex(rootDir, { useCache: true });
-  const { nodes, edges, gateReverseAdj } = index;
-  const statusOf = new Map(nodes.map((n) => [n.id, n.status]));
-  // v0.5：知识顶点（context/adr）调度豁免——永不进任何调度桶，也不计入完成判定。
-  // adr_flags：superseded 的 ADR 沿 decides 边把"决策依据已过时"传播到工作流条目。
-  const workflowNodes = nodes.filter((n) => !isKnowledgeType(n.type));
-  const adrFlags = adrFlagsFor(nodes, edges);
-  // DEC-1：review_flag 图级判定一次——无 review 凭据的图，ready_eligible 条目统一注入
-  const reviewFlag = reviewFlagFor(rootDir);
-
-  const summary = {
-    total: workflowNodes.length,
-    pending: 0,
-    ready: 0,
-    running: 0,
-    passed: 0,
-    failed: 0,
-    blocked: 0,
-    cancelled: 0,
-  } as NextActionsResult["summary"];
-  for (const n of workflowNodes) {
-    summary[n.status as NodeStatus] = (summary[n.status as NodeStatus] ?? 0) + 1;
-  }
-
-  const ready: NextActionsResult["ready"] = [];
-  const readyEligible: NextActionsResult["ready_eligible"] = [];
-  const blocked: NextActionsResult["blocked"] = [];
-  const running: NextActionsResult["running"] = [];
-  const staleRunning: NextActionsResult["stale_running"] = [];
-
-  for (const n of workflowNodes) {
-    if (n.status === NodeStatus.Ready) {
-      ready.push({ ...schedEntry(n), ...(adrFlags.get(n.id) ? { adr_flags: adrFlags.get(n.id) } : {}) });
-      continue;
-    }
-    if (n.status === NodeStatus.Running) {
-      const started = n.execution_report?.started_at;
-      // FIX-F2：stale 判据 = 最后活动时间 max(updated_at, started_at)。
-      // checkpoint / execution_report 上报都会刷新 updated_at——"上报即心跳"，
-      // 持续工作的长任务不再因 started_at 陈旧被误报疑似卡住。
-      const lastActivity = Math.max(
-        Date.parse(n.updated_at ?? "") || 0,
-        started ? Date.parse(started) || 0 : 0,
-      );
-      const elapsed_ms = lastActivity > 0 ? Date.now() - lastActivity : null;
-      running.push({
-        id: n.id,
-        label: n.label,
-        assigned_to: n.assigned_to,
-        started_at: started,
-        elapsed_ms,
-        ...(adrFlags.get(n.id) ? { adr_flags: adrFlags.get(n.id) } : {}),
-      });
-      if (
-        elapsed_ms !== null &&
-        !Number.isNaN(elapsed_ms) &&
-        elapsed_ms > staleMs
-      ) {
-        staleRunning.push({ id: n.id, label: n.label, elapsed_ms });
-      }
-      continue;
-    }
-    if (n.status === NodeStatus.Pending || n.status === NodeStatus.Failed) {
-      // 门控前驱检查：只查该节点的门控入边（gateReverseAdj），不再全量扫边
-      const unmet: { id: string; status: string }[] = [];
-      for (const src of gateReverseAdj.get(n.id) ?? []) {
-        const s = statusOf.get(src);
-        if (s !== NodeStatus.Passed) {
-          unmet.push({ id: src, status: s ?? "missing" });
-        }
-      }
-      if (unmet.length > 0) {
-        blocked.push({ id: n.id, label: n.label, unmet });
-      } else {
-        readyEligible.push({
-          ...schedEntry(n),
-          ...(adrFlags.get(n.id) ? { adr_flags: adrFlags.get(n.id) } : {}),
-          ...(reviewFlag !== undefined ? { review_flag: reviewFlag } : {}),
-        });
-      }
-    }
-  }
-
-  // FIX-F1：可认领桶按调度优先级排序（priority 升序，缺省最低；level、id 决胜），
-  // agent 面对几十个 ready 节点时不再只能按 readdir 字典序盲选
-  const nodeOf = new Map(nodes.map((n) => [n.id, n]));
-  const bySched = (
-    a: { id: string },
-    b: { id: string },
-  ): number => {
-    const na = nodeOf.get(a.id)!;
-    const nb = nodeOf.get(b.id)!;
-    return (
-      (na.priority ?? Number.MAX_SAFE_INTEGER) -
-        (nb.priority ?? Number.MAX_SAFE_INTEGER) ||
-      na.level - nb.level ||
-      na.id.localeCompare(nb.id)
-    );
-  };
-  ready.sort(bySched);
-  readyEligible.sort(bySched);
-
-  // F04：雾区概要随调度结果透出（与 review_flag 同源读法，零门禁）
-  const fog = fogSummaryFor(rootDir);
-
-  return {
-    ready,
-    ready_eligible: readyEligible,
-    blocked,
-    running,
-    stale_running: staleRunning,
-    ...(fog !== undefined ? { fog } : {}),
-    summary,
-  };
-}
-
-function schedEntry(n: NodeSchema): { id: string; label: string; priority?: number } {
-  return {
-    id: n.id,
-    label: n.label,
-    ...(n.priority !== undefined ? { priority: n.priority } : {}),
-  };
 }

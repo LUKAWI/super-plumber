@@ -7,7 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { approveGraph, readGraph, writeGraph } from "../../src/core/parser.js";
 import { createNode, updateNodeStatus, updateExecutionReport } from "../../src/core/node.js";
-import { computeNextActions, reviewFlagFor, REVIEW_FLAG_UNREVIEWED } from "../../src/core/index-service.js";
+import { computeNextActions, reviewFlagFor, REVIEW_FLAG_UNREVIEWED } from "../../src/core/scheduler.js";
 import { readEvents } from "../../src/core/eventlog.js";
 import { validateGraph } from "../../src/core/schema.js";
 import { NodeType, NodeStatus } from "../../src/core/types.js";

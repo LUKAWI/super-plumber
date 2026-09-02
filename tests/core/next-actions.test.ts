@@ -3,11 +3,9 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { computeNextActions } from "../../src/core/graph.js";
+import { computeNextActions } from "../../src/core/scheduler.js";
 import { createNode, updateNodeStatus, updateExecutionReport, updateNodeContent, getNode } from "../../src/core/node.js";
 import { createEdge } from "../../src/core/edge.js";
-import { writeNode } from "../../src/core/parser.js";
-import { resetIndexCache } from "../../src/core/index-service.js";
 import { NodeType, NodeStatus, EdgeType } from "../../src/core/types.js";
 
 let tmpDir: string;
@@ -136,27 +134,96 @@ describe("computeNextActions", () => {
     expect(r.ready_eligible.map((n) => n.id)).toEqual(["b", "a"]);
     expect(getNode(tmpDir, "b").priority).toBe(0);
   });
-  it("FIX-F2 stale 判据按最后活动时间：持续上报（updated_at 新鲜）不算卡住", () => {
+  it("FIX-F2 stale 判据按最后活动时间：上报心跳（updated_at 刷新）后时钟到点不误报", () => {
     createNode(tmpDir, { id: "long", type: NodeType.Task, label: "Long" });
     updateNodeStatus(tmpDir, "long", NodeStatus.Ready);
     updateNodeStatus(tmpDir, "long", NodeStatus.Running, "agent-1");
+    // 认领后真实上报一次 execution_report——updated_at 随之自然刷新（"上报即心跳"）。
+    // arch-c2：不再手写 YAML 时间戳，时钟读数走注入。
+    updateExecutionReport(tmpDir, "long", { summary: "progress" });
 
-    // 伪造：started_at 很旧（认领 1 小时前），但 updated_at 新鲜（刚上报过 checkpoint）
     const node = getNode(tmpDir, "long");
-    node.execution_report!.started_at = new Date(Date.now() - 3_600_000).toISOString();
-    node.updated_at = new Date().toISOString();
-    writeNode(tmpDir, node);
-    resetIndexCache();
+    const updatedMs = Date.parse(node.updated_at!);
+    expect(Date.parse(node.execution_report!.started_at!)).toBeLessThanOrEqual(updatedMs);
 
-    let r = computeNextActions(tmpDir, { staleMs: 30 * 60 * 1000 });
-    expect(r.stale_running.map((n) => n.id)).toEqual([]); // 心跳新鲜，不误报
+    // 时钟读数一：updated_at + 30min 整——elapsed 恰好等于阈值（不大于），
+    // 心跳判据 max(updated_at, started_at) 下不算卡住
+    const r = computeNextActions(tmpDir, {
+      staleMs: 30 * 60 * 1000,
+      clock: () => updatedMs + 30 * 60 * 1000,
+    });
     expect(r.running).toHaveLength(1);
+    expect(r.running[0].elapsed_ms).toBe(30 * 60 * 1000);
+    expect(r.stale_running.map((n) => n.id)).toEqual([]); // 心跳新鲜，不误报
 
-    // 两者皆旧（1 小时前后再无任何更新）→ stale
-    node.updated_at = new Date(Date.now() - 3_600_000).toISOString();
-    writeNode(tmpDir, node);
-    resetIndexCache();
-    r = computeNextActions(tmpDir, { staleMs: 30 * 60 * 1000 });
-    expect(r.stale_running.map((n) => n.id)).toEqual(["long"]);
+    // 时钟读数二：同一份 YAML（零写入），时钟再走 1 分钟 → 超过阈值 → 疑似卡住
+    const r2 = computeNextActions(tmpDir, {
+      staleMs: 30 * 60 * 1000,
+      clock: () => updatedMs + 30 * 60 * 1000 + 60_000,
+    });
+    expect(r2.stale_running.map((n) => n.id)).toEqual(["long"]);
+    expect(r2.stale_running[0].elapsed_ms).toBe(30 * 60 * 1000 + 60_000);
+  });
+});
+
+// arch-c2：调度入口可注入时钟——同一 YAML 配两个时钟读数即可覆盖 stale 两态，
+// 不再改写节点文件时间戳（旧行为：手写 updated_at/started_at + resetIndexCache）。
+describe("computeNextActions 注入时钟", () => {
+  it("同一 YAML，两个时钟读数 → stale 判定不同", () => {
+    createNode(tmpDir, { id: "a", type: NodeType.Task, label: "A" });
+    updateNodeStatus(tmpDir, "a", NodeStatus.Ready);
+    updateNodeStatus(tmpDir, "a", NodeStatus.Running, "agent-1");
+    const startedMs = Date.parse(getNode(tmpDir, "a").execution_report!.started_at!);
+
+    // 基线：两次注入时钟调度之间不允许发生任何文件写入
+    const nodeFile = path.join(tmpDir, ".graph", "nodes", "a.yaml");
+    const yamlBefore = fs.readFileSync(nodeFile, "utf-8");
+
+    // 读数一：认领后 1 分钟 → 新鲜
+    const r1 = computeNextActions(tmpDir, {
+      staleMs: 30 * 60 * 1000,
+      clock: () => startedMs + 60_000,
+    });
+    expect(r1.stale_running).toEqual([]);
+    expect(r1.running[0].elapsed_ms).toBe(60_000);
+
+    // 读数二：认领后 31 分钟（YAML 未动）→ 疑似卡住
+    const r2 = computeNextActions(tmpDir, {
+      staleMs: 30 * 60 * 1000,
+      clock: () => startedMs + 31 * 60_000,
+    });
+    expect(r2.stale_running.map((n) => n.id)).toEqual(["a"]);
+    expect(r2.stale_running[0].elapsed_ms).toBe(31 * 60_000);
+
+    // 期间节点 YAML 未被改写（时钟注入替代时间戳伪造的证据）
+    expect(fs.readFileSync(nodeFile, "utf-8")).toBe(yamlBefore);
+  });
+
+  it("缺省时钟 = 系统时间（现读现算，行为与注入前一致）", () => {
+    createNode(tmpDir, { id: "a", type: NodeType.Task, label: "A" });
+    updateNodeStatus(tmpDir, "a", NodeStatus.Ready);
+    updateNodeStatus(tmpDir, "a", NodeStatus.Running, "agent-1");
+    const t0 = Date.now();
+    const r = computeNextActions(tmpDir);
+    const t1 = Date.now();
+    expect(r.stale_running).toEqual([]);
+    const elapsed = r.running[0].elapsed_ms as number;
+    expect(elapsed).toBeGreaterThanOrEqual(0);
+    // 容差 50ms：v091-tooling 起套件并行文件数增加，5ms 容差在高负载
+    // （perf 5k 同跑）下会被 worker 抢占式调度击穿（claim→t0 间隙 >5ms）。
+    // 断言本意是"现读现算"——错误实现会产生分钟级漂移，50ms 仍能守住。
+    expect(elapsed).toBeLessThanOrEqual(t1 - t0 + 50);
+  });
+
+  it("注入时钟只影响 stale 判定：ready/blocked/summary 各桶与时钟无关", () => {
+    createNode(tmpDir, { id: "a", type: NodeType.Task, label: "A" });
+    createNode(tmpDir, { id: "b", type: NodeType.Task, label: "B" });
+    createEdge(tmpDir, { id: "e1", source: "a", target: "b", type: EdgeType.DependsOn });
+    updateNodeStatus(tmpDir, "a", NodeStatus.Ready);
+    const farFuture = () => Date.now() + 365 * 24 * 3600 * 1000;
+    const r = computeNextActions(tmpDir, { clock: farFuture });
+    expect(r.ready.map((n) => n.id)).toEqual(["a"]);
+    expect(r.blocked.map((n) => n.id)).toEqual(["b"]);
+    expect(r.summary.total).toBe(2);
   });
 });

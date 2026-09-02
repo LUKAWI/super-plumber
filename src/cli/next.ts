@@ -7,16 +7,19 @@ export const nextCommand = new Command("next").alias("n")
   .description("调度决策：列出可认领 / 等依赖 / 执行中 / 疑似卡住的节点")
   .option(
     "--stale-ms <ms>",
-    "running 节点无更新阈值（毫秒，默认 1800000 = 30 分钟）",
-    "1800000",
+    "running 节点无更新阈值（毫秒；缺省基线 30 分钟，requires_human 节点默认放大 8 倍 = 4 小时；显式传值对全部节点生效）",
   )
   .option("--json", "输出稳定 JSON（供脚本/agent 消费）")
   .action((options) => {
     const gctx = cliGraphCtx(process.cwd());
     const rootDir = gctx.dir;
     try {
+      // F07：--stale-ms 未显式给出时不透传（undefined）——core 缺省基线生效，
+      // requires_human 节点享有人类节奏的放大阈值；显式传值则对全部节点生效
       const result = computeNextActions(rootDir, {
-        staleMs: coerceInt("--stale-ms", options.staleMs, { def: 1800000, min: 0 }),
+        ...(options.staleMs !== undefined
+          ? { staleMs: coerceInt("--stale-ms", options.staleMs, { min: 0 }) }
+          : {}),
       });
 
       if (options.json) {
@@ -31,10 +34,14 @@ export const nextCommand = new Command("next").alias("n")
       );
       console.log(`\n✅ 可认领 (ready):`);
       if (result.ready.length === 0) console.log(`   （无）`);
-      for (const n of result.ready) console.log(`   ${n.id}: ${n.label}`);
+      for (const n of result.ready) {
+        console.log(`   ${n.id}: ${n.label}${n.waiting_human ? " 🧑 等真人" : ""}`);
+      }
       console.log(`\n🔓 可转 ready (门禁已满足):`);
       if (result.ready_eligible.length === 0) console.log(`   （无）`);
-      for (const n of result.ready_eligible) console.log(`   ${n.id}: ${n.label}`);
+      for (const n of result.ready_eligible) {
+        console.log(`   ${n.id}: ${n.label}${n.waiting_human ? " 🧑 等真人" : ""}`);
+      }
       console.log(`\n⏳ 等依赖 (blocked 候选):`);
       if (result.blocked.length === 0) console.log(`   （无）`);
       for (const n of result.blocked) {
@@ -58,6 +65,13 @@ export const nextCommand = new Command("next").alias("n")
         for (const n of result.stale_running) {
           console.log(`   ${n.id}: ${n.label} (${Math.round(n.elapsed_ms / 60000)} 分钟)`);
         }
+      }
+      // v091-verify 交叉验证补口：两类 nudge 此前只在 --json/MCP 面可见，人读面漏渲染
+      if (result.class_nudge) {
+        console.log(`\n⚠️  ${result.class_nudge}`);
+      }
+      if (result.fog_graduation_nudge) {
+        console.log(`\n⚠️  ${result.fog_graduation_nudge}`);
       }
     } catch (err: any) {
       console.error(`❌ ${err.message}`);

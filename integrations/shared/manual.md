@@ -1,7 +1,7 @@
 # Super Plumber Operations 手册（唯一正本）
 
 > **定位**：三访问层（CLI / MCP / 脚本）操作语法、状态机、错误处理、solo 裁决边界的**唯一权威正本**。角色提示词与 skill 中的一切语法引用指向本文对应章节；本文不复述任何角色的判断力内容（边类型选型、设计甄别、DoD 质量裁量等归各自角色提示词，见 §10/§11）。
-> **版本锚点**：super-plumber **0.8.2-beta.1**（全部 CLI 参数经 `graph --help` 实测：0.6.1 重构期全量校，其后增量（0.7.x 多图/导出、0.8.0 approve 与写作规范、0.8.1 拒绝理由凭据与分期导出）随交付核对；与旧文档不符处以实测为准，表中以〔已校〕标注）。
+> **版本锚点**：super-plumber **0.9.1**（全部 CLI 参数经 `graph --help` 实测：0.6.1 重构期全量校，其后增量（0.7.x 多图/导出、0.8.0 approve 与写作规范、0.8.1 拒绝理由凭据与分期导出、0.9.x 雾区与档位）随交付核对；与旧文档不符处以实测为准，表中以〔已校〕标注）。
 > **分发**：正本住 `integrations/shared/manual.md`，由 `scripts/sync-integrations.mjs` 构建期同步进两个插件包（sha256 三方一致）；pi 侧只引用不拷贝。寻址写法见 §11。（该脚本属 v0.6.1 W3 波次，已接线并作为 prepublishOnly 发布门禁）
 
 目录：§1 访问层总览｜§2 design-ops｜§3 边类型判据式速查｜§4 execute-ops｜§5 状态机｜§6 工具总表（CLI+MCP）｜§7 脚本章｜§8 三层验收实操｜§9 错误处理大表｜§10 solo 自裁边界｜§11 寻址约定｜§12 漂移修正常记
@@ -51,11 +51,13 @@ graph update-graph \
   --add-criteria "<item>" \
   --set-context '{"tech":"ts"}' \
   --set-fog '{"id":"ra","description":"哪里模糊","graduation":"怎样算想清楚","ignited":["r1"]}' \
-  --class program
+  --class program [--by user]
 # --add-criteria 可重复追加；清空验收标准用 --clear-criteria；
 # --set-context 设置 root_context（JSON 对象）；
 # --set-fog 登记/更新雾区（整体 upsert，0.9.0 F04/adr_0007）；--class 标注工作类 quick|standard|program（DEC-2）。
-# 实测参数全集即上八项（MCP graph_update_graph 同名字段）。
+# --by <名>（0.9.1 adr_0016）：class 变更的操作者凭据，缺省 "agent"；用户直发（/plumber-class 命令或对话批准）
+# 时由命令文本指示 agent 传 --by user——血统落 class_changed 审计事件（from/to/by 结构化字段，from 缺省=首次设置；
+# 同值重设不落事件），雾/档矛盾提示据此静默。实测参数全集即上九项（MCP graph_update_graph 同名字段）。
 
 # 雾区毕业（0.9.0 F05）：清除 fog 字段 + fog_graduated 专用事件 + DEC-7 amend 守卫
 graph graduate-fog [--produced r1,r2] [--reason "<结论摘要>"]
@@ -129,8 +131,8 @@ graph adr list -s proposed                                # -s proposed|accepted
 ### 2.5 快照与文档导出
 
 ```bash
-graph snapshot -m "<定稿说明>"      # 快照即定稿点：自动导出 CONTEXT-MAP.md + docs/contexts/ + docs/adr/
-graph export --docs [--adr-dir docs/adr] [--ctx-dir docs/contexts]   # 手动补导出（0.8.1 起含 DECISIONS.md 决议一行索引）
+graph snapshot -m "<定稿说明>"      # 快照即定稿点：自动导出 docs/<图名>/ 下的 CONTEXT-MAP.md + contexts/ + adr/（多图按图分树）
+graph export --docs [--adr-dir docs/<图名>/adr] [--ctx-dir docs/<图名>/contexts]   # 手动补导出（0.8.1 起含 DECISIONS.md 决议一行索引）
 graph export --mermaid -o topology.mmd                # 默认 Mermaid 流程图（表达约定见下）
 graph snapshots [--json]; graph diff [--from id] [--to id]; graph rollback <snapshot-id> --confirm [--design-only]
 ```
@@ -230,7 +232,7 @@ serve 贯穿全程不关闭、已在运行不重复启动（编排纪律在 skil
 
 ### 2.11 节点类型×默认纪律映射 + plan 纪律指针惯例（WF07）
 
-何时查这小节：建节点选 type、给节点配 checkpoints/verifier、在节点 plan 里写纪律指针时。状态机与调度语义以 §4/§5 为准，本表只做按类型的默认纪律与 verifier 惯例速查（人机介入四口的细分口径归 0.9.1 正交决策表，此处不展开）。
+何时查这小节：建节点选 type、给节点配 checkpoints/verifier、在节点 plan 里写纪律指针时。状态机与调度语义以 §4/§5 为准，本表只做按类型的默认纪律与 verifier 惯例速查（人机介入四口的细分口径见 §2.12 正交决策表）。
 
 | 类型 | 状态机归属（§5） | 调度面 | 默认纪律与 verifiers 惯例 |
 |------|-----------------|--------|--------------------------|
@@ -242,6 +244,19 @@ serve 贯穿全程不关闭、已在运行不重复启动（编排纪律在 skil
 | adr | ADR 三态 proposed → accepted → superseded | 永不进调度桶 | 六字段（§2.4）；decides 边挂管辖对象防孤儿；accept/supersede 归裁决方（§10.2），设计与执行 agent 停在 proposed |
 
 **plan 纪律指针惯例（条件式；DEC-6）**：节点 plan 可指名 **SP 自带纪律技能**（如 plumber-tdd / plumber-review，随 0.9.4 起的 S11 分期落地）作执行纪律参照，写法必须是条件式建议——「若本环境存在 plumber-tdd 技能，按其约定执行本节点」。两条约束：**只指 SP 自带技能**（DEC-6：借鉴风格、不做外部运行时依赖，绝不指向外部技能库）；**存在才建议、缺失静默降级**——指针命中不了时执行者直接按 plan/DoD 干活，不另找替代、不阻塞、不报错。
+
+### 2.12 人机介入正交决策表（WF11：一层一职，互不重叠）
+
+何时查这小节：设计/执行里安排人工介入点时，判断该介入该落在四个口中的哪一个。
+
+| 口 | 所在层 | 职责（唯一） | 边界（不是什么） |
+|----|--------|-------------|-----------------|
+| serve 预览（§2.7） | 图级看板 | 人看图的实时窗口：watcher 推送改动、改图即刷新 | 不是审批口——**零门禁**，看与批分离；批准凭据走 `graph approve`（DEC-1） |
+| gate 节点（§2.11） | 流程中途 | 硬放行位：DoD=放行判据，未过即门禁拦下游（§5 规则 1）；用户审核类 gate 用 `verifier: human`（批准是人给的，§10.2） | 不是看板、不是决策位——只裁「放/不放」，不裁「选哪条」 |
+| decision 节点（§2.11） | 流程中途 | 显式决策位：plan 写决策问题与备选，结论落 DoD 可核对项 | 不是放行位；够 ADR 三判据的取舍走 §2.4 的 ADR，不在 decision 位重复造裁决 |
+| checkpoint `verifier: human`（§2.11） | 节点内检查点级 | 检查点级人工核验（对应 §10.2 留人清单），核验结果只进本节点 checkpoint 聚合 | 不是节点级放行——checkpoint 全过仍须走满五步协议才 passed |
+
+判读：问「这次人工介入产出什么」即可归口——看图找 serve、放行找 gate、抉择找 decision、核验找 checkpoint human。四口分居图级/节点级/节点内三个粒度，一口一职，不互相顶替。凡「批准执行与否」类裁决一律按 §10.2 留人，agent 绝不自批。
 
 ---
 
@@ -272,11 +287,11 @@ serve 贯穿全程不关闭、已在运行不重复启动（编排纪律在 skil
 **① PLAN — 调度决策**
 
 ```bash
-graph_get_next_actions { }                       # MCP；可选 stale_ms（默认1800000）、limit（每桶默认100）、assigned_to
-graph next [--stale-ms 1800000] [--json]         # CLI
+graph_get_next_actions { }                       # MCP；可选 stale_ms（缺省基线 30 分钟，requires_human 节点 ×8=4h；显式传值对全部节点生效）、limit（每桶默认100）、assigned_to
+graph next [--stale-ms <ms>] [--json]            # CLI
 ```
 
-一次返回五个桶：`ready`（可直接认领）/ `ready_eligible`（门禁已满足的 pending/failed，转 ready 即执行——**冷启动第一步从这里拿入口节点**）/ `blocked`（附 unmet 未满足前驱清单）/ `running`（附时长与执行者）/ `stale_running`（超阈值无更新的疑似卡死）。桶截断时 `truncated: true` → 加大 limit 翻页。条目可能带 `adr_flags`（⚠️ 所依据 ADR 已 superseded → 停下重审后再动工）。
+一次返回五个桶：`ready`（可直接认领）/ `ready_eligible`（门禁已满足的 pending/failed，转 ready 即执行——**冷启动第一步从这里拿入口节点**）/ `blocked`（附 unmet 未满足前驱清单）/ `running`（附时长与执行者）/ `stale_running`（超阈值无更新的疑似卡死）。桶截断时 `truncated: true` → 加大 limit 翻页。条目可能带 `adr_flags`（⚠️ 所依据 ADR 已 superseded → 停下重审后再动工）。0.9.1 起读面另带（零门禁，条件缺省）：`requires_human`（含未完成 verifier:human checkpoint 的节点）与桶条目 `waiting_human`（等真人，未认领时）、`class_nudge`（雾/档矛盾提示，用户直发 `--by user` 凭据后静默）、`fog_graduation_nudge`（雾可毕业提示）；人读面同样渲染。
 
 **② CLAIM — 原子认领**
 
@@ -329,7 +344,7 @@ graph_reclaim_node {id, by:"<操作者名>"}       # 只有 running 节点可回
 graph reclaim -i <id> --by <actor>
 ```
 
-stale 处理三步：确认长时无更新（默认阈值 30 分钟 = 1800000ms）且执行者不可达 → reclaim（running→pending，attempts 不变，清空 assigned_to，回收记录写入 notes）→ 节点重回调度池。**绝不 cancel 一个可以回收的节点**（cancelled 会阻塞下游所有汇合点）。
+stale 处理三步：确认长时无更新（缺省基线 30 分钟；requires_human 节点默认 ×8=4 小时，显式 `--stale-ms` 对全部节点生效）且执行者不可达 → reclaim（running→pending，attempts 不变，清空 assigned_to，回收记录写入 notes）→ 节点重回调度池。**绝不 cancel 一个可以回收的节点**（cancelled 会阻塞下游所有汇合点）。
 
 重试链：`failed→pending` 时 attempts 自动 +1；`attempts ≥ max_attempts(>0)` 后拦截并提示人工介入；显式重置用 `graph update-node -i <id> --reset-attempts` 或 MCP `graph_update_node {reset_attempts:true}`（写 attempts_reset 审计事件；修改 plan.description **不再**自动归零）。`max_attempts=0` 表示不限。
 
@@ -422,8 +437,8 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 | `update-status` / `us` | 状态流转（门禁+次数拦截） | `-i -s --claim-by --force`(仅人类) |
 | `reclaim` / `rc` | 回收死认领 running→pending | `-i --by` |
 | `update-node` / `un` | 编辑节点内容全家桶 | 见 §2.3 参数清单 |
-| `update-graph` / `ug` | 编辑图级字段 | 见 §2.2 |
-| `next` / `n` | 调度五桶（ready/ready_eligible/blocked/running/stale_running） | `--stale-ms`（默认1800000）`--json` |
+| `update-graph` / `ug` | 编辑图级字段 | 见 §2.2（0.9.1 增 `--by <名>`：class 变更凭据，缺省 agent，用户直发传 user；实际变更落 class_changed 事件） |
+| `next` / `n` | 调度五桶（ready/ready_eligible/blocked/running/stale_running） | `--stale-ms`（缺省基线 30 分钟，requires_human 节点 ×8=4h；显式传值对全部节点生效）`--json` |
 | `verdict` / `vd` | 记录裁决结论到 verification | `-i --verdict pending/passed/failed --note` |
 | `snapshot` / `sp` | 版本快照（自动导出领域文档） | `-m --git` |
 | `snapshots` / `sps` | 快照列表 | `--json` |
@@ -440,7 +455,7 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 
 | 分组 | 工具 | 用途 | 注意 |
 |------|------|------|------|
-| 调度 | `graph_get_next_actions` | 规划循环首选，一次返回五桶 | stale_ms 默认 30 分钟；桶上限 limit=100；支持 assigned_to 过滤 |
+| 调度 | `graph_get_next_actions` | 规划循环首选，一次返回五桶 | stale_ms 缺省基线 30 分钟（requires_human ×8=4h，显式传值优先）；桶上限 limit=100；支持 assigned_to 过滤；0.9.1 起条目带 requires_human/waiting_human 与 class_nudge/fog_graduation_nudge 零门禁提示 |
 | 读 | `graph_get_node` | 节点全文+allowed_transitions+checkpoint_aggregate+ready_gate(+governing_adrs) | include_neighbors up/down |
 | 读 | `graph_get_graph` | 图拓扑+邻接（索引缓存） | 默认 summary 紧凑模式；full 用 offset/limit 分页（页默认200） |
 | 读 | `graph_traverse` | DFS 遍历邻居 | direction/max_depth（默认3、上限50）/max_nodes；返回 nodes+truncated+truncated_by_depth+truncated_by_nodes（IL-003：深度截断与节点数截断分别如实上报，truncated=任一发生；深链图一次到末端传足 max_depth，或从更远起点/汇聚点分段遍历） |
@@ -449,7 +464,7 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 | 写·设计 | `graph_batch_create` | 批量建 nodes+edges（先全量预校验） | 每批 ≤200 节点 |
 | 写·设计 | `graph_add_edge` | 建边 | type/rel_kind/contract |
 | 写·设计 | `graph_update_node` | 编辑 plan/DoD/checkpoints/归属/boundary/glossary 等 | reset_attempts 显式传 true |
-| 写·设计 | `graph_update_graph` | 图级字段编辑（label/entry/exit/criteria/root_context/fog/class） | 同 §2.2 八字段；fog 整体 upsert，毕业走 graph_graduate_fog |
+| 写·设计 | `graph_update_graph` | 图级字段编辑（label/entry/exit/criteria/root_context/fog/class/by） | 同 §2.2 九字段；fog 整体 upsert，毕业走 graph_graduate_fog；class 实际变更落 class_changed 事件（by 缺省 agent） |
 | 写·设计 | `graph_approve` | DEC-1 写入设计审核凭据（review 字段 + design_approved 事件） | status approved=人工（默认）/self=quick 自签；幂等覆盖；仅记录零门禁〔已校：新增〕 |
 | 写·设计 | `graph_graduate_fog` | 雾区毕业（fog 字段清除 + fog_graduated 事件 + amend 守卫） | produced/reason 进事件 payload；无雾 isError〔0.9.0 新增〕 |
 | 写·设计 | `graph_create_adr` | 创建 ADR（自动编号+proposed） | 〔已校：新增〕孤儿 ADR 会被警告 |

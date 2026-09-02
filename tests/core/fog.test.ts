@@ -7,8 +7,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { approveGraph, graduateFog, readGraph, updateGraph, writeGraph } from "../../src/core/parser.js";
+import { graduateFog as graduateFogFromFog } from "../../src/core/fog.js";
 import { createNode } from "../../src/core/node.js";
-import { computeNextActions } from "../../src/core/index-service.js";
+import { computeNextActions } from "../../src/core/scheduler.js";
 import { readEvents } from "../../src/core/eventlog.js";
 import { validateGraph } from "../../src/core/schema.js";
 import { fogWarnings } from "../../src/core/fog.js";
@@ -128,6 +129,20 @@ describe("F05 graduateFog 毕业（专用凭据 + DEC-7 amend 守卫）", () => 
     updateGraph(tmpDir, { fog: FOG });
     graduateFog(tmpDir, {});
     expect(readGraph(tmpDir).review).toBeUndefined();
+  });
+
+  it("arch-c4a 搬家回归：parser.js 兼容 re-export 与 fog.js 实现同源同行为", () => {
+    // re-export 路径（parser.js）与新家（fog.js）导出的是同一个函数
+    expect(graduateFogFromFog).toBe(graduateFog);
+    // 行为不变：经新家 import 走完整毕业（清 fog + fog_graduated 事件）
+    updateGraph(tmpDir, { fog: FOG });
+    const { fog, graph } = graduateFogFromFog(tmpDir, { reason: "搬家后行为不变" }, { actor: "cli" });
+    expect(fog.id).toBe(FOG.id);
+    expect(graph.fog).toBeUndefined();
+    expect(readGraph(tmpDir).fog).toBeUndefined();
+    const events = readEvents(tmpDir, { kind: "fog_graduated" });
+    expect(events).toHaveLength(1);
+    expect(events[0].detail).toContain(`reason="搬家后行为不变"`);
   });
 });
 

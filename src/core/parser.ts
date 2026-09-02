@@ -95,8 +95,10 @@ export function readGraph(rootDir: string): GraphSchema {
   );
 }
 
-/** 落盘核心（无锁）：调用方必须已持有图锁（GRAPH_LOCK） */
-function writeGraphCore(rootDir: string, graph: GraphSchema): void {
+/** 落盘核心（无锁）：调用方必须已持有图锁（GRAPH_LOCK）。
+ * 内部导出供持锁写路径复用（fog.ts 的 graduateFog 先例，同 rebuildGraphRefsLocked 约定）：
+ * 图锁不可重入，持锁方不得改调自带加锁的 writeGraph。 */
+export function writeGraphCore(rootDir: string, graph: GraphSchema): void {
   assertWritable(GRAPH_FILE, validateGraph(graph));
   const content = yaml.dump(graph, { indent: 2, lineWidth: 120 });
   fs.writeFileSync(path.join(toGraphDir(rootDir), GRAPH_FILE), content, "utf-8");
@@ -382,6 +384,10 @@ export type UpdateGraphParams = {
   fog?: GraphFog;
   /** DEC-2（F03/F13）：工作类标注 quick|standard|program */
   class?: GraphClass;
+  /** v091-class-command（adr_0016）：class 变更的操作者凭据（缺省 "agent"）。
+   * 用户直发凭据（/plumber-class 命令或对话批准）时由命令文本指示传 "user"——
+   * 血统落进 class_changed 事件的结构化 by 字段，雾/档矛盾 nudge 据此静默。 */
+  by?: string;
 };
 
 export function updateGraph(
@@ -391,6 +397,7 @@ export function updateGraph(
   // S1-4 同源：读-改-写全程持图级锁，与引用列表同步/快照互斥
   return withGraphLock(rootDir, () => {
     const graph = readGraph(rootDir); // 未初始化/schema 损坏直接报错
+    const previousClass = graph.class; // v091：变更前快照，供 class_changed 血统
     if (params.label !== undefined) graph.label = params.label;
     if (params.entry_description !== undefined) {
       graph.entry.description = params.entry_description;
@@ -417,66 +424,31 @@ export function updateGraph(
       graph.class = params.class;
     }
     writeGraphCore(rootDir, graph);
+    // v091-class-command（adr_0016）：class 实际变更才落凭据事件（同值重设不落，
+    // 审计不噪音）；from 缺省 = 首次设置。状态是真相源、事件是影子（先写后记）。
+    if (params.class !== undefined && params.class !== previousClass) {
+      const by = params.by ?? "agent";
+      appendEvent(rootDir, {
+        actor: by, // 档位凭据的行为主体就是凭据人（同 approveGraph 的 actor=by 先例）
+        kind: "class_changed",
+        ...(previousClass !== undefined ? { from: previousClass } : {}),
+        to: params.class,
+        by,
+        detail: `class: ${previousClass ?? "(未设)"} → ${params.class}（by=${by}）`,
+      });
+    }
     return graph;
   });
 }
 
 // ── F05（adr_0007，0.9.0）：雾区毕业 ──
-// 毕业 = 清除图级 fog 字段 + fog_graduated 专用审计事件（试跑报告卡点 3：毕业
-// 落进通用 node_deleted 无法与删错节点区分）。毕业动作属结构修订，复用 DEC-7
-// amend 机制（自动快照 + graph_amended 事件 + review 回置），红线同源：守卫
-// 失败不阻断毕业本身。幂等性：无雾时毕业报错（毕业是事实陈述，不是清理操作）。
-export interface GraduateFogParams {
-  /** 毕业产物节点 id 列表（雾想清楚后落成的票/决议，进事件 payload 可追溯） */
-  produced?: string[];
-  /** 毕业理由/结论摘要（进事件 payload；理由是凭据不是条件，缺省不写） */
-  reason?: string;
-}
-
-export function graduateFog(
-  rootDir: string,
-  params: GraduateFogParams = {},
-  opts: { actor?: string } = {},
-): { fog: GraphFog; graph: GraphSchema } {
-  const initial = readGraph(rootDir);
-  const fog = initial.fog;
-  if (fog === undefined) {
-    throw new Error("图中没有雾区（graph.yaml 无 fog 字段），无雾可毕业");
-  }
-  const actor = opts.actor ?? "unknown";
-  // 结构修订守卫第一阶段（自动快照）：必须在不持图锁时调用——锁序恒为
-  // 实体锁→图锁且图锁不可重入，本函数不能持图锁跨越 complete()
-  // （其内 resetGraphReview 要取图锁；deleteNode 先例=持实体锁不持图锁）。
-  const amend = beginStructuralAmend(rootDir, {
-    action: "graduate-fog",
-    target: fog.id,
-    actor,
-    detail: params.reason ? `reason="${params.reason}"` : undefined,
-  });
-  // 清除 fog：持图锁读-改-写（与并发 updateGraph 互斥）；锁外快照已落
-  withGraphLock(rootDir, () => {
-    const graph = readGraph(rootDir);
-    delete graph.fog;
-    writeGraphCore(rootDir, graph);
-  });
-  const detailParts = [
-    `fog=${fog.id}`,
-    ...(params.produced && params.produced.length > 0
-      ? [`produced=${params.produced.join(",")}`]
-      : []),
-    ...(params.reason ? [`reason="${params.reason}"`] : []),
-  ];
-  appendEvent(rootDir, {
-    actor,
-    kind: "fog_graduated",
-    detail: detailParts.join("; "),
-  });
-  // 守卫收尾（graph_amended 事件 + review 回置）在图锁外执行——红线：
-  // 回置失败不阻断毕业（complete 内部已吞错留痕）
-  amend.complete();
-  // 返回毕业后的最新图（review 回置结果可被调用方直接观察，供提示文案判定）
-  return { fog, graph: readGraph(rootDir) };
-}
+// arch-c4a：毕业写路径迁入 core/fog.ts（雾区的读/警告/毕业单家收敛），此处保留
+// 兼容 re-export——对外路径（@lukawi/super-plumber/core 与 ../core/parser.js 深引）
+// 与函数签名不变，CLI graduate-fog / MCP graph_graduate_fog 及既有测试零改动。
+// 循环依赖说明：fog → parser（readGraph/withGraphLock/writeGraphCore）与
+// parser → fog（本 re-export）互为环，但两侧都只在函数体内调用对方导出，
+// ESM 函数声明提升下安全（同 parser↔amend、parser↔index-service 先例）。
+export { graduateFog, type GraduateFogParams } from "./fog.js";
 
 // ── F21 (b)（DEC-7 / adr_0006）：结构修订后的 review 凭据回置 ──
 // 图已有 review 凭据 → 回置 status=unreviewed（by=触发修订的通道/actor，

@@ -1,7 +1,8 @@
 // src/core/graph.ts
 // 图操作：拓扑排序 + 循环检测（纯函数，无文件 I/O）。
-// 索引构建（buildGraphIndex）与调度决策（computeNextActions）实现在
-// index-service.ts（两级缓存 + 热路径优化），此处重导出以保持既有 import 路径兼容。
+// 索引构建（buildGraphIndex）实现在 index-service.ts（两级缓存 + 热路径优化）；
+// 调度决策（computeNextActions）与旗标装配实现在 scheduler.ts（arch-c2 分家：
+// index-service 只留索引缓存设施）——此处重导出以保持既有 import 路径兼容。
 import {
   type EdgeSchema,
   EdgeType,
@@ -11,13 +12,16 @@ import {
 
 export {
   buildGraphIndex,
-  computeNextActions,
   resetIndexCache,
+} from "./index-service.js";
+export {
+  computeNextActions,
   // DEC-1（g080-approve-core）：图级 review 凭据判定（claim 响应注入用，与 adr_flags 同款提示语义）
   reviewFlagFor,
   REVIEW_FLAG_UNREVIEWED,
-} from "./index-service.js";
-export type { GraphIndex, NextActionsResult } from "./index-service.js";
+} from "./scheduler.js";
+export type { GraphIndex } from "./index-service.js";
+export type { NextActionsResult } from "./scheduler.js";
 
 /**
  * 拓扑排序（Kahn 算法）。只考虑 TOPOLOGICAL_EDGE_TYPES 中的边。

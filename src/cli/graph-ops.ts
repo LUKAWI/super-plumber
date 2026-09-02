@@ -1,5 +1,8 @@
 // src/cli/graph-ops.ts — v0.5.2 多图工作区命令：switch / list / rename-graph / delete-graph
 // （init 的带名创建在 init.ts）。rename/delete 是破坏性/结构变更操作，仅 CLI 人类通道。
+// arch-c2 层次归位：graphDirOf/summarize 实现下沉 core/graph-summary.ts（此前
+// mcp/server.ts 反向 import 本文件的层次倒挂随之消除）——本文件只保留命令壳与
+// 兼容 re-export（既有 `from "../cli/graph-ops.js"` 消费方不受影响）。
 import { Command } from "commander";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -14,62 +17,13 @@ import {
   migrateLegacyLayout,
   didYouMean,
 } from "../core/graph-dir.js";
-import { listNodes } from "../core/node.js";
-import { listEdges } from "../core/edge.js";
-import { readGraph } from "../core/parser.js";
-import type { NodeStatus } from "../core/types.js";
 import { cliGraphCtx } from "./graph-ctx.js";
 
-export interface GraphSummary {
-  name: string;
-  label: string;
-  nodeCount: number;
-  edgeCount: number;
-  running: number;
-  passed: number;
-  lastActivity: string | null;
-}
-
-// S3-2（f14）：旧布局 default 目录解析的唯一实现（原本 graph-ops.ts graphDirOf、
-// mcp/server.ts hintMissing 与 graphBriefOf 三处手写同一判定，合一到此处）。
-// 取舍：不下沉 core/graph-dir.ts（那里是并行修复的他人边界），由 mcp/server.ts
-// 从这里导入——mcp → cli 单向依赖，不引入环。
-export function graphDirOf(wsRoot: string, name: string): string {
-  // 旧布局 default = .graph/ 原地；多图 = .graph/<名>/
-  if (name === "default" && fs.existsSync(path.join(wsRoot, ".graph", "graph.yaml"))) {
-    return path.join(wsRoot, ".graph");
-  }
-  return path.join(wsRoot, ".graph", name);
-}
-
-// S3-2（f14）：图摘要的唯一实现（原 CLI summarize 与 MCP graphBriefOf 近乎逐行
-// 重复，合一到此处；MCP 侧 graphBriefOf = summarize + isCurrent）。逐字段等价由
-// tests/f14-dedupe.test.ts 的合并前后 golden 对照保障。
-export function summarize(wsRoot: string, name: string): GraphSummary {
-  const dir = graphDirOf(wsRoot, name);
-  let label = name;
-  try {
-    label = readGraph(dir).label;
-  } catch {
-    /* graph.yaml 损坏时退回图名 */
-  }
-  const nodes = listNodes(dir);
-  const edges = listEdges(dir);
-  const lastActivity =
-    nodes
-      .map((n) => n.updated_at ?? "")
-      .sort()
-      .pop() || null;
-  return {
-    name,
-    label,
-    nodeCount: nodes.length,
-    edgeCount: edges.length,
-    running: nodes.filter((n) => n.status === ("running" as NodeStatus)).length,
-    passed: nodes.filter((n) => n.status === ("passed" as NodeStatus)).length,
-    lastActivity,
-  };
-}
+// arch-c2：实现单源在 core/graph-summary.ts；此处 import 供命令消费 + re-export
+// 保持既有模块面（`from "../cli/graph-ops.js"` 的消费方不受影响）
+import { graphDirOf, summarize } from "../core/graph-summary.js";
+export { graphDirOf, summarize };
+export type { GraphSummary } from "../core/graph-summary.js";
 
 /** rename/delete 目标不存在时的悬挂提示（查 workspace-events 近期记录） */
 function danglingHint(wsRoot: string, name: string): string | null {

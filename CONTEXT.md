@@ -228,6 +228,10 @@ YAML 文件（`graph.yaml`、`nodes/*.yaml`、`edges/*.yaml`）是唯一真相�
 执行 agent 将节点从 ready 置为 running 的动作。通过 update_node_status 完成，自动记录 assigned_to 和 started_at。
 **锁内二次校验实现原子性**：并发认领同一节点只有一个成功，其余收到"已被认领"错误；同一认领者重复 claim 幂等成功。
 
+### 认领提示包（Claim Nudges）
+
+认领响应必须携带的提示集合：管辖 ADR 标题级指针、提示旗标（review flag），以及后续新增的认领期提醒（如等真人标记）。由核心层单源组装；MCP / CLI 等渠道只做渲染，不得改写、增删或选择性省略其中条目。
+
 ### 执行报告（Execution Report）
 
 执行 agent 写给 Super Mario 的"交接单"，存储在节点的 execution_report 字段中。包含 summary（执行摘要）、artifacts（产物路径，供抽查）、blockers（阻塞原因）、notes（补充说明）与 verification（裁决结论：verdict + note + checked_at）。

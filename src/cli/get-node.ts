@@ -1,8 +1,10 @@
 import { Command } from "commander";
 import { cliGraphDir } from "./graph-ctx.js";
 import { getNode, checkReadyGate, getGoverningAdrs } from "../core/node.js";
+import { buildClaimNudgePackage } from "../core/scheduler.js";
 import { buildGraphIndex } from "../core/graph.js";
 import { allowedTransitionsFor, aggregateCheckpointStatus } from "../core/state-machine.js";
+import { requiresHuman } from "../core/domain.js";
 import { isKnowledgeType } from "../core/types.js";
 
 // S3-9（f16）：错误分类双通道——结构化 code 优先（核心层落 NODE_NOT_FOUND 后即纯 code 判定），
@@ -63,6 +65,9 @@ export const getNodeCommand = new Command("get-node").alias("gn")
               node,
               allowed_transitions: allowed,
               checkpoint_aggregate: cpAgg,
+              // F06（0.9.1 渐进审批）：存在未完成 human checkpoint 的派生标注
+              // （core/domain.ts 单源；仅真值出现，条件缺省同 adr_flags/review_flag）
+              ...(requiresHuman(node.checkpoints) ? { requires_human: true } : {}),
               ready_gate: gate,
               ...(governing.current.length > 0 || governing.superseded.length > 0
                 ? { governing_adrs: governing }
@@ -84,6 +89,9 @@ export const getNodeCommand = new Command("get-node").alias("gn")
       if (cpAgg !== null) {
         console.log(`checkpoint 聚合: ${cpAgg} (${node.checkpoints!.length} 个)`);
       }
+      if (requiresHuman(node.checkpoints)) {
+        console.log(`🧑 requires_human: 存在 verifier=human 的未完成 checkpoint（等真人处理，勿代签）`);
+      }
       if (!gate.ok) {
         console.log(
           `⚠️  ready 门禁未满足: ${gate.unmet
@@ -94,8 +102,10 @@ export const getNodeCommand = new Command("get-node").alias("gn")
       if (governing.current.length > 0) {
         console.log(`📖 管辖 ADR（claim 后必读）: ${governing.current.map((g) => `${g.id} ${g.title}`).join(" | ")}`);
       }
-      if (governing.superseded.length > 0) {
-        console.log(`⚠️  决策依据已过时: ${governing.superseded.map((g) => `${g.id}${g.superseded_by ? `（由 ${g.superseded_by} 接替）` : ""}`).join(" | ")}`);
+      // arch-c3a 残留收敛：⚠️ 措辞与调度面 adr_flags 同源（buildClaimNudgePackage），零手写变体
+      const nudge = buildClaimNudgePackage(rootDir, node.id);
+      if (nudge.adr_flags !== undefined) {
+        console.log(`⚠️  ${nudge.adr_flags.join(" | ")}`);
       }
       if (node.plan?.description) {
         console.log(`\n计划: ${node.plan.description}`);

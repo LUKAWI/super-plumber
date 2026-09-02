@@ -7,7 +7,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execSync } from "node:child_process";
-import { REVIEW_FLAG_UNREVIEWED } from "../../src/core/index-service.js";
+import { REVIEW_FLAG_UNREVIEWED } from "../../src/core/scheduler.js";
 
 const SDK = "@modelcontextprotocol/sdk";
 

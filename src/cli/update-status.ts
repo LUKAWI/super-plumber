@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { cliGraphCtx } from "./graph-ctx.js";
-import { updateNodeStatus, getGoverningAdrs } from "../core/node.js";
+import { updateNodeStatus } from "../core/node.js";
+import { buildClaimNudgePackage } from "../core/scheduler.js";
 import { NodeStatus, isKnowledgeType } from "../core/types.js";
 
 export const updateStatusCommand = new Command("update-status").alias("us")
@@ -35,14 +36,19 @@ export const updateStatusCommand = new Command("update-status").alias("us")
         actor: "cli",
       });
       console.log(`✅ [图 ${gctx.name}] ${options.id}: ${node.status}`);
-      // v0.5：claim 时注入管辖 ADR 指针（标题级；agent 按需 get-node 取全文）
+      // arch-c3a：claim 提示包改由 core 单源组装（buildClaimNudgePackage：
+      // governing_adrs / adr_flags / review_flag + 0.9.1 requires_human 预留槽位），
+      // CLI 只渲染——⚠️ 措辞与调度面 adr_flags / review_flag 同源，零手写变体
       if (status === NodeStatus.Running && !isKnowledgeType(node.type)) {
-        const gov = getGoverningAdrs(rootDir, options.id);
-        if (gov.current.length > 0) {
-          console.log(`📖 管辖 ADR（必读）: ${gov.current.map((g) => `${g.id} ${g.title}`).join(" | ")}`);
+        const pkg = buildClaimNudgePackage(rootDir, options.id);
+        if (pkg.governing_adrs !== undefined && pkg.governing_adrs.current.length > 0) {
+          console.log(`📖 管辖 ADR（必读）: ${pkg.governing_adrs.current.map((g) => `${g.id} ${g.title}`).join(" | ")}`);
         }
-        if (gov.superseded.length > 0) {
-          console.log(`⚠️  决策依据已过时: ${gov.superseded.map((g) => `${g.id}${g.superseded_by ? `（由 ${g.superseded_by} 接替）` : ""}`).join(" | ")}`);
+        if (pkg.adr_flags !== undefined) {
+          console.log(`⚠️  ${pkg.adr_flags.join(" | ")}`);
+        }
+        if (pkg.review_flag !== undefined) {
+          console.log(`⚠️  ${pkg.review_flag}`);
         }
       }
     } catch (err: any) {

@@ -7,7 +7,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { spawnSync } from "node:child_process";
-import { REVIEW_FLAG_UNREVIEWED } from "../../src/core/index-service.js";
+import { REVIEW_FLAG_UNREVIEWED } from "../../src/core/scheduler.js";
 
 const CLI = path.resolve("dist/cli/index.js");
 

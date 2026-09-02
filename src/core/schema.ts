@@ -17,6 +17,7 @@ import {
   type NodeSchema,
   type EdgeSchema,
   type GraphSchema,
+  type GraphClass,
 } from "./types.js";
 import { toGraphDir } from "./graph-dir.js";
 
@@ -56,8 +57,15 @@ const DEFINED_BY = ["human", "llm"];
 // DEC-1（g080-approve-core）：设计审核凭据的合法状态（self=quick 自签、approved=人工审核）
 // F21（DEC-7）：+ unreviewed=结构修订后回置（resetGraphReview 只写凭据字段，零门禁）
 const REVIEW_STATUSES = ["approved", "self", "unreviewed"];
-// DEC-2：图级工作类标注合法值（F03/F13，0.9.0 随雾区机制进 schema）
-const GRAPH_CLASSES = ["quick", "standard", "program"];
+// DEC-2：图级工作类标注合法值（F03/F13，0.9.0 随雾区机制进 schema）。
+// arch-c4a 单源枚举：quick|standard|program 的唯一运行时定义——CLI init/update-graph
+// 与 MCP graph_update_graph 的校验与帮助/错误文案一律消费此处，禁止重写字面量。
+// types.ts 的 GraphClass 联合是其类型镜像（types 不能反向 import schema，避免
+// types→schema 环），漂移由下方编译钳 + tests/core/graph-class.test.ts 双向拦截。
+export const GRAPH_CLASSES = ["quick", "standard", "program"] as const satisfies readonly GraphClass[];
+// 编译期钳（另一方向由 satisfies 承担）：GraphClass 联合出现枚举未含的成员 → 编译失败
+type _GraphClassCoveredByEnum = [GraphClass] extends [(typeof GRAPH_CLASSES)[number]] ? true : never;
+const _GRAPH_CLASS_COVERAGE_CLAMP: _GraphClassCoveredByEnum = true;
 
 // ── 实体 ID 规则（S0-3 路径穿越防护）──
 // ID 直接拼入文件路径（nodes/<id>.yaml、edges/<id>.yaml）：禁路径分隔符、

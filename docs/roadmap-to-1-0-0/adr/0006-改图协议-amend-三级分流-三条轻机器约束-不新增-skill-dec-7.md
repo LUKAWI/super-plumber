@@ -2,7 +2,7 @@
 
 执行中更改已画拓扑按风险三级分流，不新增第 9 个 skill：小修（plan/DoD 文案、checkpoint 增删）在 plumber-execute「发现图错的上报出口」节内完成并报告注明；结构修订（增删节点/边、雾区毕业、拆分节点、取消子树、ADR supersede 连锁）走 designer amend 模式（增量 validate + 影响评估 + 增量人审 + 自动快照）；failed 裁决触发路由回 designer。配套三条轻机器约束（F21，DEC-1 nudge 哲学，不加拒绝规则）：结构修订落图前自动 snapshot；graph_amended 事件 + review 回置（review_flag 重新亮起）；改 passed/blocked 节点 plan 响应提示「计划已变更，是否重开/重验」。
 
-**Status：** proposed（待裁决）
+**Status：** accepted
 
 **Context：** 工具面齐全但改图「无声」——执行者发现图错无上报出口、结构修订无影响评估与凭据、改 passed 节点 plan 静默通过致报告失配；与 0.9.0 雾区毕业同机制。
 

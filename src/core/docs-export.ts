@@ -8,6 +8,8 @@
 // 单图工作区（含旧布局原地 default）保持既有共享路径不变（向后兼容）。
 // 根因：ADR 编号按图独立 × 共享目录，任何一图导出都会同号覆写/误归档其他图的视图。
 // 使用者显式传 adrDir/ctxDir 时永远优先于默认规则。
+// checkDocsExport（0.9.0）：不写盘的导出漂移门禁——渲染产物与在位导出逐文件比对，
+// 供 `graph export --docs --check` 与 prepublishOnly 发版链使用。
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { listNodes } from "./node.js";
@@ -178,16 +180,39 @@ function defaultViewSubdir(graphDir: string): string | null {
   return GRAPH_NAME_RE.test(name) ? name : null;
 }
 
-export function runDocsExport(
+/**
+ * 一次导出的完整落盘计划（纯渲染，零 I/O副作用）：runDocsExport 的写盘与
+ * checkDocsExport 的漂移比对消费同一份渲染产物——保证“重导出会写什么”与
+ * “在位文件该是什么”永不分叉（两入口共享一个真相，比对才有意义）。
+ */
+interface PlannedFile {
+  absPath: string;
+  /** 相对工作区根的路径（与 DocsExportResult.written 同一口径） */
+  relPath: string;
+  content: string;
+}
+
+interface DocsExportPlan {
+  wsRoot: string;
+  adrDir: string;
+  /** 同号旧命名清理所需元数据（num + 规范文件名） */
+  adrEntries: { num: string; canonical: string }[];
+  /** 写盘序 = ADR → context 文件 → CONTEXT-MAP.md → DECISIONS.md */
+  files: PlannedFile[];
+  adrCount: number;
+  contextCount: number;
+  decisionCount: number;
+}
+
+function planDocsExport(
   rootDir: string,
   opts: { adrDir?: string; ctxDir?: string } = {},
-): DocsExportResult {
+): DocsExportPlan {
   const graphDir = toGraphDir(rootDir);
   const nodes = listNodes(graphDir);
   const adrs = nodes.filter((n) => n.type === NodeType.Adr);
   const contexts = nodes.filter((n) => n.type === NodeType.Context);
   const decisions = collectDecisions(nodes);
-  const written: string[] = [];
 
   const wsRoot = workspaceOf(rootDir); // 产物落工作区根（即使 rootDir 是图目录）
   // 默认落点：多图 → docs/<图名>/…（按图名分离）；单图 → 既有共享路径；显式透传永远优先
@@ -200,36 +225,41 @@ export function runDocsExport(
     ? path.join("docs", viewSub, "CONTEXT-MAP.md")
     : "CONTEXT-MAP.md";
 
+  const files: PlannedFile[] = [];
+  const adrEntries: DocsExportPlan["adrEntries"] = [];
+
   // ADR → docs/adr/NNNN-slug.md
   const adrDir = path.join(wsRoot, opts.adrDir ?? defaultAdrDir);
-  fs.mkdirSync(adrDir, { recursive: true });
   for (const a of adrs) {
     const num = adrNumber(a.id);
     const canonical = `${num}-${slugify(a.label)}.md`;
-    retireStaleSlugFiles(adrDir, num, canonical);
+    adrEntries.push({ num, canonical });
     const file = path.join(adrDir, canonical);
-    fs.writeFileSync(file, renderAdr(a), "utf-8");
-    written.push(path.relative(wsRoot, file));
+    files.push({ absPath: file, relPath: path.relative(wsRoot, file), content: renderAdr(a) });
   }
 
   // context → CONTEXT-MAP.md + docs/contexts/<id>.md
   if (contexts.length > 0) {
     const ctxDir = path.join(wsRoot, opts.ctxDir ?? defaultCtxDir);
-    fs.mkdirSync(ctxDir, { recursive: true });
     for (const c of contexts) {
       // S0-3 次生面兜底：拼接 docs/contexts/<id>.md 前的最后防线
       // （正常链路经 schema 读校验已拦截，此处防直调绕过）
       assertValidEntityId("节点", c.id);
       const file = path.join(ctxDir, `${c.id}.md`);
-      fs.writeFileSync(file, renderContextFile(c), "utf-8");
-      written.push(path.relative(wsRoot, file));
+      files.push({
+        absPath: file,
+        relPath: path.relative(wsRoot, file),
+        content: renderContextFile(c),
+      });
     }
     // contextMapRel 的父目录（多图默认 = docs/<图名>/）可能尚未创建——
     // adr/ctx 目录被显式透传接管时无人 mkdir 它，写前补建（幂等）
     const contextMapPath = path.join(wsRoot, contextMapRel);
-    fs.mkdirSync(path.dirname(contextMapPath), { recursive: true });
-    fs.writeFileSync(contextMapPath, renderContextMap(contexts), "utf-8");
-    written.push(contextMapRel);
+    files.push({
+      absPath: contextMapPath,
+      relPath: contextMapRel,
+      content: renderContextMap(contexts),
+    });
   }
 
   // F15：DECISIONS.md 决议索引——与 CONTEXT-MAP.md 同目录约定
@@ -238,15 +268,78 @@ export function runDocsExport(
   const decisionsRel = viewSub
     ? path.join("docs", viewSub, "DECISIONS.md")
     : "DECISIONS.md";
-  const decisionsPath = path.join(wsRoot, decisionsRel);
-  fs.mkdirSync(path.dirname(decisionsPath), { recursive: true });
-  fs.writeFileSync(decisionsPath, renderDecisions(decisions), "utf-8");
-  written.push(decisionsRel);
+  files.push({
+    absPath: path.join(wsRoot, decisionsRel),
+    relPath: decisionsRel,
+    content: renderDecisions(decisions),
+  });
 
   return {
+    wsRoot,
+    adrDir,
+    adrEntries,
+    files,
     adrCount: adrs.length,
     contextCount: contexts.length,
     decisionCount: decisions.length,
+  };
+}
+
+export function runDocsExport(
+  rootDir: string,
+  opts: { adrDir?: string; ctxDir?: string } = {},
+): DocsExportResult {
+  const plan = planDocsExport(rootDir, opts);
+  const written: string[] = [];
+
+  fs.mkdirSync(plan.adrDir, { recursive: true });
+  // 同号旧命名清理（label 改了 slug 会变）：先归档旧名再写规范名，目录内不残留重复编号
+  for (const e of plan.adrEntries) {
+    retireStaleSlugFiles(plan.adrDir, e.num, e.canonical);
+  }
+  for (const f of plan.files) {
+    fs.mkdirSync(path.dirname(f.absPath), { recursive: true });
+    fs.writeFileSync(f.absPath, f.content, "utf-8");
+    written.push(f.relPath);
+  }
+
+  return {
+    adrCount: plan.adrCount,
+    contextCount: plan.contextCount,
+    decisionCount: plan.decisionCount,
     written,
   };
+}
+
+export interface DocsCheckResult {
+  /** 比对文件数（= 本次导出会写的文件数） */
+  checked: number;
+  /** 漂移清单（相对工作区根路径；内容不一致或在位缺失都算） */
+  drift: string[];
+}
+
+/**
+ * 导出漂移门禁：不写盘，把 runDocsExport 将要写的每一份渲染产物与在位文件逐文件比对，
+ * 任何缺失/内容不一致记入 drift，由调用方决定退出码——发版前发现“图改了视图没跟上”。
+ * 行尾不构成漂移：在位文件按 CRLF→LF 归一后再比（git autocrlf 工作区检出会把
+ * LF 视图转成 CRLF，行尾差异是 git 的，不是图内真相的）。
+ * 与临时目录重导出逐文件比对等效：渲染产物即重导出会写的字节，且免去拷贝 .graph 的 I/O。
+ */
+export function checkDocsExport(
+  rootDir: string,
+  opts: { adrDir?: string; ctxDir?: string } = {},
+): DocsCheckResult {
+  const plan = planDocsExport(rootDir, opts);
+  const drift: string[] = [];
+  for (const f of plan.files) {
+    let onDisk: string | null = null;
+    try {
+      onDisk = fs.readFileSync(f.absPath, "utf-8");
+    } catch {
+      onDisk = null; // 在位缺失 = 漂移
+    }
+    const inPlace = onDisk === null ? null : onDisk.replace(/\r\n/g, "\n");
+    if (inPlace !== f.content) drift.push(f.relPath);
+  }
+  return { checked: plan.files.length, drift };
 }

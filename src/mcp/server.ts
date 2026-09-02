@@ -35,22 +35,16 @@ import { beginStructuralAmend, planAmendNudge } from "../core/amend.js";
 import {
   buildGraphIndex,
   computeNextActions,
-  topologicalSort,
-  detectCycles,
-  detectHiddenCycles,
-  reviewFlagFor,
 } from "../core/graph.js";
+// arch-c3a：认领提示包 core 单源组装（arch-c2 落位 scheduler.ts——调度/旗标装配
+// 与索引缓存分家后的新家）
+import { buildClaimNudgePackage } from "../core/scheduler.js";
+// F06（0.9.1 渐进审批）：requires_human 派生标注（get_node 读面透出用）
+import { requiresHuman } from "../core/domain.js";
 import { allowedTransitionsFor, aggregateCheckpointStatus } from "../core/state-machine.js";
-import { validateDomainRules } from "../core/domain.js";
-import { lintNodeWording } from "../core/style-lint.js";
-import { fogWarnings } from "../core/fog.js";
-import {
-  NODE_ID_RE,
-  loadNodeFile,
-  loadEdgeFile,
-  listNodeFileNames,
-  listEdgeFileNames,
-} from "../core/schema.js";
+// arch-c3b：validate 编排单源（与 CLI validate 同一入口，渠道只做呈现）
+import { validateGraphDir } from "../core/validate.js";
+import { NODE_ID_RE, GRAPH_CLASSES } from "../core/schema.js";
 import { readEvents } from "../core/eventlog.js";
 import {
   createSnapshot,
@@ -64,15 +58,13 @@ import {
   AdrStatus,
   EdgeType,
   isKnowledgeType,
-  type GraphSchema,
-  type NodeSchema,
   type EdgeSchema,
 } from "../core/types.js";
 import { listGraphNames, resolveGraphDir, didYouMean } from "../core/graph-dir.js";
-// S3-2（f14）：旧布局目录判定与图摘要复用 cli/graph-ops.ts 的唯一实现
-// （graphDirOf/summarize）。mcp → cli 单向依赖；不放 core/graph-dir.ts 是因为
-// 该文件在并行修复的他人边界内（取舍见 graph-ops.ts 注释）。
-import { graphDirOf, summarize } from "../cli/graph-ops.js";
+// arch-c2 层次归位：旧布局目录判定与图摘要的实现单源已下沉 core/graph-summary.ts
+// （graphDirOf/summarize）——此前 mcp → cli（graph-ops.ts）的引用是层次倒挂，
+// 现与 CLI 同层消费 core 单源。
+import { graphDirOf, summarize } from "../core/graph-summary.js";
 import { VERSION } from "../version.js";
 
 // ── 图目录定位（全局配置一次、随项目自动跟随）──
@@ -263,9 +255,9 @@ function jsonGraph(gctx: { name: string }, data: unknown) {
 
 // ════════════════════ v0.5.2 多图：切换与列举 ════════════════════
 
-// S3-2（f14）：graphBriefOf 的重复实现已删——与 CLI graph list 共用
-// cli/graph-ops.ts 的 summarize（唯一实现），此处只补 MCP 特有的 isCurrent。
-// 逐字段等价（含键序）由 tests/f14-dedupe.test.ts 对照合并前 golden 保障。
+// arch-c2：图摘要消费 core/graph-summary.ts 的 summarize（唯一实现），此处只补
+// MCP 特有的 isCurrent。（原 f14 金测对照的双通道等价已因单源下沉失去对照面，
+// tests/f14-dedupe.test.ts 退役。）
 function graphBriefOf(wsRoot: string, name: string, current: string) {
   return { ...summarize(wsRoot, name), isCurrent: name === current };
 }
@@ -375,7 +367,7 @@ server.registerTool(
   {
     description:
       "读取单个节点的完整内容（解压压缩包）。Use when you need a node's plan, checkpoints, definition_of_done or execution state. " +
-      "Returns the node plus allowed_transitions (legal next statuses — v0.5 按 type 分表：workflow 七态 / adr 三态 / context 无), checkpoint_aggregate, ready_gate (whether its predecessors have passed), and governing_adrs (v0.5 管辖 ADR 指针：decides 指向该节点或其 context 的 ADR) — one call answers \"what can I do next with this node\". " +
+      "Returns the node plus allowed_transitions (legal next statuses — v0.5 按 type 分表：workflow 七态 / adr 三态 / context 无), checkpoint_aggregate, requires_human (F06：存在 verifier=human 的未完成 checkpoint 时为 true——渐进审批，等真人处理勿代签；条件缺省), ready_gate (whether its predecessors have passed), and governing_adrs (v0.5 管辖 ADR 指针：decides 指向该节点或其 context 的 ADR) — one call answers \"what can I do next with this node\". " +
       "include_neighbors=up/down 附加拓扑相邻节点紧凑列表（基于索引缓存，零额外文件扫描），需要局部拓扑时用它替代 graph_traverse.",
     inputSchema: {
       id: z.string().describe("节点 ID"),
@@ -396,6 +388,9 @@ server.registerTool(
       checkpoint_aggregate: node.checkpoints?.length
         ? aggregateCheckpointStatus(node.checkpoints)
         : null,
+      // F06（0.9.1 渐进审批）：requires_human 派生标注（core/domain.ts 单源；
+      // 仅真值出现，条件缺省同 adr_flags/review_flag）
+      ...(requiresHuman(node.checkpoints) ? { requires_human: true } : {}),
       ready_gate: isKnowledgeType(node.type)
         ? { ok: true, unmet: [] }
         : checkReadyGate(rootDir, node.id),
@@ -504,6 +499,7 @@ server.registerTool(
     description:
       "调度决策工具 — 一次调用回答\"我现在该干什么\"。Use this as your primary planning loop: returns ready nodes (claimable now), ready_eligible nodes (pending/failed whose gates are satisfied — flip them to ready, including cold start), blocked nodes with their unmet predecessors, running nodes with elapsed time, and stale running nodes that may be stuck (reclaim them with graph_reclaim_node). " +
       "v0.5：ready/ready_eligible/running 条目可含 adr_flags（所依据 ADR 已 superseded → ⚠️ 决策依据过时，建议重审后再 claim）；知识顶点（context/adr）不进任何调度桶、不计入 summary。 " +
+      "F06/F07：requires_human=条目含未完成的 human checkpoint（渐进审批，agent 勿认领/勿代签）；ready/ready_eligible 对无人认领的此类条目再带 waiting_human=true（等真人）；requires_human 的 running 节点 stale 阈值默认放大 8 倍（30 分钟基线 → 4 小时，显式 stale_ms 对全部节点生效）。 " +
       "Each bucket is capped at limit (default 100); truncated flags tell you when more exist. Prefer this over combining graph_get_graph + graph_traverse + graph_search.",
     inputSchema: {
       stale_ms: z
@@ -511,8 +507,9 @@ server.registerTool(
         .int()
         .min(0)
         .optional()
-        .default(30 * 60 * 1000)
-        .describe("running 节点无更新阈值（毫秒），默认 30 分钟"),
+        .describe(
+          "running 节点无更新阈值（毫秒）；缺省基线 30 分钟，requires_human 节点默认放大 8 倍 = 4 小时（F07）；显式传值对全部节点生效",
+        ),
       limit: z
         .number()
         .int()
@@ -530,7 +527,11 @@ server.registerTool(
   async ({ stale_ms, limit, assigned_to }) => {
     const gctx = await resolveGraphCtx();
     const rootDir = gctx.dir;
-    const r = computeNextActions(rootDir, { staleMs: stale_ms });
+    // F07：stale_ms 未显式给出时不透传（undefined）——core 缺省基线生效，
+    // requires_human 节点享有人类节奏的放大阈值；显式传值则对全部节点生效
+    const r = computeNextActions(rootDir, {
+      ...(stale_ms !== undefined ? { staleMs: stale_ms } : {}),
+    });
     const cap = <T>(list: T[]): T[] => list.slice(0, limit);
     const running = assigned_to
       ? r.running.filter((n) => n.assigned_to === assigned_to)
@@ -555,6 +556,12 @@ server.registerTool(
       },
       // F04（adr_0007）：雾区概要随调度结果透出（图无雾缺省；零门禁）
       ...(r.fog !== undefined ? { fog: r.fog } : {}),
+      // v091（adr_0016）：雾/档矛盾 nudge 随调度结果透出（core 单源派生，透传不改写）
+      ...(r.class_nudge !== undefined ? { class_nudge: r.class_nudge } : {}),
+      // IL-025：雾可毕业 nudge 随调度结果透出（core 单源派生，透传不改写）
+      ...(r.fog_graduation_nudge !== undefined
+        ? { fog_graduation_nudge: r.fog_graduation_nudge }
+        : {}),
       summary: r.summary,
     });
   },
@@ -710,157 +717,15 @@ server.registerTool(
   },
   async () => {
     const gctx = await resolveGraphCtx();
-    const rootDir = gctx.dir;
-    const errors: string[] = [];
-    const warnings: string[] = [];
-
-    // 1. graph.yaml 可读 + 入口/出口骨架
-    let graph: GraphSchema;
-    try {
-      graph = readGraph(rootDir);
-    } catch (e: any) {
-      return jsonGraph(gctx, {
-        ok: false,
-        errors: [`无法读取 graph.yaml: ${e.message}`],
-        warnings,
-        node_count: 0,
-        edge_count: 0,
-      });
-    }
-    if (!graph.entry.description) warnings.push("图入口(entry)描述为空");
-    if (!graph.exit.description) warnings.push("图出口(exit)描述为空");
-    if (graph.exit.acceptance_criteria.length === 0) {
-      warnings.push("图出口(exit)验收标准为空");
-    }
-
-    // 2. 节点逐文件 schema 校验（单文件损坏不中断其余）
-    const nodes: NodeSchema[] = [];
-    for (const f of listNodeFileNames(rootDir)) {
-      const r = loadNodeFile(rootDir, f);
-      if (r.ok) nodes.push(r.data);
-      else for (const i of r.issues) errors.push(`nodes/${f}: ${i.field}: ${i.message}`);
-    }
-    if (nodes.length === 0) warnings.push("图中没有节点");
-    // F17（adr_0007）：雾区提示——只提示不阻止，零新拒绝规则（core/fog.ts 单源，与 CLI validate 同文案）
-    for (const fw of fogWarnings(graph, nodes)) warnings.push(fw);
-    for (const node of nodes) {
-      // S2-5：max_attempts=0 表示不限重试，不参与超限判定
-      if (node.max_attempts > 0 && node.attempts > node.max_attempts) {
-        warnings.push(
-          `节点 ${node.id} 已超出最大重试次数 (${node.attempts}/${node.max_attempts})`,
-        );
-      }
-    }
-
-    // 3. 边逐文件 schema 校验 + 幽灵端点
-    const edges: EdgeSchema[] = [];
-    for (const f of listEdgeFileNames(rootDir)) {
-      const r = loadEdgeFile(rootDir, f);
-      if (r.ok) edges.push(r.data);
-      else for (const i of r.issues) errors.push(`edges/${f}: ${i.field}: ${i.message}`);
-    }
-    const nodeIds = new Set(nodes.map((n) => n.id));
-    for (const edge of edges) {
-      if (!nodeIds.has(edge.source)) {
-        errors.push(`边 ${edge.id} 引用了不存在的源节点: ${edge.source}`);
-      }
-      if (!nodeIds.has(edge.target)) {
-        errors.push(`边 ${edge.id} 引用了不存在的目标节点: ${edge.target}`);
-      }
-    }
-    // 运行时控制流边未实现运行时语义（FIX-B1 同构）
-    for (const edge of edges) {
-      if (edge.type === "fallback" || edge.type === "iterates") {
-        warnings.push(
-          `边 ${edge.id} (${edge.type}) 为运行时控制流边，但工具未实现其运行时语义（不执行回退/迭代）——当前仅文档性标注`,
-        );
-      }
-    }
-    const ctxEdges = edges.filter((e) => e.type === "shares_context");
-    if (ctxEdges.length > 0) {
-      warnings.push(
-        `检测到 ${ctxEdges.length} 条 shares_context 边：不参与门禁与拓扑排序，仅表达上下文共享意图`,
-      );
-    }
-
-    // 4. v0.5 领域语义六规则（悬空归属/术语重复/跨context契约/relates端点/孤儿ADR/decides源）
-    for (const d of validateDomainRules(nodes, edges)) {
-      if (d.level === "error") errors.push(d.message);
-      else warnings.push(d.message);
-    }
-
-    // 4b. F16：plan/DoD 文案 lint（core/style-lint.ts：规则码 a 脆弱定位/b 行号式/c 不可验证
-    //     措辞，manual §2.8 四原则）。恒为 warning——文案规范不参与 ok 判定
-    for (const node of nodes) {
-      for (const li of lintNodeWording(node)) warnings.push(li.message);
-    }
-
-    // 5. 拓扑排序 + 环检测（含 fan 门控隐藏环）
-    if (nodes.length > 1) {
-      try {
-        topologicalSort(
-          nodes.map((n) => n.id),
-          edges,
-        );
-      } catch (e: any) {
-        errors.push(`拓扑排序失败: ${e.message}`);
-      }
-      for (const cycle of detectCycles(
-        nodes.map((n) => n.id),
-        edges,
-      )) {
-        errors.push(`检测到循环依赖: ${cycle.join(" → ")}`);
-      }
-      for (const cycle of detectHiddenCycles(
-        nodes.map((n) => n.id),
-        edges,
-      )) {
-        warnings.push(
-          `隐藏环路（fan_out/fan_in 门控边闭合: ${cycle.join(" → ")}）：门禁互等，节点可能永远无法 ready`,
-        );
-      }
-    }
-
-    // 6. 引用列表双向漂移（refs→文件 与 文件→refs，中性警告——rebuild 可自愈）
-    const nodeFileIds = new Set(nodes.map((n) => n.id));
-    const edgeFileIds = new Set(edges.map((e) => e.id));
-    const refNodeIds = new Set<string>();
-    const refEdgeIds = new Set<string>();
-    for (const ref of graph.nodes) {
-      const nid = ref.file.replace(/^nodes\//, "").replace(/\.yaml$/, "");
-      refNodeIds.add(nid);
-      if (!nodeFileIds.has(nid)) {
-        warnings.push(`graph.yaml 引用了不存在的节点文件: ${ref.file}`);
-      }
-    }
-    for (const ref of graph.edges) {
-      const eid = ref.file.replace(/^edges\//, "").replace(/\.yaml$/, "");
-      refEdgeIds.add(eid);
-      if (!edgeFileIds.has(eid)) {
-        warnings.push(`graph.yaml 引用了不存在的边文件: ${ref.file}`);
-      }
-    }
-    for (const nid of nodeFileIds) {
-      if (!refNodeIds.has(nid)) {
-        warnings.push(
-          `nodes/${nid}.yaml 存在但不在 graph.yaml 引用列表（引用列表与目录漂移，请检查 graph.yaml 或 graph rebuild）`,
-        );
-      }
-    }
-    for (const eid of edgeFileIds) {
-      if (!refEdgeIds.has(eid)) {
-        warnings.push(
-          `edges/${eid}.yaml 存在但不在 graph.yaml 引用列表（引用列表与目录漂移，请检查 graph.yaml 或 graph rebuild）`,
-        );
-      }
-    }
-
+    // arch-c3b：编排与文案正文全部在 core/validate.ts 单源（与 CLI validate 同一入口），
+    // 本工具只做呈现——五字段 JSON，ok 语义不变（= errors 为空，结构问题才置 false）
+    const r = validateGraphDir(gctx.dir);
     return jsonGraph(gctx, {
-      ok: errors.length === 0,
-      errors,
-      warnings,
-      node_count: nodes.length,
-      edge_count: edges.length,
+      ok: r.ok,
+      errors: r.errors,
+      warnings: r.warnings,
+      node_count: r.node_count,
+      edge_count: r.edge_count,
     });
   },
 );
@@ -897,8 +762,8 @@ server.registerTool(
 
 // S2-1（f10）：MCP 通道补 graph_validate / graph_events——批量创建指引"崩溃后重跑"
 // 但 agent 此前无任何自检手段；审计日志（force_override/attempts_reset 等）只能 CLI 看。
-// 校验逻辑与 src/cli/validate.ts 同构（同一组 core 原语：schema 逐文件 + 幽灵边 +
-// 领域规则 + 拓扑/环 + 引用列表双向漂移），CLI 与 MCP 双通道行为一致。
+// arch-c3b：validate 编排已下沉 core/validate.ts 单源，CLI 与 MCP 双渠道消费同一入口，
+// 不再双写编排与文案（曾经的"同构"双实现已发生文案漂移，归一后渠道只加前缀不改写）。
 
 const checkpointSchema = z.object({
   // S3-12：与 CLI 对齐——空 id/label 使 checkpoint 无法被 update_checkpoint
@@ -1277,17 +1142,17 @@ server.registerTool(
       }),
     );
     // v0.5：claim（→running）响应附管辖 ADR 指针——agent 此刻最需要知道"依据哪些决策干活"
-    // DEC-1（g080-approve-core）：claim 响应条件附加 review_flag（与 governing_adrs
-    // 同款注入模式；核心层 reviewFlagFor 判定，图有 review 凭据时不出现）。
-    // 仅提示、零门禁——claim 本身不因此被拒绝。
+    // arch-c3a：提示包改由 core 单源组装（buildClaimNudgePackage：governing_adrs /
+    // adr_flags / review_flag / requires_human），渠道只渲染、不改写。
+    // 响应透出 governing_adrs / review_flag / requires_human（F06 接线：含未完成
+    // human checkpoint 的票在 claim 响应提示认领者；adr_flags 随调度面各桶透出）。
+    // DEC-1：图有 review 凭据时 review_flag 不出现。仅提示、零门禁——claim 不因此被拒绝。
     if (node.status === NodeStatus.Running && !isKnowledgeType(node.type)) {
+      const pkg = buildClaimNudgePackage(rootDir, id);
       const extra: Record<string, unknown> = {};
-      const gov = getGoverningAdrs(rootDir, id);
-      if (gov.current.length > 0 || gov.superseded.length > 0) {
-        extra.governing_adrs = gov;
-      }
-      const rf = reviewFlagFor(rootDir);
-      if (rf !== undefined) extra.review_flag = rf;
+      if (pkg.governing_adrs !== undefined) extra.governing_adrs = pkg.governing_adrs;
+      if (pkg.review_flag !== undefined) extra.review_flag = pkg.review_flag;
+      if (pkg.requires_human !== undefined) extra.requires_human = pkg.requires_human;
       if (Object.keys(extra).length > 0) {
         return jsonGraph(gctx, { node, ...extra });
       }
@@ -1409,12 +1274,16 @@ server.registerTool(
         .optional()
         .describe("登记/更新雾区（整体 upsert；F04 adr_0007）"),
       class: z
-        .enum(["quick", "standard", "program"])
+        .enum(GRAPH_CLASSES) // arch-c4a：枚举单源消费（core/schema.ts），不再重写字面量
         .optional()
         .describe("工作类标注（DEC-2；F08 渐进审批仅对 program 生效）"),
+      by: z
+        .string()
+        .optional()
+        .describe('class 变更的操作者凭据（缺省 "agent"）；用户直发凭据（/plumber-class 或对话批准）时传 "user"——血统落 class_changed 事件，雾/档矛盾提示据此静默'),
     },
   },
-  async ({ label, entry_description, exit_description, add_criteria, clear_criteria, root_context, fog, class: graphClass }) => {
+  async ({ label, entry_description, exit_description, add_criteria, clear_criteria, root_context, fog, class: graphClass, by }) => {
     const gctx = await resolveGraphCtx();
     const rootDir = gctx.dir;
     return jsonGraph(gctx,
@@ -1427,6 +1296,7 @@ server.registerTool(
         ...(root_context !== undefined ? { root_context } : {}),
         ...(fog !== undefined ? { fog } : {}),
         ...(graphClass !== undefined ? { class: graphClass } : {}),
+        ...(by !== undefined ? { by } : {}),
       }),
     );
   },

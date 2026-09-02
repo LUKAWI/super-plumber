@@ -9,9 +9,9 @@ import { createNode, updateNodeStatus } from "../../src/core/node.js";
 import { writeNode, readNode } from "../../src/core/parser.js";
 import {
   buildGraphIndex,
-  computeNextActions,
   resetIndexCache,
 } from "../../src/core/index-service.js";
+import { computeNextActions } from "../../src/core/scheduler.js";
 import { NodeStatus, NodeType } from "../../src/core/types.js";
 
 let tmpDir: string;

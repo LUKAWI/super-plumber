@@ -7,6 +7,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
+import { GRAPH_CLASSES } from "../../src/core/schema.js";
 
 const CLI = path.resolve("dist/cli/index.js");
 
@@ -37,10 +38,10 @@ describe("F04 graph init --class / update-graph --set-fog --class（CLI）", () 
     setupGraph("init t --class program");
     const s = JSON.parse(run("status --json").stdout as string);
     expect(s.class).toBe("program");
-    // 非法值：创建前拒绝（exit 1，图未落盘）
+    // 非法值：创建前拒绝（exit 1，图未落盘）；文案断言随单源枚举走（arch-c4a）
     const bad = run("init bad --class huge");
     expect(bad.status).toBe(1);
-    expect(bad.stderr).toContain("quick | standard | program");
+    expect(bad.stderr).toContain(GRAPH_CLASSES.join(" | "));
     expect(fs.existsSync(path.join(tmpDir, ".graph", "bad"))).toBe(false);
   });
 

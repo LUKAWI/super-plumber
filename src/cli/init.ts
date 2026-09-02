@@ -1,6 +1,7 @@
 // src/cli/init.ts
 import { Command } from "commander";
 import { createGraph, listGraphNames, writeWorkspaceDefault, trashGraph, migrateLegacyLayout } from "../core/graph-dir.js";
+import { GRAPH_CLASSES } from "../core/schema.js";
 import { VERSION } from "../version.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -11,13 +12,13 @@ export const initCommand = new Command("init").alias("i")
   .option("-l, --label <label>", "图显示名", "untitled")
   .option(
     "--class <class>",
-    "工作类预设：quick | standard | program（DEC-2 三级路由；缺省不标注）",
+    `工作类预设：${GRAPH_CLASSES.join(" | ")}（DEC-2 三级路由；缺省不标注）`,
   )
   .option("-f, --force", "（仅旧式无名单图）已初始化时强制覆盖，慎用")
   .action((name: string | undefined, options) => {
     const rootDir = process.cwd();
-    if (options.class !== undefined && !["quick", "standard", "program"].includes(options.class)) {
-      console.error(`❌ --class 仅允许 quick | standard | program（收到: ${options.class}）`);
+    if (options.class !== undefined && !(GRAPH_CLASSES as readonly string[]).includes(options.class)) {
+      console.error(`❌ --class 仅允许 ${GRAPH_CLASSES.join(" | ")}（收到: ${options.class}）`);
       process.exit(1);
     }
     const existing = listGraphNames(rootDir);
@@ -135,7 +136,7 @@ const SCHEMA_DOC = `# Super Plumber — 节点/边/图 schema 说明（v${VERSIO
 # entry/exit: { description, defined_by: human|llm, level }
 # exit.acceptance_criteria: string[]
 # nodes/edges: [{ file }] | root_context: object
-# class: quick|standard|program                （F03/F13 可选工作类标注，DEC-2；缺省不标注）
+# class: ${GRAPH_CLASSES.join("|")}                （F03/F13 可选工作类标注，DEC-2；缺省不标注）
 # fog: { id, description, graduation, ignited?[] }
 #            （F04 adr_0007 可选雾区：单雾起步；毕业=graph graduate-fog 清除 + fog_graduated 事件）
 `;

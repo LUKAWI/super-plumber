@@ -40,6 +40,8 @@ description: Use when 拓扑图已设计并审核通过、需要执行 .graph/ �
 
 > 重试链 / attempts 上限 / blocked 解除 / reclaim 细节 → 手册 §4.3 与 §5。
 
+**节点 passed 后的旅程告知（WF10，必做）**：passed 不是静默流转——向用户概述当前下一前沿（`graph_get_next_actions` 五桶读数：前沿在哪、还剩几张票）；前沿有多个互不依赖的 ready 节点时，建议用户另开会话 `/plumber-join` 并行推进（并行判据见下文「并行决策」）。
+
 ---
 
 ## work the graph 模式（program 档：工作会话解雾）
@@ -51,6 +53,8 @@ description: Use when 拓扑图已设计并审核通过、需要执行 .graph/ �
 3. **毕业雾**：毕业条件达成 → CLI `graph graduate-fog --produced <票id,票id> --reason "<结论摘要>"`；MCP `graph_graduate_fog {produced, reason}`。毕业 = 清除 fog + fog_graduated 事件，无雾时报错（毕业是事实陈述，不是清理操作）。**毕业属结构修订，按 DEC-7 amend 协议执行**（影响评估 + 增量人审；命令自带守卫：自动快照、graph_amended 事件、review 回置 unreviewed）——协议全文不在此复制 → `plumber-design` amend 模式与手册 §2.2。
 4. **决议回写**：结论够 ADR 三判据 → `graph adr create`（MCP `graph_create_adr`）落 proposed，accept/supersede 归裁决方（super-mario/人）；术语沉淀进所属 context 顶点 glossary。
 5. **to-standard 交棒**：雾清零 → `graph update-graph --class standard`，图回常规档；其余节点回归上文标准执行协议（0–5 步 + 三层验收）。
+
+**档位纪律（adr_0016）**：执行期升降档须用户批准，降档向（→quick）从严；用户对话明示「设为某档」=凭据效力，agent 代发 `graph update-graph --class <档>` 须带 `--by user`（缺省 `--by` 视为 agent 自判，与用户直发 /plumber-class 凭血统可区分）。例外：本模式第 5 步毕业（graduate-fog）附带的 to-standard 交棒沿用毕业时的增量人审，不重复请示。
 
 ---
 
@@ -120,6 +124,8 @@ description: Use when 拓扑图已设计并审核通过、需要执行 .graph/ �
 3. **成果层**：exit 的 acceptance_criteria 逐条对照真实 artifact——**不信报告信 artifact**（报告里写了 ≠ 文件真实存在）。
 
 任何一层不过 → 继续修，不宣告完成。逐层命令手法与通过标准 → 手册 §8。
+
+**整图收口的旅程告知（WF10，必做）**：最后一张票 passed 后先告知用户「接下来是三层验收（状态/结构/成果，见上）」；三层全过才宣告完成，并交代收尾事项（serve 是否关闭、快照/导出归档按需 → 手册 §2.5）。
 
 ---
 

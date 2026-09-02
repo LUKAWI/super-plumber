@@ -10,7 +10,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as yaml from "js-yaml";
-import { GRAPH_DIR, GRAPH_FILE, NODES_DIR, EDGES_DIR, INDEX_DIR, type GraphSchema } from "./types.js";
+import { GRAPH_DIR, GRAPH_FILE, NODES_DIR, EDGES_DIR, INDEX_DIR, type GraphSchema, type GraphClass } from "./types.js";
 // 循环依赖说明：lock → graph-dir（WORKSPACE_MIGRATE_LOCK 常量）与
 // graph-dir → lock（迁移互斥）互为环，但两侧都只在函数体内互调，ESM 安全（同 parser↔index-service 先例）。
 import { withLockSync } from "./lock.js";
@@ -65,6 +65,8 @@ export function writeWorkspaceDefault(wsRoot: string, name: string, actor = "unk
   assertValidGraphName(name);
   fs.mkdirSync(dotGraph(wsRoot), { recursive: true });
   fs.writeFileSync(path.join(dotGraph(wsRoot), ACTIVE_FILE), name, "utf-8");
+  // 写路径显式失效（先于 appendWorkspaceEvent——其图级锁经 toGraphDir 解析）
+  clearGraphDirMemo();
   appendWorkspaceEvent(wsRoot, "switch", `active -> ${name}`, actor);
 }
 
@@ -222,19 +224,52 @@ function resolveSingleGraph(wsRoot: string, name: string): ResolvedGraphDir {
  * 全库路径归一化点：graph.yaml 在 p → p 已是图目录；p 含 .graph/ → 降入解析后的图目录
  * （旧布局 = .graph/ 原地，多图 = active/唯一图）；都没有 → 返回 p/.graph（未初始化，
  * 调用方报既有错误；写入方在此创建 = 旧布局位置，天然兼容）。
+ * arch-c2：解析结果进程内 memo 化（键 = 绝对化 p），命中时免 readdir + 逐图 existsSync；
+ * 探测与写路径显式失效保证语义不变（同 cwd 同结果，见上方 memo 说明）。
  */
 export function toGraphDir(rootDir: string): string {
   if (fs.existsSync(path.join(rootDir, GRAPH_FILE))) return rootDir;
   const dg = path.join(rootDir, GRAPH_DIR);
-  if (fs.existsSync(dg)) {
-    if (fs.existsSync(path.join(dg, GRAPH_FILE))) return dg;
+  let dgStat: fs.Stats | null = null;
+  try {
+    dgStat = fs.statSync(dg);
+  } catch {
+    /* .graph 不存在：未初始化，无解析空间 */
+  }
+  if (dgStat === null) {
+    graphDirMemo.delete(path.resolve(rootDir));
+    return dg;
+  }
+  // memo 命中探测：布局变化动 .graph 目录 mtime，切默认图动 active 的 mtime/size
+  const active = probeActiveFile(dg);
+  const key = path.resolve(rootDir);
+  const memo = graphDirMemo.get(key);
+  if (
+    memo !== undefined &&
+    memo.dgMtimeMs === dgStat.mtimeMs &&
+    memo.activeMtimeMs === (active !== null ? active.mtimeMs : null) &&
+    memo.activeSize === (active !== null ? active.size : null)
+  ) {
+    graphDirMemoHits++;
+    return memo.resolved;
+  }
+  let resolved: string;
+  if (fs.existsSync(path.join(dg, GRAPH_FILE))) {
+    resolved = dg;
+  } else {
     try {
-      return resolveGraphDir(rootDir).dir;
+      resolved = resolveGraphDir(rootDir).dir;
     } catch {
-      return dg; // 多图但解析失败（active 缺失等）：返回 .graph/ 让调用方报错
+      resolved = dg; // 多图但解析失败（active 缺失等）：返回 .graph/ 让调用方报错
     }
   }
-  return dg;
+  graphDirMemo.set(key, {
+    resolved,
+    dgMtimeMs: dgStat.mtimeMs,
+    activeMtimeMs: active !== null ? active.mtimeMs : null,
+    activeSize: active !== null ? active.size : null,
+  });
+  return resolved;
 }
 
 /** 图目录 → 工作区根（.graph/x/ 的上上级；旧布局 .graph/ 的上级；否则原样） */
@@ -242,6 +277,53 @@ export function workspaceOf(dir: string): string {
   if (path.basename(dir) === GRAPH_DIR) return path.dirname(dir);
   if (path.basename(path.dirname(dir)) === GRAPH_DIR) return path.dirname(path.dirname(dir));
   return dir;
+}
+
+// ── 路径解析 memo（arch-c2：10k 节点读路径的重复目录 I/O 减负）──
+// toGraphDir 是全库读路径的咽喉（parser.nodeFilePath/edgeFilePath 每个实体文件、
+// index-service 的新鲜度校验都要过这里）；多图布局下每次解析 = readdir + 逐图
+// existsSync + 读 active，10k 节点全量构建会把这套目录 I/O 重复上万次。
+// 设计：
+//   - 进程内 memo，键 = path.resolve(rootDir)——键含绝对路径，天然不跨 cwd 污染；
+//     不落盘、不跨进程（同 fix_index_cache 的进程内缓存边界）；
+//   - 命中探测 = stat(.graph 目录) + stat(.graph/active)：目录 mtime 对"子项增删/
+//     改名"敏感（建图/删图/迁移/改名必变），active 的 mtime+size 对"切换默认图"
+//     敏感——两个廉价 syscall 替代 readdir + N×existsSync，语义不变（同 cwd 同结果）；
+//   - 写路径原语（writeWorkspaceDefault/createGraph/trashGraph/migrateLegacyLayout）
+//     落盘后显式清 memo——确定性失效，不与文件系统时钟粒度赌运气（同
+//     fix_index_cache 的主动失效思路）。
+interface GraphDirMemoEntry {
+  resolved: string;
+  dgMtimeMs: number;
+  activeMtimeMs: number | null;
+  activeSize: number | null;
+}
+
+const graphDirMemo = new Map<string, GraphDirMemoEntry>();
+let graphDirMemoHits = 0;
+
+/** 测试辅助：清空进程内路径解析 memo（含命中计数归零，便于用例断言） */
+export function resetGraphDirMemo(): void {
+  graphDirMemo.clear();
+  graphDirMemoHits = 0;
+}
+
+/** 测试/诊断：memo 命中计数与当前条目数（memo 生效证据） */
+export function graphDirMemoStats(): { hits: number; size: number } {
+  return { hits: graphDirMemoHits, size: graphDirMemo.size };
+}
+
+function clearGraphDirMemo(): void {
+  graphDirMemo.clear();
+}
+
+function probeActiveFile(dg: string): { mtimeMs: number; size: number } | null {
+  try {
+    const st = fs.statSync(path.join(dg, ACTIVE_FILE));
+    return { mtimeMs: st.mtimeMs, size: st.size };
+  } catch {
+    return null; // active 不存在（兜底解析/未指定）也参与 memo 键
+  }
 }
 
 /**
@@ -261,6 +343,7 @@ export function migrateLegacyLayout(wsRoot: string, actor = "unknown"): string[]
     fs.renameSync(src, path.join(target, item));
     moved.push(item);
   }
+  if (moved.length > 0) clearGraphDirMemo(); // 布局变更：确定性失效路径 memo
   appendWorkspaceEvent(wsRoot, "migrate", `legacy -> default/（${moved.join(", ")}）`, actor);
   return moved;
 }
@@ -273,7 +356,9 @@ export function createGraph(
   wsRoot: string,
   name: string,
   label: string,
-  opts: { actor?: string; version?: string; class?: "quick" | "standard" | "program" } = {},
+  // class 类型 = types.GraphClass（arch-c4a：运行时枚举单源在 core/schema.ts 的
+  // GRAPH_CLASSES，GraphClass 是其类型镜像；此处不再重写字面量联合）
+  opts: { actor?: string; version?: string; class?: GraphClass } = {},
 ): string {
   assertValidGraphName(name);
   const dg = dotGraph(wsRoot);
@@ -312,6 +397,7 @@ export function createGraph(
     yaml.dump(skeleton, { indent: 2, lineWidth: 120 }),
     "utf-8",
   );
+  clearGraphDirMemo(); // 新图目录入布局：确定性失效路径 memo（先于 appendWorkspaceEvent）
   appendWorkspaceEvent(wsRoot, "init", `graph=${name} label="${label}"`, opts.actor);
   return dir;
 }
@@ -330,6 +416,7 @@ export function trashGraph(wsRoot: string, name: string, actor = "unknown"): str
   fs.mkdirSync(trash, { recursive: true });
   const dest = path.join(trash, `${name}-${Date.now()}`);
   fs.renameSync(src, dest);
-  appendWorkspaceEvent(wsRoot, "delete", `graph=${name} -> .trash/（可手工救回）`, actor);
+  clearGraphDirMemo(); // 图目录移出布局：确定性失效路径 memo（先于 appendWorkspaceEvent）
+  appendWorkspaceEvent(wsRoot, "delete", `graph=${name} -> .graph/.trash/（可手工救回）`, actor);
   return dest;
 }

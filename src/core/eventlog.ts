@@ -21,6 +21,9 @@ export interface GraphEvent {
   edge?: string;
   from?: string;
   to?: string;
+  /** v091-class-command（adr_0016）：class_changed 凭据血统（user=用户直发 | agent=agent 自判；
+   * nudge 判定读这个结构化字段，不解析 detail 文本） */
+  by?: string;
   detail?: string;
 }
 
@@ -51,7 +54,10 @@ export type GraphEventKind =
   | "graph_amended"
   // F05（adr_0007，0.9.0）：雾区毕业凭据——与 node_deleted 明确区分（试跑报告卡点 3：
   // 毕业落进通用 node_deleted 无法与删错节点区分）；payload：fog/produced/reason 见 detail
-  | "fog_graduated";
+  | "fog_graduated"
+  // v091-class-command（adr_0016）：档位凭据血统——class 实际变更时落（同值重设不落；
+  // payload：from（缺省=首次设置）/to/by 见结构化字段，actor=by）
+  | "class_changed";
 
 const EVENTS_LOCK = "__events__";
 const EVENTS_FILE = "events.jsonl";

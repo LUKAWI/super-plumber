@@ -4,7 +4,7 @@ import { cliGraphDir } from "./graph-ctx.js";
 import { listNodes } from "../core/node.js";
 import { listEdges } from "../core/edge.js";
 import { readGraph } from "../core/parser.js";
-import { runDocsExport } from "../core/docs-export.js";
+import { runDocsExport, checkDocsExport } from "../core/docs-export.js";
 import type { EdgeSchema, NodeSchema } from "../core/types.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -285,7 +285,11 @@ export function parseBandNames(raws: string[]): Record<number, string> {
 export const exportMermaidCommand = new Command("export").alias("x")
   .description("导出拓扑图（默认 Mermaid 流程图；--docs 导出领域知识顶点为 markdown 视图）")
   .option("--mermaid", "导出为 Mermaid 格式")
-  .option("--docs", "v0.5：导出知识顶点为 markdown（ADR→docs/adr/，context→CONTEXT-MAP.md + docs/contexts/）")
+  .option("--docs", "v0.5：导出知识顶点为 markdown（多图按图分树：ADR→docs/<图名>/adr/，context→docs/<图名>/CONTEXT-MAP.md + docs/<图名>/contexts/）")
+  .option(
+    "--check",
+    "--docs 模式：不写盘，重导出与在位导出逐文件比对；发现漂移退出码 1 并指名漂移文件（prepublishOnly 发版门禁）",
+  )
   .option(
     "--adr-dir <dir>",
     "--docs 模式：ADR 输出目录（缺省：单图 docs/adr；多图 docs/<图名>/adr，按图名分离互不挤占）",
@@ -308,8 +312,31 @@ export const exportMermaidCommand = new Command("export").alias("x")
   .action((options) => {
     const rootDir = cliGraphDir(process.cwd());
 
+    // --check 只在 --docs 模式有意义：单独传是参数误用，响亮失败而非静默按 mermaid 导出
+    if (options.check && !options.docs) {
+      console.error("❌ --check 仅支持与 --docs 同用（文档视图漂移门禁：graph export --docs --check）");
+      process.exit(1);
+    }
+
     // v0.5 文档视图模式：图为真相源，md 是可重生成的视图
     if (options.docs) {
+      // 0.9.0 漂移门禁：不写盘，重导出与在位导出逐文件比对——发版链的机械挂点
+      if (options.check) {
+        const { checked, drift } = checkDocsExport(rootDir, {
+          adrDir: options.adrDir,
+          ctxDir: options.ctxDir,
+        });
+        if (drift.length > 0) {
+          console.error(
+            `❌ 导出漂移：${drift.length}/${checked} 个文件与图内真相不一致（--check 不做任何写入）：`,
+          );
+          for (const f of drift) console.error(`   · ${f}`);
+          console.error(`修复方式：运行 \`graph export --docs\` 重新导出（图为真相源，md 是视图）。`);
+          process.exit(1);
+        }
+        console.log(`✅ 导出无漂移：${checked} 个文件与图内真相一致。`);
+        return;
+      }
       const result = runDocsExport(rootDir, {
         adrDir: options.adrDir,
         ctxDir: options.ctxDir,

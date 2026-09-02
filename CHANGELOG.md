@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.9.1] — 2026-09-02（minor：人机分工进调度——档位凭据 + 等真人可见 + 架构单源化）
+
+> 主题：人机分工从话术约定长出机器面——requires_human/等真人标记进调度五桶、human stale 按人类节奏放宽；class 从纯标注升级为带血统凭据（adr_0016）；C2/C3/C4/C7 四路架构债清偿（调度/validate/提示包/雾区与导出单源化）。
+
+- **F22 /plumber-class 档位凭据命令（adr_0016，IL-024 销账）**：单命令 quick|standard|program，命令文本指示 agent 执行 `graph update-graph --class <档> --by user` 并回显生效；pi 侧对话约定话术落 plumber-design SKILL（用户说设为某档=同款凭据效力）。**class_changed 审计事件**：updateGraph 检测实际变更时落 from/to/by（同值不落、首次设置 from 缺省），provenance 由事件推导、零新 schema 字段；`--by` 双通道（缺省 agent）。**雾/档矛盾 nudge（零门禁）**：图有未毕业雾区且 class 非 program 且最近一次 class 变更无用户凭据 → validate/next 注入提示（fog.ts fogClassNudge 单源，CLI 人读/JSON 与 MCP 全读面），`--by user` 直发后静默——只纠 agent 误判、不骚扰用户明知的选择。话术纪律双副本：升降档须用户批准、降档向（→quick）从严、毕业附带 to-standard 交棒沿用毕业时增量人审不重复请示；commands 正本 3→4（sync 自动传导）。
+- **F06 requires_human 派生标注**：含未完成 verifier:human checkpoint 的节点在双通道读面可见（domain.ts requiresHuman 纯函数，零 schema 字段；CLI get-node/MCP get_node 条目条件缺省；C3a 预留槽位接通真值进 claim 提示包）。
+- **F07 等真人标记 + human stale 阈值**：next 桶对未认领的 requires_human 节点打 `waiting_human`（等真人）；stale 判定按人类节奏放宽——缺省基线 30 分钟 ×8=4 小时（HUMAN_STALE_MULTIPLIER 常量单源、倍数可配），显式 `--stale-ms` 对全部节点生效且不放大（next.ts 去硬编码缺省，防永久压制放大）；调度入口增可注入时钟（stale 测试不再伪造 YAML 时间戳）。
+- **IL-025 雾可毕业 nudge（零门禁）**：fog.ignited 列票全部 passed 且雾未毕业 → validate/next 注入 graduate-fog 毕业建议（fogGraduationNudge，fog.ts 单源）；毕业时机不再靠人记得。
+- **WF10 journey prompts**：plumber-design（图定稿出场：serve 复查/approve 凭据/可另开会话 /plumber-join 入场）与 plumber-execute（节点 passed 后前沿五桶概述+并行 join 建议；整图收口三层验收告知）增阶段末尾告知义务——与 join 冷启动互补（DEC-5：入场 vs 阶段出场）。
+- **WF11 人机介入正交决策表**：manual 新增 §2.12——serve 预览/gate 节点/decision 节点/checkpoint verifier:human 四口一层一职（图级看板/流程硬放行/显式决策位/检查点级人核），互不顶替。
+- **IL-026 grilling 雾区豁免**：sp-grilling SKILL 增条款——雾点只拷「毕业条件是否可验证/可观测」，不按 standard 粒度三问拷问（adr_0007：认知未到处不假装精确）。
+- **架构单源化四路（2026-09-02 架构评审落地）**：
+  - **C3a 认领提示包 core 单源**：buildClaimNudgePackage 单源组装（governing_adrs/adr_flags/review_flag + requires_human 槽位），MCP claim 响应形状不变，CLI update-status 补齐 review_flag 且 ⚠️ 措辞与调度面同源（手写变体消灭，get-node 残留变体一并收敛）。
+  - **C3b validate 下沉 core**：validateGraphDir 七步编排单源（返回 {ok, errors, warnings, node_count, edge_count}），CLI/MCP 只留薄渲染（渠道侧删约 390 行双写编排），两处漂移警告文案归一单源（渠道只加前缀不改写）。
+  - **C4a 雾区成家 + class 枚举单源**：graduateFog 自 parser.ts 迁入 fog.ts（雾区读/警告/毕业写单文件可读，语义零变更）；GRAPH_CLASSES 自 schema.ts 单源导出（satisfies + 编译期反向钳），init/update-graph/graph-dir/mcp 字面量清零。
+  - **C2 调度分家**：新建 src/core/scheduler.ts（五桶 computeNextActions + 旗标装配 + 认领提示包），index-service 只留索引缓存基础设施（525→241 行）；graph-dir 路径解析进程内 memo（10k 节点热路径去重复目录 I/O）；cli/status 改消费调度 summary 删手抄直方图；graph-summary 下沉 core、mcp 对 cli 层引用清零（层次倒挂消除）；f14-dedupe 金测退役（单源后冗余）。
+  - **C7a ADR 导出合树 + 导出门禁 + 锚点即修**：docs/<图名>/adr/ 布局双树合一（default 图视图归位 docs/default/，旧 docs/adr/ 树退役）；新增 `graph export --docs --check`（临时目录重导出比对，漂移退出非零指名文件）挂入 prepublishOnly 发版链；manual 版本锚点与 README 计数即修。
+- **IL-017 脚本通道 traverse 语义对齐**：sp-traverse.mjs 与 MCP graph_traverse 语义对齐（truncated_by_depth/truncated_by_nodes 如实上报、max_depth 缺省 3 上限 50、max_nodes 200），9 用例锚定双通道一致；共享核心抽取留 S03（0.9.4）七脚本收敛一并落地。
+- 测试：后端 90 文件 **764 用例**全绿（0.9.0 为 78 文件 693）+ web-ui **109 用例**；`graph validate` 0 error；sync --check 通过（含版本面一致）；export --docs --check 通过。
+- 治理：**adr_0016 accepted**（档位凭据命令，2026-09-02 用户拍板）；IL-017/IL-024/IL-025/IL-026 销账（issue-log 前馈回路）。
+- 发布动作：npm 0.9.1（latest）+ GitHub tag v0.9.1。
+
 ## [0.9.0] — 2026-09-01（minor：雾中绘图——wayfinder 化核心）
 
 > 主题：「图一次画完」不再强迫认知未到处假装精确——**雾区进 schema**（adr_0007），还没想清楚的领域可登记、可观测、可毕业；program 档 chart the graph / work the graph 两模式附着其上。

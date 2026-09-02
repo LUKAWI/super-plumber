@@ -27,7 +27,7 @@ import {
 } from "../../src/core/parser.js";
 import { listSnapshots } from "../../src/core/snapshot.js";
 import { readEvents } from "../../src/core/eventlog.js";
-import { reviewFlagFor, REVIEW_FLAG_UNREVIEWED } from "../../src/core/index-service.js";
+import { reviewFlagFor, REVIEW_FLAG_UNREVIEWED } from "../../src/core/scheduler.js";
 import { beginStructuralAmend, planAmendNudge, AMEND_SNAPSHOT_PREFIX } from "../../src/core/amend.js";
 import { NodeType, NodeStatus, EdgeType, AdrStatus } from "../../src/core/types.js";
 

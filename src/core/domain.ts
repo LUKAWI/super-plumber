@@ -6,6 +6,7 @@ import {
   EdgeType,
   NodeType,
   isKnowledgeType,
+  type Checkpoint,
   type NodeSchema,
   type EdgeSchema,
 } from "./types.js";
@@ -297,4 +298,22 @@ export function adrFlagsFor(
     }
   }
   return flags;
+}
+
+// ── F06（0.9.1 渐进审批）：requires_human 派生标注 ──
+
+/**
+ * requires_human 判定（调度桶 / get-node 读面 / claim 提示包共用的单源纯函数）：
+ * 节点存在 verifier:"human" 且未完成的 checkpoint → true。
+ * 未完成口径 = status ∉ { passed, skipped }——failed 也是未完成（人工检查点
+ * 失败仍等真人处理）；skipped 是裁决性豁免，视为人工义务解除。
+ * 纯派生零存储：不落 schema 字段，读面按需条件透出（仅真值出现，条件缺省
+ * 与 adr_flags / review_flag 同款）。
+ */
+export function requiresHuman(
+  checkpoints: Pick<Checkpoint, "verifier" | "status">[] | undefined,
+): boolean {
+  return (checkpoints ?? []).some(
+    (c) => c.verifier === "human" && c.status !== "passed" && c.status !== "skipped",
+  );
 }

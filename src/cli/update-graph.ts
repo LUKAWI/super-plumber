@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { cliGraphDir } from "./graph-ctx.js";
 import { updateGraph } from "../core/parser.js";
+import { GRAPH_CLASSES } from "../core/schema.js";
 
 export const updateGraphCommand = new Command("update-graph").alias("ug")
   .description("编辑图级字段（label / entry / exit / root_context / fog / class），不再手写 graph.yaml")
@@ -21,7 +22,11 @@ export const updateGraphCommand = new Command("update-graph").alias("ug")
   )
   .option(
     "--class <class>",
-    "工作类标注：quick | standard | program（DEC-2 三级路由的机器可读面）",
+    `工作类标注：${GRAPH_CLASSES.join(" | ")}（DEC-2 三级路由的机器可读面）`,
+  )
+  .option(
+    "--by <name>",
+    'class 变更的操作者凭据（缺省 "agent"；用户直发 /plumber-class 或对话批准时传 "user"——血统落 class_changed 事件，雾/档矛盾提示据此静默）',
   )
   .action((options) => {
     const rootDir = cliGraphDir(process.cwd());
@@ -61,11 +66,14 @@ export const updateGraphCommand = new Command("update-graph").alias("ug")
         params.fog = fog as unknown as Parameters<typeof updateGraph>[1]["fog"];
       }
       if (options.class !== undefined) {
-        if (!["quick", "standard", "program"].includes(options.class)) {
-          console.error(`❌ --class 仅允许 quick | standard | program（收到: ${options.class}）`);
+        if (!(GRAPH_CLASSES as readonly string[]).includes(options.class)) {
+          console.error(`❌ --class 仅允许 ${GRAPH_CLASSES.join(" | ")}（收到: ${options.class}）`);
           process.exit(1);
         }
         params.class = options.class;
+      }
+      if (options.by !== undefined) {
+        params.by = options.by;
       }
       if (Object.keys(params).length === 0) {
         console.log("⚠️  没有指定任何更新项");
@@ -79,7 +87,9 @@ export const updateGraphCommand = new Command("update-graph").alias("ug")
         console.log(`   fog: ${graph.fog.id}（毕业条件: ${graph.fog.graduation}）`);
       }
       if (graph.class !== undefined) {
-        console.log(`   class: ${graph.class}`);
+        // v091：本次带 --class 时回显凭据血统（实际变更落 class_changed 事件，可查 events）
+        const byEcho = params.class !== undefined ? `（by=${params.by ?? "agent"}）` : "";
+        console.log(`   class: ${graph.class}${byEcho}`);
       }
     } catch (err: any) {
       if (err?.code === "ENOENT") {

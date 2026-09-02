@@ -1,5 +1,6 @@
 // src/cli/graduate-fog.ts — F05（adr_0007，0.9.0）：雾区毕业（CLI 通道）
-// 与 MCP graph_graduate_fog 共用核心原语 graduateFog（src/core/parser.ts）：
+// 与 MCP graph_graduate_fog 共用核心原语 graduateFog（实现在 src/core/fog.ts，
+// 经 src/core/parser.ts 兼容 re-export——arch-c4a 雾区读/写/警告单家收敛）：
 // 清除 graph.yaml 的 fog 字段 + fog_graduated 专用事件 + DEC-7 amend 守卫
 // （自动快照 + graph_amended + review 回置）。毕业是事实陈述：无雾时报错。
 import { Command } from "commander";

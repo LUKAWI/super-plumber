@@ -11,7 +11,8 @@ import {
 } from "../../src/core/node.js";
 import { createEdge } from "../../src/core/edge.js";
 import { writeNode, readNode } from "../../src/core/parser.js";
-import { computeNextActions, resetIndexCache } from "../../src/core/index-service.js";
+import { computeNextActions } from "../../src/core/scheduler.js";
+import { resetIndexCache } from "../../src/core/index-service.js";
 import { readEvents } from "../../src/core/eventlog.js";
 import {
   NodeType,

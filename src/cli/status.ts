@@ -5,6 +5,11 @@ import { readGraph } from "../core/parser.js";
 import { listNodes } from "../core/node.js";
 import { listEdges } from "../core/edge.js";
 import { topologicalSort } from "../core/graph.js";
+// arch-c2：状态直方图改消费调度 summary（computeNextActions 单源）——删除本命令
+// 手抄的 listNodes 计数直方图，与 graph next --json 的 summary 同一派生
+// （工作流七态零填充；知识顶点 context/adr 不参与，与完成判定口径一致）。
+import { computeNextActions } from "../core/scheduler.js";
+import { NodeStatus } from "../core/types.js";
 
 export const statusCommand = new Command("status").alias("s")
   .description("显示当前拓扑图状态")
@@ -27,11 +32,9 @@ export const statusCommand = new Command("status").alias("s")
     }
     const nodes = listNodes(rootDir);
     const edges = listEdges(rootDir);
-
-    const counts: Record<string, number> = {};
-    for (const n of nodes) {
-      counts[n.status] = (counts[n.status] ?? 0) + 1;
-    }
+    const summary = computeNextActions(rootDir).summary;
+    // by_status = 调度 summary 去掉 total（七工作流态，零填充）
+    const { total: _total, ...byStatus } = summary;
 
     let topo:
       | { ok: true; order: string[] }
@@ -60,7 +63,7 @@ export const statusCommand = new Command("status").alias("s")
             ...(graph.fog !== undefined ? { fog: graph.fog } : {}),
             nodes: nodes.length,
             edges: edges.length,
-            by_status: counts,
+            by_status: byStatus,
             topo,
           },
           null,
@@ -84,9 +87,10 @@ export const statusCommand = new Command("status").alias("s")
         console.log(`   已点火: ${graph.fog.ignited.join(", ")}`);
       }
     }
-    console.log(`\n节点状态分布:`);
-    for (const [status, count] of Object.entries(counts)) {
-      console.log(`  ${status}: ${count}`);
+    console.log(`\n节点状态分布 (工作流 ${summary.total} 顶点):`);
+    for (const status of Object.values(NodeStatus)) {
+      const count = summary[status];
+      if (count > 0) console.log(`  ${status}: ${count}`);
     }
 
     if (topo.ok) {
