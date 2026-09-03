@@ -74,9 +74,10 @@ function amendEvents(): any[] {
 }
 
 /** core API 把节点铺到 passed（状态铺垫不走 CLI；nudge/快照断言走 CLI 通道）。
- * 前提：tmpDir 已 init t。 */
+ * 前提：tmpDir 已 init t。铺垫的 createNode 自带守卫凭据（C5 起「跳过守卫」
+ * 已退役）；本文件的快照/事件断言不含铺垫计数，无需隔离。 */
 function driveToPassed(id: string) {
-  createNode(tmpDir, { id, type: NodeType.Task, label: id }, { skipAmendGuard: true });
+  createNode(tmpDir, { id, type: NodeType.Task, label: id });
   updateNodeStatus(tmpDir, id, NodeStatus.Ready);
   updateNodeStatus(tmpDir, id, NodeStatus.Running, "agent-x");
   updateExecutionReport(tmpDir, id, { summary: "done" });

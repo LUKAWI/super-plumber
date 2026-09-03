@@ -122,3 +122,62 @@ describe("graph approve（CLI 通道）", () => {
     expect(JSON.stringify(after.ready)).not.toContain("review_flag");
   });
 });
+
+// ── F08（0.9.2 渐进审批）：approve --level 分批准入（CLI 通道）──
+describe("graph approve --level（F08，CLI 通道）", () => {
+  it("--level L1：layers 落盘（形状 level/by/at）+ 事件 detail 含 level=L1 + stdout 回显", () => {
+    init();
+    const r = run(["approve", "--by", "alice", "--level", "L1"]);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("layers:");
+    const yaml = readGraphYaml();
+    expect(yaml).toContain("layers:");
+    expect(yaml).toContain("level: L1");
+    expect(yaml).toContain("by: alice");
+    const events = designApprovedEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0].detail).toContain("level=L1");
+    expect(events[0].detail).toContain("by=alice");
+  });
+
+  it("多层追加 + 同层重复覆盖：L1→L2→L1（换人）→ 仍 2 条、L1 by 为最新", () => {
+    init();
+    expect(run(["approve", "--by", "alice", "--level", "L1"]).status).toBe(0);
+    expect(run(["approve", "--by", "bob", "--level", "L2"]).status).toBe(0);
+    expect(run(["approve", "--by", "carol", "--level", "L1"]).status).toBe(0);
+    const yaml = readGraphYaml();
+    expect(yaml).toContain("level: L1");
+    expect(yaml).toContain("level: L2");
+    expect(yaml).toContain("by: carol");
+    expect(designApprovedEvents()).toHaveLength(3);
+  });
+
+  it("零拒绝红线：默认 init 图（无 class 标注）与 quick 图带 --level 均成功", () => {
+    init(); // 默认 init 不写 class 字段 = 非 program 图
+    const r = run(["approve", "--by", "alice", "--level", "L1"]);
+    expect(r.status).toBe(0);
+    expect(readGraphYaml()).toContain("layers:");
+    // quick 图同样照写（档位路由是 skill 口径，工具不强制）
+    expect(run(["init", "q", "--class", "quick"]).status).toBe(0);
+    const r2 = run(["approve", "--by", "bob", "--level", "L1", "--graph", "q"]);
+    expect(r2.status).toBe(0);
+    const qYaml = fs.readFileSync(path.join(tmpDir, ".graph/q/graph.yaml"), "utf-8");
+    expect(qYaml).toContain("layers:");
+  });
+
+  it("不带 --level 行为回归不变：graph.yaml 无 layers 字段", () => {
+    init();
+    const r = run(["approve", "--by", "alice"]);
+    expect(r.status).toBe(0);
+    expect(readGraphYaml()).not.toContain("layers:");
+    expect(r.stdout).not.toContain("layers:");
+  });
+
+  it("--level 空串 → exit 1 且不落盘", () => {
+    init();
+    const r = run(["approve", "--by", "alice", "--level", ""]);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("--level");
+    expect(readGraphYaml()).not.toContain("layers:");
+  });
+});

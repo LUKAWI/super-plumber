@@ -8,7 +8,7 @@ import {
   type Contract,
   GATE_EDGE_TYPES,
 } from "./types.js";
-import { readNode, writeNode, nodeFilePath, addGraphRef } from "./parser.js";
+import { readNode, writeNode, nodeFilePath, addGraphRef } from "./graph-io.js";
 import { transition } from "./state-machine.js";
 import { withLockSync } from "./lock.js";
 import {
@@ -20,7 +20,7 @@ import { assertValidEntityId } from "./schema.js";
 import { buildGraphIndex } from "./index-service.js";
 import { governingAdrsFor } from "./domain.js";
 import { appendEvent } from "./eventlog.js";
-import { beginStructuralAmend } from "./amend.js";
+import { withGraphAmend } from "./amend.js";
 import * as fs from "node:fs";
 
 export { GATE_EDGE_TYPES } from "./types.js";
@@ -43,7 +43,7 @@ export type CreateNodeParams = {
 export function createNode(
   rootDir: string,
   params: CreateNodeParams,
-  opts: { syncRef?: boolean; actor?: string; skipAmendGuard?: boolean } = {},
+  opts: { syncRef?: boolean; actor?: string } = {},
 ): NodeSchema {
   // S0-3：入口断言（进锁之前）——非法 ID（含 Windows 非法文件名字符）若先进锁，
   // 锁文件名编码不覆盖 * 等字符会在 .locks/ 上 ENOENT 崩掉，报错面目全非
@@ -53,49 +53,46 @@ export function createNode(
     if (fs.existsSync(nodeFilePath(rootDir, params.id))) {
       throw new Error(`Node ${params.id} already exists`);
     }
-    // F21 (a)(b)：结构修订守卫——落图前自动快照 + 成功后 graph_amended 事件/review
-    // 回置。重复 id 拒绝路径（上方）不留快照；batch_create 外层统一守卫，
-    // 逐节点调用传 skipAmendGuard 跳过（防一次批量操作多份快照）。
-    const amend = opts.skipAmendGuard
-      ? undefined
-      : beginStructuralAmend(rootDir, {
-          action: "add-node",
-          target: params.id,
-          actor: opts.actor,
+    // F21 (a)(b)（C5 组合器）：结构修订守卫——落图前自动快照 + 成功后
+    // graph_amended 事件/review 回置。重复 id 拒绝路径（上方）在守卫段之前，
+    // 不留快照；batch_create 外层统一守卫，嵌套内层自动免守卫（防快照风暴）。
+    return withGraphAmend(
+      rootDir,
+      { action: "add-node", target: params.id, actor: opts.actor },
+      () => {
+        const now = new Date().toISOString();
+        const node: NodeSchema = {
+          id: params.id,
+          type: params.type,
+          label: params.label,
+          level: params.level ?? 1,
+          ...(params.priority !== undefined ? { priority: params.priority } : {}),
+          ...(params.context !== undefined ? { context: params.context } : {}),
+          status: NodeStatus.Pending,
+          plan: params.plan_description
+            ? { description: params.plan_description }
+            : undefined,
+          expected_outcome: params.definition_of_done
+            ? { definition_of_done: params.definition_of_done }
+            : undefined,
+          assigned_to: params.assigned_to,
+          attempts: 0,
+          max_attempts: params.max_attempts ?? 3,
+          created_at: now,
+          updated_at: now,
+          ...(params.checkpoints ? { checkpoints: params.checkpoints } : {}),
+        };
+        writeNode(rootDir, node);
+        if (opts.syncRef !== false) addGraphRef(rootDir, "node", node.id);
+        appendEvent(rootDir, {
+          actor: opts.actor ?? "unknown",
+          kind: "node_created",
+          node: node.id,
+          to: NodeStatus.Pending,
         });
-    const now = new Date().toISOString();
-    const node: NodeSchema = {
-      id: params.id,
-      type: params.type,
-      label: params.label,
-      level: params.level ?? 1,
-      ...(params.priority !== undefined ? { priority: params.priority } : {}),
-      ...(params.context !== undefined ? { context: params.context } : {}),
-      status: NodeStatus.Pending,
-      plan: params.plan_description
-        ? { description: params.plan_description }
-        : undefined,
-      expected_outcome: params.definition_of_done
-        ? { definition_of_done: params.definition_of_done }
-        : undefined,
-      assigned_to: params.assigned_to,
-      attempts: 0,
-      max_attempts: params.max_attempts ?? 3,
-      created_at: now,
-      updated_at: now,
-      ...(params.checkpoints ? { checkpoints: params.checkpoints } : {}),
-    };
-    writeNode(rootDir, node);
-    if (opts.syncRef !== false) addGraphRef(rootDir, "node", node.id);
-    appendEvent(rootDir, {
-      actor: opts.actor ?? "unknown",
-      kind: "node_created",
-      node: node.id,
-      to: NodeStatus.Pending,
-    });
-    // F21 (b)：写盘成功后补 graph_amended 事件 + review 回置
-    amend?.complete();
-    return node;
+        return node;
+      },
+    );
   });
 }
 
@@ -547,22 +544,23 @@ export function createAdr(
         if (fs.existsSync(nodeFilePath(rootDir, id))) {
           throw new Error(`Node ${id} already exists`);
         }
-        // F21 (a)(b)：ADR 顶点创建 = 建节点，同受结构修订守卫（拒绝路径不留快照）
-        const amend = beginStructuralAmend(rootDir, {
-          action: "add-node",
-          target: id,
-          actor: opts.actor,
-        });
-        writeNode(rootDir, node);
-        addGraphRef(rootDir, "node", id);
-        appendEvent(rootDir, {
-          actor: opts.actor ?? "unknown",
-          kind: "adr_created",
-          node: id,
-          to: AdrStatus.Proposed,
-          detail: params.title,
-        });
-        amend.complete();
+        // F21 (a)(b)：ADR 顶点创建 = 建节点，同受结构修订守卫（C5 组合器；
+        // 拒绝路径在守卫段之前，不留快照）
+        withGraphAmend(
+          rootDir,
+          { action: "add-node", target: id, actor: opts.actor },
+          () => {
+            writeNode(rootDir, node);
+            addGraphRef(rootDir, "node", id);
+            appendEvent(rootDir, {
+              actor: opts.actor ?? "unknown",
+              kind: "adr_created",
+              node: id,
+              to: AdrStatus.Proposed,
+              detail: params.title,
+            });
+          },
+        );
       });
       return node;
     } catch (err: any) {

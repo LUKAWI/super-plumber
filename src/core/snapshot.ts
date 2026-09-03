@@ -13,7 +13,7 @@ import * as yaml from "js-yaml";
 import { type NodeSchema } from "./types.js";
 import { listNodeFileNames, listEdgeFileNames } from "./schema.js";
 import { appendEvent } from "./eventlog.js";
-import { rebuildGraphRefsLocked, withGraphLock } from "./parser.js";
+import { rebuildGraphRefsLocked, withGraphLock } from "./graph-io.js";
 import { runDocsExport } from "./docs-export.js";
 import { toGraphDir } from "./graph-dir.js";
 

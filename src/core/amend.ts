@@ -7,8 +7,9 @@
 //       （"auto: structural amend (add-node <id>) by <channel>"）。
 //       拦截点在 core 公共写入口（createNode/createAdr/createEdge/deleteNode/
 //       deleteEdge），CLI / MCP / 脚本三通道天然一致；batch_create 与 cascade
-//       删边等"一次用户操作、多次底层写"的路径由外层统一守卫一次，内层
-//       传 skipAmendGuard 跳过（防快照风暴）。
+//       删边等"一次用户操作、多次底层写"的路径经 withGraphAmend 组合器在外层
+//       统一守卫一次（同图存活守卫期间内层写自动免守卫，防快照风暴——
+//       0.9.2 C5：手工 begin/complete 布线与「跳过守卫」透传字段退役）。
 //   (b) graph_amended 审计事件 + review 回置：结构修订落盘成功后追加
 //       graph_amended 事件（events.jsonl，与既有事件同构）；图 yaml 已有
 //       review 凭据则回置 status=unreviewed（by/at 记录触发修订的通道与时刻，
@@ -18,7 +19,7 @@
 //       update-node 双通道在响应中各自附加「计划已变更，是否重开/重验」提示，
 //       纯提示不改状态。
 import { createSnapshot } from "./snapshot.js";
-import { resetGraphReview } from "./parser.js";
+import { resetGraphReview } from "./review.js";
 import { appendEvent } from "./eventlog.js";
 import { NodeStatus, type NodeSchema } from "./types.js";
 
@@ -119,4 +120,41 @@ export function planAmendNudge(
     `plan 修改不会自动触发状态流转——既有执行报告与裁决可能已与新计划失配，` +
     `请评估是否重开节点重新验收（blocked → ready / 人工重开），纯文案微调可忽略本提示。`
   );
+}
+
+// ── C5（0.9.2）：改图守卫组合器 ──
+// withGraphAmend 收拢 begin→写→complete 三步舞（含 fn 抛错时不留凭据的善后），
+// 替代各写入口的手工布线；同图嵌套调用自动免守卫（batch_create / cascade 删边
+// 等"一次操作、多次底层写"由最外层统一守卫一次），「跳过守卫」透传字段退役。
+
+/** 存活守卫作用域（按图目录登记）：嵌套判定依据，withGraphAmend 出口必清理 */
+const activeAmendScopes = new Set<string>();
+
+/**
+ * 结构修订组合器：begin（落图前自动快照）→ 执行 fn 内的写入 → 成功后
+ * complete（graph_amended 事件 + review 回置）。语义与手工三步舞逐点一致：
+ *   - fn 抛错 → complete 不调用（不为未发生的修订留凭据），作用域必清理；
+ *   - 拒绝路径不留快照由调用方保证——fn 须只含已过校验的写入段（各写入口
+ *     的重复/存在性检查仍在组合器之前）；
+ *   - 同 rootDir 已有存活守卫（嵌套）→ 内层只执行 fn 不重复守卫，整批一份
+ *     快照/一条事件；不同图互不影响（作用域按 rootDir 登记）。
+ * fn 必须同步（既有站点全部为同步写盘；作用域登记不跨 await）。
+ * 锁序不变：可在实体锁内调用（begin/complete 只触图级资源，实体锁→图锁），
+ * 也可完全在锁外（graduateFog 先例：守卫跨越图锁但不持图锁跨越 complete）。
+ */
+export function withGraphAmend<T>(
+  rootDir: string,
+  info: StructuralAmendInfo,
+  fn: () => T,
+): T {
+  if (activeAmendScopes.has(rootDir)) return fn(); // 嵌套：外层统一守卫
+  const amend = beginStructuralAmend(rootDir, info);
+  activeAmendScopes.add(rootDir);
+  try {
+    const result = fn();
+    amend.complete();
+    return result;
+  } finally {
+    activeAmendScopes.delete(rootDir);
+  }
 }

@@ -28,7 +28,7 @@ import {
 import { listSnapshots } from "../../src/core/snapshot.js";
 import { readEvents } from "../../src/core/eventlog.js";
 import { reviewFlagFor, REVIEW_FLAG_UNREVIEWED } from "../../src/core/scheduler.js";
-import { beginStructuralAmend, planAmendNudge, AMEND_SNAPSHOT_PREFIX } from "../../src/core/amend.js";
+import { withGraphAmend, planAmendNudge, AMEND_SNAPSHOT_PREFIX } from "../../src/core/amend.js";
 import { NodeType, NodeStatus, EdgeType, AdrStatus } from "../../src/core/types.js";
 
 let tmpDir: string;
@@ -65,10 +65,19 @@ function amendEvents(rootDir = tmpDir) {
   return readEvents(rootDir, { kind: "graph_amended" });
 }
 
-function batchSetup(ids: string[], skip = true) {
-  for (const id of ids) {
-    createNode(tmpDir, { id, type: NodeType.Task, label: id }, { skipAmendGuard: skip });
-  }
+/** 批量铺垫经组合器（C5：「跳过守卫」透传字段退役，同图嵌套免守卫即其继任
+ * 语义）——一次铺垫一份守卫快照/一条 graph_amended 事件；各用例基线在铺垫后
+ * 取样，增量断言不受铺垫凭据影响。 */
+function batchSetup(ids: string[]) {
+  withGraphAmend(
+    tmpDir,
+    { action: "batch-create", detail: `nodes=${ids.length}, edges=0` },
+    () => {
+      for (const id of ids) {
+        createNode(tmpDir, { id, type: NodeType.Task, label: id });
+      }
+    },
+  );
 }
 
 // ───────────────────────── (a) 落图前自动快照 ─────────────────────────
@@ -126,7 +135,7 @@ describe("F21 (a) 结构修订落图前自动 snapshot", () => {
 
   it("cascade 删除节点+引用边：一次操作只一份快照、一条 graph_amended 事件", () => {
     batchSetup(["a", "b"]);
-    createEdge(tmpDir, { id: "e1", source: "a", target: "b", type: EdgeType.DependsOn }, { skipAmendGuard: true });
+    createEdge(tmpDir, { id: "e1", source: "a", target: "b", type: EdgeType.DependsOn });
     const before = amendSnaps().length;
     const beforeEvents = amendEvents().length;
     deleteNode(tmpDir, "a", { cascade: true, actor: "cli" });
@@ -138,18 +147,18 @@ describe("F21 (a) 结构修订落图前自动 snapshot", () => {
     expect(readEvents(tmpDir, { kind: "edge_deleted" })).toHaveLength(1);
   });
 
-  it("batch 模式（外层守卫 + 内层跳过）：整批一次快照一次事件", () => {
+  it("batch 模式（组合器整批守卫 + 内层嵌套免守卫）：整批一次快照一次事件", () => {
     const before = amendSnaps().length;
     const beforeEvents = amendEvents().length;
-    const amend = beginStructuralAmend(tmpDir, {
-      action: "batch-create",
-      detail: "nodes=2, edges=1",
-      actor: "mcp",
-    });
-    createNode(tmpDir, { id: "b1", type: NodeType.Task, label: "B1" }, { skipAmendGuard: true });
-    createNode(tmpDir, { id: "b2", type: NodeType.Task, label: "B2" }, { skipAmendGuard: true });
-    createEdge(tmpDir, { id: "be1", source: "b1", target: "b2", type: EdgeType.DependsOn }, { skipAmendGuard: true });
-    amend.complete();
+    withGraphAmend(
+      tmpDir,
+      { action: "batch-create", detail: "nodes=2, edges=1", actor: "mcp" },
+      () => {
+        createNode(tmpDir, { id: "b1", type: NodeType.Task, label: "B1" });
+        createNode(tmpDir, { id: "b2", type: NodeType.Task, label: "B2" });
+        createEdge(tmpDir, { id: "be1", source: "b1", target: "b2", type: EdgeType.DependsOn });
+      },
+    );
     expect(amendSnaps()).toHaveLength(before + 1);
     expect(amendSnaps()[amendSnaps().length - 1].message).toBe(
       "auto: structural amend (batch-create; nodes=2, edges=1) by mcp",
@@ -159,7 +168,7 @@ describe("F21 (a) 结构修订落图前自动 snapshot", () => {
 
   it("拒绝路径不留快照：重复 id / 悬挂引用删除照旧拒绝且无凭据", () => {
     batchSetup(["n1", "n2"]);
-    createEdge(tmpDir, { id: "e1", source: "n1", target: "n2", type: EdgeType.DependsOn }, { skipAmendGuard: true });
+    createEdge(tmpDir, { id: "e1", source: "n1", target: "n2", type: EdgeType.DependsOn });
     const before = amendSnaps().length;
     const beforeEvents = amendEvents().length;
     expect(() =>
@@ -241,25 +250,26 @@ describe("F21 (b) graph_amended 事件 + review 回置 unreviewed", () => {
   it("快照失败不阻断结构修订（红线）：快照失败仍落图并留 auto_snapshot_failed 痕迹", () => {
     // graph.yaml 置为 schema 毒化 → createSnapshot 收集源文件时 hashFile 读到
     // graph.yaml 正常（存在即可读）——改用只读目录模拟快照失败不可靠；
-    // 直接验证守卫契约：快照抛错时写操作照常执行（以 beginStructuralAmend
-    // 单元行为为准，真实失败路径由同一 try/catch 覆盖）。
+    // 经组合器验证守卫契约：快照路径照常（事件 detail 带 auto_snapshot=）、
+    // 写操作照常执行（真实失败路径由 beginStructuralAmend 内同一 try/catch 覆盖）。
     batchSetup(["n1"]);
-    const amend = beginStructuralAmend(tmpDir, { action: "add-node", target: "n2", actor: "cli" });
-    expect(amend.snapshotId).toBeTruthy();
-    createNode(tmpDir, { id: "n2", type: NodeType.Task, label: "N2" }, { skipAmendGuard: true });
-    amend.complete();
+    withGraphAmend(tmpDir, { action: "add-node", target: "n2", actor: "cli" }, () => {
+      createNode(tmpDir, { id: "n2", type: NodeType.Task, label: "N2" }); // 嵌套免守卫
+    });
     expect(fs.existsSync(path.join(tmpDir, ".graph", "nodes", "n2.yaml"))).toBe(true);
     expect(amendEvents()[amendEvents().length - 1].detail).toContain("auto_snapshot=");
   });
 
-  it("写盘失败不为未发生的修订留凭据：complete 未调用则无事件", () => {
+  it("写盘失败不为未发生的修订留凭据：fn 抛错则 complete 未调用、无事件", () => {
     batchSetup(["n1"]);
-    const amend = beginStructuralAmend(tmpDir, { action: "add-node", target: "n2", actor: "cli" });
+    const beforeEvents = amendEvents().length; // 铺垫凭据取基线（组合器铺垫含一条事件）
     expect(() =>
-      createNode(tmpDir, { id: "n1", type: NodeType.Task, label: "N1" }),
-    ).toThrow(/already exists/);
+      withGraphAmend(tmpDir, { action: "add-node", target: "n2", actor: "cli" }, () => {
+        throw new Error("write failed");
+      }),
+    ).toThrow(/write failed/);
     // 模拟写路径抛错：complete 未被调用 → 不为未发生的修订追加事件
-    expect(amendEvents()).toHaveLength(0);
+    expect(amendEvents()).toHaveLength(beforeEvents);
   });
 });
 
@@ -295,7 +305,7 @@ describe("F21 (c) planAmendNudge（passed/blocked + plan 变更）", () => {
   });
 
   it("updateNodeContent 改 passed 节点 plan 照常成功（零门禁红线：nudge 不拦截）", () => {
-    createNode(tmpDir, { id: "n1", type: NodeType.Task, label: "N1" }, { skipAmendGuard: true });
+    createNode(tmpDir, { id: "n1", type: NodeType.Task, label: "N1" });
     updateNodeStatus(tmpDir, "n1", NodeStatus.Ready);
     updateNodeStatus(tmpDir, "n1", NodeStatus.Running, "agent-x");
     updateExecutionReport(tmpDir, "n1", { summary: "done" });

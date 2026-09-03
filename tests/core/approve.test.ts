@@ -1,11 +1,18 @@
 // tests/core/approve.test.ts — DEC-1（g080-approve-core）：设计审核凭据
 // approveGraph 写入（review 字段 + design_approved 事件）与 review_flag 注入。
+// F08（0.9.2 渐进审批）：--level 分层批准（layers 落盘形状/同层覆盖/事件 level/
+// 非 program 图零拒绝/旧图零迁移）。
 // 红线回归：review 仅记录、零门禁——无 review 凭据时状态机全链路照常通过。
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { approveGraph, readGraph, writeGraph } from "../../src/core/parser.js";
+import {
+  approveGraph,
+  resetGraphReview,
+  readGraph,
+  writeGraph,
+} from "../../src/core/parser.js";
 import { createNode, updateNodeStatus, updateExecutionReport } from "../../src/core/node.js";
 import { computeNextActions, reviewFlagFor, REVIEW_FLAG_UNREVIEWED } from "../../src/core/scheduler.js";
 import { readEvents } from "../../src/core/eventlog.js";
@@ -168,5 +175,127 @@ describe("schema 放行与形状校验（可选字段，零默认拒绝）", () 
     const bad2 = skeletonGraph() as any;
     bad2.review = { status: "approved", by: "" };
     expect(validateGraph(bad2).some((i) => i.field === "by")).toBe(true);
+  });
+});
+
+// ── F08（0.9.2 渐进审批）：approve --level 分批准入 ──
+describe("F08 分层 approve（--level / level 参数）", () => {
+  it("带 level：整图凭据照写 + review.layers 追加一条 {level,by,at}（落盘重读核验）", () => {
+    const g = approveGraph(tmpDir, { by: "alice", level: "L1" });
+    expect(g.review!.status).toBe("approved");
+    expect(g.review!.by).toBe("alice");
+    expect(g.review!.layers).toEqual([
+      { level: "L1", by: "alice", at: g.review!.layers![0].at },
+    ]);
+    expect(g.review!.layers![0].at).toBeTruthy();
+    // 真相源核验：graph.yaml 落盘后重读
+    const onDisk = readGraph(tmpDir).review!;
+    expect(onDisk.layers).toHaveLength(1);
+    expect(onDisk.layers![0].level).toBe("L1");
+    expect(onDisk.layers![0].by).toBe("alice");
+  });
+
+  it("多层追加保持首次批准顺序；同层重复 approve 覆盖更新该层 by/at（不新增条目）", () => {
+    approveGraph(tmpDir, { by: "alice", level: "L1" });
+    approveGraph(tmpDir, { by: "bob", level: "L2" });
+    // 同层重复：L1 换人重批 → 原位覆盖，顺序仍是 L1, L2
+    const g = approveGraph(tmpDir, { by: "carol", level: "L1" });
+    expect(g.review!.layers!.map((l) => l.level)).toEqual(["L1", "L2"]);
+    expect(g.review!.layers![0].by).toBe("carol");
+    // 真相源核验：仍是 2 条，无重复
+    expect(readGraph(tmpDir).review!.layers).toHaveLength(2);
+    expect(readGraph(tmpDir).review!.layers![0].by).toBe("carol");
+  });
+
+  it("事件 payload 含 level（detail 追加 level=L…）；不带 level 的 detail 不含 level=", () => {
+    approveGraph(tmpDir, { by: "alice", level: "L1" });
+    approveGraph(tmpDir, { by: "bob" });
+    const events = readEvents(tmpDir, { kind: "design_approved" });
+    expect(events).toHaveLength(2);
+    expect(events[0].detail).toContain("by=alice");
+    expect(events[0].detail).toContain("level=L1");
+    expect(events[1].detail).toContain("by=bob");
+    expect(events[1].detail).not.toContain("level=");
+  });
+
+  it("零拒绝红线：非 program 图（无 class 标注）与 quick 图带 level 均成功落记录", () => {
+    expect(readGraph(tmpDir).class).toBeUndefined(); // 前置：本图无 class 标注
+    const g1 = approveGraph(tmpDir, { by: "alice", level: "L1" });
+    expect(g1.review!.layers).toHaveLength(1);
+    // quick 图同样照写（档位路由是 skill 口径，工具不强制）
+    writeGraph(tmpDir, { ...skeletonGraph(), class: "quick" });
+    const g2 = approveGraph(tmpDir, { by: "bob", level: "L2" });
+    expect(g2.review!.layers).toEqual([
+      expect.objectContaining({ level: "L2", by: "bob" }),
+    ]);
+  });
+
+  it("不带 level 的整图 approve 行为回归不变：layers 缺省不存在（undefined 非空数组）", () => {
+    const g = approveGraph(tmpDir, { by: "alice" });
+    expect(g.review!.layers).toBeUndefined();
+    expect(readGraph(tmpDir).review!.layers).toBeUndefined();
+  });
+
+  it("整图 approve（不带 level）覆盖清掉层批记录（最新一次审核生效；历史仍可查 events）", () => {
+    approveGraph(tmpDir, { by: "alice", level: "L1" });
+    approveGraph(tmpDir, { by: "boss" }); // 整图凭据覆盖一切层批
+    expect(readGraph(tmpDir).review!.layers).toBeUndefined();
+    const events = readEvents(tmpDir, { kind: "design_approved" });
+    expect(events).toHaveLength(2); // append-only：层批事件不丢
+    expect(events[0].detail).toContain("level=L1");
+  });
+
+  it("旧图无 layers 字段兼容：手编 review 无 layers 照常读入，再带 level 正常追加（零迁移）", () => {
+    const g = skeletonGraph() as any;
+    g.review = { status: "unreviewed", by: "amend", at: "2026-01-01T00:00:00.000Z" };
+    writeGraph(tmpDir, g);
+    const out = approveGraph(tmpDir, { by: "alice", level: "L1" });
+    expect(out.review!.layers).toEqual([expect.objectContaining({ level: "L1", by: "alice" })]);
+  });
+
+  it("resetGraphReview 回置后 layers 一并作废（层批的是修订前旧结构，增量人审从零重走）", () => {
+    approveGraph(tmpDir, { by: "alice", level: "L1" });
+    expect(readGraph(tmpDir).review!.layers).toHaveLength(1);
+    expect(resetGraphReview(tmpDir, { actor: "cli:amend" })).toBe(true);
+    const r = readGraph(tmpDir).review!;
+    expect(r.status).toBe("unreviewed");
+    expect(r.layers).toBeUndefined();
+  });
+});
+
+describe("F08 schema：layers 形状校验（宽容缺省/严格存在）", () => {
+  it("合法 layers 通过", () => {
+    const g = skeletonGraph() as any;
+    g.review = {
+      status: "approved",
+      by: "q",
+      at: new Date().toISOString(),
+      layers: [{ level: "L1", by: "alice", at: new Date().toISOString() }],
+    };
+    expect(validateGraph(g)).toEqual([]);
+  });
+
+  it("手编拼错在读入层拦截：layers 非数组 / 项缺 level / 项 by 为空", () => {
+    const base = () => skeletonGraph() as any;
+
+    const bad1 = base();
+    bad1.review = { status: "approved", by: "q", layers: "L1" };
+    expect(validateGraph(bad1).some((i) => i.field === "layers")).toBe(true);
+
+    const bad2 = base();
+    bad2.review = {
+      status: "approved",
+      by: "q",
+      layers: [{ by: "alice", at: "2026-01-01T00:00:00.000Z" }], // 缺 level
+    };
+    expect(validateGraph(bad2).some((i) => i.field === "level")).toBe(true);
+
+    const bad3 = base();
+    bad3.review = {
+      status: "approved",
+      by: "q",
+      layers: [{ level: "L1", by: "", at: "2026-01-01T00:00:00.000Z" }],
+    };
+    expect(validateGraph(bad3).some((i) => i.field === "by")).toBe(true);
   });
 });

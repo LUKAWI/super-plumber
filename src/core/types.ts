@@ -210,6 +210,18 @@ export interface GraphReview {
   status: "approved" | "self" | "unreviewed";
   by: string; // 审核人（quick 自签时为 quick 操作者名；回置时为触发修订的通道/actor）
   at: string; // ISO 8601
+  // F08（0.9.2 渐进审批）：分层批准记录（approve --level 追加式写入；缺省不存在
+  // =存量图零迁移）。同层重复 approve 覆盖更新该层 by/at，首次批准顺序保持；
+  // 整体 status/by/at 语义不变（始终是最新一次 approve 的整图凭据）。
+  layers?: GraphReviewLayer[];
+}
+
+// F08：单层分层批准凭据（level 为档位层标，如 L1/L2/...——档位路由是 skill 口径，
+// 工具不强制格式，仅要求非空；零门禁红线：layers 仅记录，不加任何拒绝规则）
+export interface GraphReviewLayer {
+  level: string;
+  by: string;
+  at: string; // ISO 8601
 }
 
 // adr_0007（0.9.0）：雾区——"还没想清楚的区域"进 schema 为图级轻字段。

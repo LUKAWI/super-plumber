@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.9.2] — 2026-09-03（minor：渐进审批——分层凭据 + 审批成家/改图组合器两路架构收口）
+
+> 主题：adr_0001 凭据哲学的粒度扩展——program 类大图可审一层批一层（approve --level）；C4b/C5 两路架构债清偿（审批凭据成家 review.ts + parser 减负解环、改图「begin→写→complete」三步舞组合器化、skipAmendGuard 通道退役）。
+
+- **F08 approve --level 分批准入（双通道）**：CLI `approve` 增 `--level <层标>`、MCP `graph_approve` 增 `level` 参数——带 level = 整图凭据照写（status/by/at 语义逐字不变）+ `review.layers` 追加一条（同层原位覆盖、首次批准顺序保持）；design_approved 事件 detail 追加 `level=…`（不带 level 时逐字不变，既有消费方零破坏）；整图 approve / resetGraphReview 覆盖时 layers 一并作废（层批历史仍可查 events.jsonl）；**零新增拒绝规则**——level 接受任意非空串，quick/standard/无 class 图照记（档位路由是 skill 口径，工具不强制）；旧图无 layers 零迁移，review schema 严格形状校验（存在则验）。话术一行对齐：plumber-design SKILL Step 5（.pi 正本 + 插件副本，并顺带补齐 0.9.1 漏传导的档位凭据纪律段与 WF10 旅程告知行——见 IL-028）。
+- **C4b 审批凭据成家 + parser 减负解环**：新建 `src/core/review.ts`（approveGraph/resetGraphReview/ApproveGraphParams 单家，0.9.2 approve --level 直接落新家）；文件 I/O 原语层下沉新建 `src/core/graph-io.ts`（图/实体读写、锁包装、路径、引用列表同步）；parser.ts 瘦身为用例编排层（原生 4 名，其余 21 名兼容 re-export，CLI/MCP/web 调用面零改动）；循环 import 6→3（madge 同口径：parser↔amend 直环、parser↔fog、parser↔index-service 等四环消灭，parser 完全出环；残余为 lock 既有结构与原环平移）。
+- **C5 改图守卫组合器**：`withGraphAmend(rootDir, info, fn)` 收拢 begin→写→complete 三步舞——fn 抛错不留凭据、finally 必清作用域、嵌套免守卫内建（原 skipAmendGuard 语义收拢为免旁路开关）、锁序保持；7 处布线站点迁移（createNode/createAdr/createEdge/deleteNode/deleteEdge/graduateFog/mcp batch_create 整批守卫一次）；mutation API 的 skipAmendGuard 透传字段全库退役（grep 零命中）；守卫语义零变化（拒绝路径不留快照、batch/cascade 整批一份快照一条事件）；lock.ts 按拍板选型 (a) 未动（*Core/*Locked 命名保留，重入/所有权令牌留 1.0 后）。
+- 测试：后端 91 文件 **787 用例**全绿（0.9.1 为 90 文件 764：+4 review 新家回归 +19 分层 approve 双通道）+ web-ui **109 用例**；`graph validate` 0 error；sync --check 通过（含版本面一致）；export --docs --check 通过；并发套件（lock/concurrency×2/lock-window）16 用例单独复核绿。
+- 治理：issue-log 前馈回路入册 IL-028～IL-036（含 **IL-028 sync 不管理 SKILL.md 副本传导**——0.9.1 两段漏传实锤并本批修复，机制缺口挂 v094-restructure 设计输入）；v092-verify 由 super-mario 独立实测（临时 program 图逐层 approve 全断言 + quick/无 class 零拒绝复核，IL-020 签署代录模式）。
+- 发布动作：npm 0.9.2（latest）+ GitHub tag v0.9.2。
+
 ## [0.9.1] — 2026-09-02（minor：人机分工进调度——档位凭据 + 等真人可见 + 架构单源化）
 
 > 主题：人机分工从话术约定长出机器面——requires_human/等真人标记进调度五桶、human stale 按人类节奏放宽；class 从纯标注升级为带血统凭据（adr_0016）；C2/C3/C4/C7 四路架构债清偿（调度/validate/提示包/雾区与导出单源化）。

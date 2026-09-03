@@ -24,6 +24,7 @@ import { createNode, getNode } from "../../src/core/node.js";
 import { createEdge } from "../../src/core/edge.js";
 import { createSnapshot, listSnapshots } from "../../src/core/snapshot.js";
 import { readEvents } from "../../src/core/eventlog.js";
+import { withGraphAmend, AMEND_SNAPSHOT_PREFIX } from "../../src/core/amend.js";
 import { resetIndexCache } from "../../src/core/index-service.js";
 
 const CLI = path.resolve("dist/cli/index.js");
@@ -196,21 +197,28 @@ describe("多图隔离（每图独立锁/索引/事件/快照）", () => {
     const gA = path.join(tmpDir, ".graph", "graph-a");
     const gB = path.join(tmpDir, ".graph", "graph-b");
 
-    // F21 起结构写自带 amend 守卫（自动快照 + graph_amended 事件）——本用例主旨是
-    // 多图隔离（锁/索引/事件/快照各图独立），传 skipAmendGuard 保持计数与事件流
-    // 断言聚焦既有语义；守卫行为由 tests/core/amend.test.ts 专测。
-    createNode(gA, { id: "n1", type: NodeType.Task, label: "A 的节点" }, { skipAmendGuard: true });
-    createNode(gB, { id: "n1", type: NodeType.Task, label: "B 的同名节点" }, { skipAmendGuard: true }); // 同 id 不同图互不冲突
-    createEdge(gA, { id: "e1", source: "n1", target: "n1", type: "depends_on" }, { skipAmendGuard: true });
+    // F21 起结构写自带 amend 守卫（C5 组合器，「跳过守卫」透传字段已退役）——本用例
+    // 主旨是多图隔离（锁/索引/事件/快照各图独立），铺垫经组合器逐图各留一份守卫
+    // 凭据；事件/快照断言聚焦非守卫凭据（过滤 AMEND_SNAPSHOT_PREFIX），守卫行为
+    // 由 tests/core/amend.test.ts 专测。
+    withGraphAmend(gA, { action: "batch-create", detail: "nodes=1, edges=1" }, () => {
+      createNode(gA, { id: "n1", type: NodeType.Task, label: "A 的节点" });
+      createEdge(gA, { id: "e1", source: "n1", target: "n1", type: "depends_on" });
+    });
+    withGraphAmend(gB, { action: "batch-create", detail: "nodes=1" }, () => {
+      createNode(gB, { id: "n1", type: NodeType.Task, label: "B 的同名节点" }); // 同 id 不同图互不冲突
+    });
 
-    // 事件流独立
+    // 事件流独立（守卫自动快照会先落 snapshot_created，node_created 按 kind 查找）
     expect(readEvents(gA).some((e) => e.kind === "node_created" && e.node === "n1")).toBe(true);
-    expect(readEvents(gB)[0].node).toBe("n1");
+    expect(readEvents(gB).find((e) => e.kind === "node_created")?.node).toBe("n1");
 
-    // 快照独立
+    // 快照独立（人工快照口径：过滤守卫自动快照）
+    const manualSnaps = (dir: string) =>
+      listSnapshots(dir).filter((s) => !s.message?.startsWith(AMEND_SNAPSHOT_PREFIX));
     createSnapshot(gA, "A 的快照");
-    expect(listSnapshots(gA)).toHaveLength(1);
-    expect(listSnapshots(gB)).toHaveLength(0);
+    expect(manualSnaps(gA)).toHaveLength(1);
+    expect(manualSnaps(gB)).toHaveLength(0);
 
     // 锁目录独立
     expect(fs.existsSync(path.join(gA, ".locks"))).toBe(true);

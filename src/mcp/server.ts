@@ -31,7 +31,7 @@ import {
 import { createEdge as createEdgeOp, listEdges } from "../core/edge.js";
 import { readGraph } from "../core/parser.js";
 import { deleteNode, deleteEdge, updateGraph, rebuildGraphRefs, approveGraph, graduateFog } from "../core/parser.js";
-import { beginStructuralAmend, planAmendNudge } from "../core/amend.js";
+import { withGraphAmend, planAmendNudge } from "../core/amend.js";
 import {
   buildGraphIndex,
   computeNextActions,
@@ -928,50 +928,55 @@ server.registerTool(
     }
 
     // 2. 写盘（跳过逐次引用同步，最后一次性重建 graph.yaml 引用列表：O(n²) → O(n)）
-    // F21 (a)(b)（DEC-7 / adr_0006）：batch_create 是一次结构修订——整批统一守卫
-    // 一次（落盘前自动快照 + 成功后 graph_amended 事件/review 回置），逐节点/边
-    // 调用传 skipAmendGuard 跳过，防一次批量操作产生 N+M 份快照。预校验失败路径
-    // （上方 conflicts 早退）不守卫——未落图的修订不留凭据。
-    const amend = beginStructuralAmend(rootDir, {
-      action: "batch-create",
-      detail: `nodes=${nodes.length}, edges=${edges.length}`,
-      actor: mcpActor(),
-    });
-    for (const n of nodes) {
-      createNodeOp(
-        rootDir,
-        {
-          id: n.id,
-          label: n.label,
-          type: n.type as NodeType,
-          level: n.level,
-          priority: n.priority,
-          ...(n.context !== undefined ? { context: n.context } : {}),
-          plan_description: n.plan_description,
-          definition_of_done: n.definition_of_done,
-          checkpoints: n.checkpoints as CreateNodeParams["checkpoints"],
-          assigned_to: n.assigned_to,
-          max_attempts: n.max_attempts,
-        },
-        { syncRef: false, actor: mcpActor(), skipAmendGuard: true },
-      );
-    }
-    for (const e of edges) {
-      createEdgeOp(
-        rootDir,
-        {
-          id: e.id,
-          source: e.source,
-          target: e.target,
-          type: e.type as EdgeType,
-          ...(e.rel_kind !== undefined ? { rel_kind: e.rel_kind } : {}),
-          ...(e.contract !== undefined ? { contract: e.contract as EdgeSchema["contract"] } : {}),
-        },
-        { syncRef: false, actor: mcpActor(), skipAmendGuard: true },
-      );
-    }
-    rebuildGraphRefs(rootDir);
-    amend.complete();
+    // F21 (a)(b)（DEC-7 / adr_0006；0.9.2 C5 组合器收拢布线）：batch_create 是一次
+    // 结构修订——withGraphAmend 整批统一守卫一次（落盘前自动快照 + 成功后
+    // graph_amended 事件/review 回置），fn 内逐节点/边调用同图嵌套自动免守卫，
+    // 防一次批量操作产生 N+M 份快照。预校验失败路径（上方 conflicts 早退）不守卫
+    // ——未落图的修订不留凭据。
+    withGraphAmend(
+      rootDir,
+      {
+        action: "batch-create",
+        detail: `nodes=${nodes.length}, edges=${edges.length}`,
+        actor: mcpActor(),
+      },
+      () => {
+        for (const n of nodes) {
+          createNodeOp(
+            rootDir,
+            {
+              id: n.id,
+              label: n.label,
+              type: n.type as NodeType,
+              level: n.level,
+              priority: n.priority,
+              ...(n.context !== undefined ? { context: n.context } : {}),
+              plan_description: n.plan_description,
+              definition_of_done: n.definition_of_done,
+              checkpoints: n.checkpoints as CreateNodeParams["checkpoints"],
+              assigned_to: n.assigned_to,
+              max_attempts: n.max_attempts,
+            },
+            { syncRef: false, actor: mcpActor() },
+          );
+        }
+        for (const e of edges) {
+          createEdgeOp(
+            rootDir,
+            {
+              id: e.id,
+              source: e.source,
+              target: e.target,
+              type: e.type as EdgeType,
+              ...(e.rel_kind !== undefined ? { rel_kind: e.rel_kind } : {}),
+              ...(e.contract !== undefined ? { contract: e.contract as EdgeSchema["contract"] } : {}),
+            },
+            { syncRef: false, actor: mcpActor() },
+          );
+        }
+        rebuildGraphRefs(rootDir);
+      },
+    );
     return jsonGraph(gctx, { ok: true, nodes: nodes.length, edges: edges.length });
   },
 );
@@ -1340,12 +1345,15 @@ server.registerTool(
 
 // DEC-1（g080-approve-core）：设计审核凭据写入（MCP 通道）。
 // 与 CLI graph approve 共用核心原语 approveGraph——双通道一致。
+// F08（0.9.2 渐进审批）：level 分层批准——program 类图审一层批一层；零新增拒绝
+// 规则：任何 class 的图带 level 照写记录（档位路由是 skill 口径，工具不强制）。
 server.registerTool(
   "graph_approve",
   {
     description:
       "DEC-1 写入设计审核凭据：graph.yaml 的 review 字段（status/by/at）+ design_approved 审计事件。" +
       "status: approved=人工审核（默认）| self=quick 自签（quick 流程显式传 self，与人工审核可区分）。" +
+      "可选 level（F08 分层批准，如 L1/L2/...）：向 review.layers 追加/覆盖该层批准记录（program 类图审一层批一层；零门禁，任何图都照写）。" +
       "幂等：重复调用覆盖为最新一次审核凭据。红线：review 仅记录、零门禁——不改变任何状态机合法转换；" +
       "图无 review 凭据时调度面（graph_get_next_actions 的 ready_eligible 与 claim 响应）仅以 review_flag 提示，不拦截认领。",
     inputSchema: {
@@ -1355,13 +1363,18 @@ server.registerTool(
         .optional()
         .default("approved")
         .describe("审核状态（默认 approved=人工审核；self=quick 自签）"),
+      level: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("F08 分层批准层标（如 L1/L2/...）：追加 review.layers 记录，审一层批一层；缺省=整图凭据"),
     },
   },
-  async ({ by, status }) => {
+  async ({ by, status, level }) => {
     const gctx = await resolveGraphCtx();
     // 不传 opts.actor：与 claim 的 mcpActor(claimBy) 语义一致——审核事件的行为
     // 主体是审核人（by），客户端名只作兜底（approveGraph 内 opts.actor ?? by）
-    const graph = approveGraph(gctx.dir, { by, status });
+    const graph = approveGraph(gctx.dir, { by, status, level });
     return jsonGraph(gctx, { review: graph.review });
   },
 );

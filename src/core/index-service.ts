@@ -32,7 +32,7 @@ import {
   EDGES_DIR,
 } from "./types.js";
 import { listNodeFileNames, listEdgeFileNames } from "./schema.js";
-import { readNode, readEdge } from "./parser.js";
+import { readNode, readEdge } from "./graph-io.js";
 import { toGraphDir } from "./graph-dir.js";
 
 export interface GraphIndex {

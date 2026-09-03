@@ -21,6 +21,8 @@
 | task · passed | arch-c3a-claim-nudges | [0.9.1·架构] C3a 认领提示包 core 单源（CLI 补齐 review_flag） | 2026-09-02T14:27:38.813Z |
 | task · passed | arch-c3b-validate-core | [0.9.1·架构] C3b validate 七步编排下沉 core（单源结果、双渠道薄渲染） | 2026-09-02T14:55:24.731Z |
 | task · passed | arch-c4a-fog-home | [0.9.1·架构] C4a 雾区概念成家（fog.ts 收写路径）+ class 枚举单源 | 2026-09-02T15:16:39.559Z |
+| task · passed | arch-c4b-review-home | [0.9.2·架构] C4b 审批凭据成家（review.ts）+ parser 减负解环 | 2026-09-02T23:41:03.563Z |
+| task · passed | arch-c5-amend-combinator | [0.9.2·架构] C5 改图守卫组合器（skipAmendGuard 通道退役） | 2026-09-03T00:43:55.722Z |
 | task · passed | arch-c7a-view-tree-gate | [0.9.1·架构] C7a ADR 导出视图合树 + export --check 门禁 + 散文锚点即修 | 2026-09-02T14:55:24.764Z |
 | task · passed | fix-v080-a1 | [fix·0.7.0] A1 根治：ADR 编号×共享知识视图目录冲突（方案系统测试后定） | 2026-08-30T11:39:27.258Z |
 | task · passed | fix-v080-b1 | [fix·0.7.0] B1 短期门禁：skill 双副本 diff 检查项落地 | 2026-08-30T11:39:27.202Z |
@@ -66,6 +68,9 @@
 | task · passed | v090-release | [0.9.0] 0.9.0 发布收尾 | 2026-09-01T23:43:11.069Z |
 | task · passed | v090-verify | [0.9.0] 0.9.0 交叉验证 + accept adr_0007 | 2026-09-01T16:16:56.409Z |
 | task · passed | v091-class-command | [0.9.1] F22 /plumber-class 档位凭据命令（用户直发 class + provenance 事件） | 2026-09-02T15:41:47.039Z |
+| task · passed | v091-release | [0.9.1] 0.9.1 发布收尾 | 2026-09-02T18:04:10.637Z |
 | task · passed | v091-skills | [0.9.1] WF10 journey prompts + WF11 人机介入正交决策表 | 2026-09-02T14:27:38.788Z |
 | task · passed | v091-tooling | [0.9.1] F06 requires_human 派生标注 + F07 等真人标记与 human stale 阈值 | 2026-09-02T17:17:03.986Z |
 | task · passed | v091-verify | [0.9.1] 0.9.1 交叉验证 | 2026-09-02T17:34:29.424Z |
+| task · passed | v092-progressive | [0.9.2] F08 approve --level 分批准入（仅 program 类） | 2026-09-03T00:06:11.054Z |
+| task · passed | v092-verify | [0.9.2] 0.9.2 交叉验证 | 2026-09-03T00:53:02.961Z |

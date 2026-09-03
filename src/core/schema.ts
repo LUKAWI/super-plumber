@@ -516,6 +516,24 @@ export function validateGraph(data: unknown): SchemaIssue[] {
       optEnum(rev, "status", REVIEW_STATUSES, issues);
       reqString(rev, "by", issues);
       optString(rev, "at", issues);
+      // F08（0.9.2 渐进审批）：layers 为可选字段——缺省不存在（存量图零迁移），
+      // 存在时严格校验形状（数组；每项 level/by 非空字符串、at 字符串），
+      // 手编拼错在读入层即拦截。
+      if (rev.layers !== undefined) {
+        if (!Array.isArray(rev.layers)) {
+          issues.push(issue("layers", "必须是数组"));
+        } else {
+          for (const item of rev.layers) {
+            if (!isRecord(item)) {
+              issues.push(issue("layers", "每项需为对象（level/by/at）"));
+              continue;
+            }
+            reqString(item, "level", issues);
+            reqString(item, "by", issues);
+            reqString(item, "at", issues);
+          }
+        }
+      }
     }
   }
   // adr_0007（0.9.0 F04）：fog 为可选字段——同 review 的宽容缺省/严格存在策略。

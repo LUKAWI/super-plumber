@@ -164,4 +164,66 @@ describe("DEC-1 graph_approve（MCP 通道）", () => {
     const c = body.ready_eligible.find((n: any) => n.id === "c");
     expect(c?.review_flag).toBe(REVIEW_FLAG_UNREVIEWED);
   });
+
+  // ── F08（0.9.2 渐进审批）：level 分层批准（MCP 通道）──
+  it("AP-09 level=L1：响应回显 review.layers + yaml 落盘 + 事件 detail 含 level=L1（零拒绝：本图无 class 标注）", async () => {
+    const r = await client.callTool({
+      name: "graph_approve",
+      arguments: { by: "alice", level: "L1" },
+    });
+    expect(r.isError).toBeFalsy();
+    const body = parseBody(r.content![0].text);
+    expect(body.review.status).toBe("approved");
+    expect(body.review.layers).toHaveLength(1);
+    expect(body.review.layers[0].level).toBe("L1");
+    expect(body.review.layers[0].by).toBe("alice");
+    expect(body.review.layers[0].at).toBeTruthy();
+    // 真相源核验：graph.yaml 落盘
+    const yaml = fs.readFileSync(path.join(tmpDir, ".graph/t/graph.yaml"), "utf-8");
+    expect(yaml).toContain("layers:");
+    expect(yaml).toContain("level: L1");
+    // 审计事件（经 graph_events MCP 通道）
+    const ev = parseBody(
+      (
+        await client.callTool({
+          name: "graph_events",
+          arguments: { kind: "design_approved" },
+        })
+      ).content![0].text,
+    );
+    const last = ev.events[ev.events.length - 1];
+    expect(last.detail).toContain("level=L1");
+    expect(last.actor).toBe("alice");
+  });
+
+  it("AP-10 多层追加 + 同层覆盖：L2 追加保持顺序，L1 重批原位更新（仍 2 条）", async () => {
+    await client.callTool({ name: "graph_approve", arguments: { by: "bob", level: "L2" } });
+    const r = await client.callTool({ name: "graph_approve", arguments: { by: "carol", level: "L1" } });
+    expect(r.isError).toBeFalsy();
+    const body = parseBody(r.content![0].text);
+    expect(body.review.layers.map((l: any) => l.level)).toEqual(["L1", "L2"]);
+    expect(body.review.layers[0].by).toBe("carol");
+    // 真相源核验
+    const yaml = fs.readFileSync(path.join(tmpDir, ".graph/t/graph.yaml"), "utf-8");
+    expect(yaml).toContain("level: L2");
+    expect(yaml).toContain("by: carol");
+  });
+
+  it("AP-11 不带 level 的整图 approve 行为回归不变：覆盖清掉 layers（最新一次审核生效）", async () => {
+    const r = await client.callTool({ name: "graph_approve", arguments: { by: "boss" } });
+    expect(r.isError).toBeFalsy();
+    const body = parseBody(r.content![0].text);
+    expect(body.review.status).toBe("approved");
+    expect(body.review.layers).toBeUndefined();
+    const yaml = fs.readFileSync(path.join(tmpDir, ".graph/t/graph.yaml"), "utf-8");
+    expect(yaml).not.toContain("layers:");
+  });
+
+  it("AP-12 空 level → 协议错误（isError，zod min(1)）", async () => {
+    const r = await client.callTool({
+      name: "graph_approve",
+      arguments: { by: "alice", level: "" },
+    });
+    expect(r.isError).toBe(true);
+  });
 });

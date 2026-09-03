@@ -1,7 +1,7 @@
 # Super Plumber Operations 手册（唯一正本）
 
 > **定位**：三访问层（CLI / MCP / 脚本）操作语法、状态机、错误处理、solo 裁决边界的**唯一权威正本**。角色提示词与 skill 中的一切语法引用指向本文对应章节；本文不复述任何角色的判断力内容（边类型选型、设计甄别、DoD 质量裁量等归各自角色提示词，见 §10/§11）。
-> **版本锚点**：super-plumber **0.9.1**（全部 CLI 参数经 `graph --help` 实测：0.6.1 重构期全量校，其后增量（0.7.x 多图/导出、0.8.0 approve 与写作规范、0.8.1 拒绝理由凭据与分期导出、0.9.x 雾区与档位）随交付核对；与旧文档不符处以实测为准，表中以〔已校〕标注）。
+> **版本锚点**：super-plumber **0.9.2**（全部 CLI 参数经 `graph --help` 实测：0.6.1 重构期全量校，其后增量（0.7.x 多图/导出、0.8.0 approve 与写作规范、0.8.1 拒绝理由凭据与分期导出、0.9.x 雾区/档位/分层审批）随交付核对；与旧文档不符处以实测为准，表中以〔已校〕标注）。
 > **分发**：正本住 `integrations/shared/manual.md`，由 `scripts/sync-integrations.mjs` 构建期同步进两个插件包（sha256 三方一致）；pi 侧只引用不拷贝。寻址写法见 §11。（该脚本属 v0.6.1 W3 波次，已接线并作为 prepublishOnly 发布门禁）
 
 目录：§1 访问层总览｜§2 design-ops｜§3 边类型判据式速查｜§4 execute-ops｜§5 状态机｜§6 工具总表（CLI+MCP）｜§7 脚本章｜§8 三层验收实操｜§9 错误处理大表｜§10 solo 自裁边界｜§11 寻址约定｜§12 漂移修正常记
@@ -428,7 +428,7 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 | `status` / `s` | 图状态总览 | `--json` |
 | `export` / `x` | 导出（Mermaid/领域文档；顶点形状/边样式/文件头约定见 §2.5；mermaid 默认按 level 分期带 subgraph 分组） | `--mermaid --docs --adr-dir --ctx-dir -o --levels <1,2> --band-name <level>=<名>`〔已校：--docs 及目录参数；0.8.1 增 --levels/--band-name，--docs 增发 DECISIONS.md〕 |
 | `serve` / `sv` | Web UI 预览 | `-p`（默认 8934）`--no-open` |
-| `approve` | 写入设计审核凭据（DEC-1：review 字段 + design_approved 事件；仅记录，零门禁） | `--by <名>`（必填）`--status approved/self`〔已校：新增〕 |
+| `approve` | 写入设计审核凭据（DEC-1：review 字段 + design_approved 事件；仅记录，零门禁；0.9.2 F08：`--level` 分层凭据追加 review.layers，同层覆盖、整图凭据/reset 清层，零新增拒绝规则） | `--by <名>`（必填）`--status approved/self` `--level <层标>`〔已校：新增〕 |
 | `graduate-fog` | 雾区毕业：清除图级 fog + fog_graduated 事件（DEC-7 amend 守卫） | `--produced <id,id>` `--reason <text>`；无雾报错〔0.9.0 新增〕 |
 | `delete-node` / `dn` | 软删除节点（理由是凭据非拒绝条件） | `-i --cascade --reason <text>`〔已校：--reason 0.8.1 增，进 .deleted.yaml 归档与 node_deleted 事件〕 |
 | `delete-edge` / `de` | 软删除边 | `-i` |
@@ -465,7 +465,7 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 | 写·设计 | `graph_add_edge` | 建边 | type/rel_kind/contract |
 | 写·设计 | `graph_update_node` | 编辑 plan/DoD/checkpoints/归属/boundary/glossary 等 | reset_attempts 显式传 true |
 | 写·设计 | `graph_update_graph` | 图级字段编辑（label/entry/exit/criteria/root_context/fog/class/by） | 同 §2.2 九字段；fog 整体 upsert，毕业走 graph_graduate_fog；class 实际变更落 class_changed 事件（by 缺省 agent） |
-| 写·设计 | `graph_approve` | DEC-1 写入设计审核凭据（review 字段 + design_approved 事件） | status approved=人工（默认）/self=quick 自签；幂等覆盖；仅记录零门禁〔已校：新增〕 |
+| 写·设计 | `graph_approve` | DEC-1 写入设计审核凭据（review 字段 + design_approved 事件；0.9.2 F08：可选 `level` 参数追加 review.layers 分层凭据） | status approved=人工（默认）/self=quick 自签；level 任意非空串、非 program 图照记（档位路由是 skill 口径）；幂等覆盖；仅记录零门禁〔已校：新增〕 |
 | 写·设计 | `graph_graduate_fog` | 雾区毕业（fog 字段清除 + fog_graduated 事件 + amend 守卫） | produced/reason 进事件 payload；无雾 isError〔0.9.0 新增〕 |
 | 写·设计 | `graph_create_adr` | 创建 ADR（自动编号+proposed） | 〔已校：新增〕孤儿 ADR 会被警告 |
 | 写·设计 | `graph_delete_node` | 软删除节点 | cascade:true 连边删；reason 写审计凭据（0.8.1） |

@@ -3,12 +3,12 @@
 // 毕业（graduateFog，F05）收敛在本文件，雾区语义一处可读。
 // 红线（adr_0007 / DEC-3 / DEC-1）：只提示不阻止，零新拒绝规则，不参与退出码。
 // CLI 与 MCP 双通道引用同一实现，保证提示文案与触发条件一致（同 planAmendNudge 的单源先例）。
-// 循环依赖说明：fog → parser（readGraph/withGraphLock/writeGraphCore 写读原语）与
-// parser → fog（graduateFog 的兼容 re-export）互为环，但两侧都只在函数体内调用
-// 对方导出，ESM 函数声明提升下安全（同 parser↔amend、parser↔index-service 先例）。
+// 循环依赖说明：parser → fog（graduateFog 的兼容 re-export）已降为单向——
+// fog 的写读原语（readGraph/withGraphLock/writeGraphCore）改道 graph-io
+// （arch-c4b 解环），不再 import parser。
 import { isKnowledgeType, NodeStatus, type GraphSchema, type GraphFog, type NodeSchema } from "./types.js";
-import { readGraph, withGraphLock, writeGraphCore } from "./parser.js";
-import { beginStructuralAmend } from "./amend.js";
+import { readGraph, withGraphLock, writeGraphCore } from "./graph-io.js";
+import { withGraphAmend } from "./amend.js";
 import { appendEvent, readEvents, type GraphEvent } from "./eventlog.js";
 
 /** 雾区提示（F17）：图有未毕业雾区 → 一条 warning，执行期照常推进。
@@ -93,36 +93,41 @@ export function graduateFog(
     throw new Error("图中没有雾区（graph.yaml 无 fog 字段），无雾可毕业");
   }
   const actor = opts.actor ?? "unknown";
-  // 结构修订守卫第一阶段（自动快照）：必须在不持图锁时调用——锁序恒为
-  // 实体锁→图锁且图锁不可重入，本函数不能持图锁跨越 complete()
-  // （其内 resetGraphReview 要取图锁；deleteNode 先例=持实体锁不持图锁）。
-  const amend = beginStructuralAmend(rootDir, {
-    action: "graduate-fog",
-    target: fog.id,
-    actor,
-    detail: params.reason ? `reason="${params.reason}"` : undefined,
-  });
-  // 清除 fog：持图锁读-改-写（与并发 updateGraph 互斥）；锁外快照已落
-  withGraphLock(rootDir, () => {
-    const graph = readGraph(rootDir);
-    delete graph.fog;
-    writeGraphCore(rootDir, graph);
-  });
-  const detailParts = [
-    `fog=${fog.id}`,
-    ...(params.produced && params.produced.length > 0
-      ? [`produced=${params.produced.join(",")}`]
-      : []),
-    ...(params.reason ? [`reason="${params.reason}"`] : []),
-  ];
-  appendEvent(rootDir, {
-    actor,
-    kind: "fog_graduated",
-    detail: detailParts.join("; "),
-  });
-  // 守卫收尾（graph_amended 事件 + review 回置）在图锁外执行——红线：
-  // 回置失败不阻断毕业（complete 内部已吞错留痕）
-  amend.complete();
-  // 返回毕业后的最新图（review 回置结果可被调用方直接观察，供提示文案判定）
-  return { fog, graph: readGraph(rootDir) };
+  // 结构修订守卫（C5 组合器收拢 begin→写→complete）：begin 与 complete 都必须
+  // 在不持图锁处执行——锁序恒为 实体锁→图锁且图锁不可重入，本函数不能持图锁
+  // 跨越 complete()（其内 resetGraphReview 要取图锁；deleteNode 先例=持实体锁
+  // 不持图锁）。组合器的 fn 恰好框住"图锁段 + 事件"，begin/complete 落在锁外。
+  return withGraphAmend(
+    rootDir,
+    {
+      action: "graduate-fog",
+      target: fog.id,
+      actor,
+      detail: params.reason ? `reason="${params.reason}"` : undefined,
+    },
+    () => {
+      // 清除 fog：持图锁读-改-写（与并发 updateGraph 互斥）；锁外快照已落
+      withGraphLock(rootDir, () => {
+        const graph = readGraph(rootDir);
+        delete graph.fog;
+        writeGraphCore(rootDir, graph);
+      });
+      const detailParts = [
+        `fog=${fog.id}`,
+        ...(params.produced && params.produced.length > 0
+          ? [`produced=${params.produced.join(",")}`]
+          : []),
+        ...(params.reason ? [`reason="${params.reason}"`] : []),
+      ];
+      appendEvent(rootDir, {
+        actor,
+        kind: "fog_graduated",
+        detail: detailParts.join("; "),
+      });
+      // 守卫收尾（graph_amended 事件 + review 回置）由组合器在 fn 成功后于
+      // 图锁外执行——红线：回置失败不阻断毕业（complete 内部已吞错留痕）
+      // 返回毕业后的最新图（review 回置结果可被调用方直接观察，供提示文案判定）
+      return { fog, graph: readGraph(rootDir) };
+    },
+  );
 }

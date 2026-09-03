@@ -314,7 +314,7 @@ graph serve                           # 打开 http://localhost:8934 看星空�
 | `graph reclaim` | 回收死认领：running → pending（清空执行者 + 回收记录） | `-i <id>`；`--by <actor>` |
 | `graph update-node` | 更新节点详情 | `-i <id>` `--plan-desc` `--add-dod <item>`（可多次）`--clear-dod` `--add-checkpoint '<JSON>'`（可多次）`--set-assigned <agent>` `--label <text>` `--max-attempts <n>` `--set-priority <n>` `--set-context <ctx_id>` `--boundary <text>` `--glossary-add '<JSON>'`（可多次）`--reset-attempts`（显式归零，写审计事件）`--show` |
 | `graph update-graph` | 编辑 entry/exit/验收标准/图名/雾区/工作类（不再手写 graph.yaml） | `--entry-desc` `--exit-desc` `--add-criteria <item>`（可多次）`--clear-criteria` `--label` `--set-context '<json>'` `--set-fog '<json>'`（v0.9.0：`{"id","description","graduation","ignited[]"}` 整体 upsert）`--class quick\|standard\|program` |
-| `graph approve` | 写入设计审批凭据（v0.8.0：review 字段 + design_approved 事件；仅记录零门禁，quick 档自签） | `--by <名>`（必填）；`--status approved\|self`（默认 approved） |
+| `graph approve` | 写入设计审批凭据（v0.8.0：review 字段 + design_approved 事件；仅记录零门禁，quick 档自签；v0.9.2：`--level` 分层凭据，program 类图审一层批一层） | `--by <名>`（必填）；`--status approved\|self`（默认 approved）；`--level <层标>`（v0.9.2：追加 review.layers 分批记录，缺省=整图凭据） |
 | `graph graduate-fog` | 雾区毕业（v0.9.0：清除图级 fog + fog_graduated 专用事件，复用 DEC-7 改图守卫；validate 对有雾图只提示不阻止） | `--produced <id,id>` 毕业产物；`--reason <text>` 结论摘要；无雾报错 |
 | `graph adr` | ADR 生命周期命令组（v0.5）：create 即落 proposed，accept/supersede 归裁决方 | `create -t <标题> -d <决策>`；`accept -i <id>`；`supersede -i <id> --by <id>`；`list [-s <状态>]` |
 | `graph delete-node` | 软删除节点；有引用边默认拒绝；拒绝理由作审计凭据（v0.8.1：进 .deleted.yaml 与 node_deleted 事件，缺省行为不变） | `-i <id>`；`--cascade` 连同引用边一起删；`--reason <text>` |
