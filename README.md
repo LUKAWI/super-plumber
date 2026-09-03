@@ -77,7 +77,7 @@ branch/merge 直接交给 Git。
 | 🗂️ **版本控制** | `snapshot` / `diff` / `rollback` 三原语（回滚自动备份、必须确认；**design-only 回滚**保留执行进度只回卷设计），Branch/Merge 由 Git 承担 |
 | 🧾 **事件日志** | `.graph/events.jsonl` append-only 审计：谁在何时创建/删除/流转/claim/越权/重置/回滚/ADR 生命周期（adr_created/accepted/superseded），`graph events` 一键追查 |
 | 🤖 **MCP 原生接入** | 26 个 `graph_*` 工具：设计期（批量建图/建边/编辑 entry-exit/**graph_create_adr**/**graph_approve 审批凭据**/**graph_graduate_fog 雾区毕业**）、执行期（原子 claim 附管辖 ADR 指针/checkpoint/report/**reclaim 回收死认领**）、裁决（verdict）、版本（snapshot/diff/rollback）、自检（**graph_validate** 结构+领域规则+引用漂移）、审计（**graph_events** 事件回溯）全流程覆盖，zod 参数校验 |
-| 🎯 **调度决策** | `graph next` / `graph_get_next_actions` 一屏返回可认领 / **可转 ready（ready_eligible，冷启动入口）** / 等依赖 / 执行中 / 疑似卡住，每桶分页 + truncated 标记，ready/ready_eligible 按节点 `priority` 排序，stale 判据=最后活动时间（上报即心跳），条目可含 `adr_flags`（决策依据已过时 ⚠️），知识顶点永不进调度桶，agent 规划循环首选 |
+| 🎯 **调度决策** | `graph next` / `graph_get_next_actions` 一屏返回可认领 / **可转 ready（ready_eligible，冷启动入口）** / 等依赖 / 执行中 / 疑似卡住，每桶分页 + truncated 标记，ready/ready_eligible 按节点 `priority` 排序，stale 判据=最后活动时间（上报即心跳），条目可含 `adr_flags`（决策依据已过时 ⚠️）；死节点（重试预算耗尽）条目就地标注 `attempts_exhausted` 并列 `fallback_routes` 替代路线（v0.9.3 读面，零门禁），知识顶点永不进调度桶，agent 规划循环首选 |
 | 📉 **上下文经济** | MCP 读接口全面分页：`graph_get_graph` 默认 summary 模式（紧凑字段）+ full 分页、`graph_search` limit、`graph_traverse` max_nodes、`graph_get_node` 可附拓扑邻居——大图不再 token 爆炸；ADR 只注入标题级指针，永不全文推送 |
 | ⚡ **大图热路径** | 索引两级缓存（内存 + 磁盘 graph.json）：门禁/调度从"每次全图扫描"（10k 图 ~9s）降为查表 + 单文件读；调度 O(N+M)；**写路径主动失效缓存**（不赌文件系统 mtime，长驻进程写后读一致） |
 | 📁 **纯文件存储** | 每个节点/边一个 YAML 文件，Git 是唯一真相源，人类可直接编辑，无数据库 |
@@ -224,8 +224,8 @@ graph add-edge -i e4 -s l1_register -t l1_login --type shares_context # 共享�
 | `shares_context` | A 的输出作为 B 的输入上下文 | ❌ |
 | `fan_out` | A 完成后多个下游可并行 | ❌ |
 | `fan_in` | 多个上游都完成后 C 才可执行 | ❌ |
-| `fallback` | B 失败时回退到 A 重试 | ❌ |
-| `iterates` | A ⇄ B 反复迭代优化 | ❌ |
+| `fallback` | 失败回退：源节点重试预算耗尽（死节点）时，next 桶就地列其目标为替代路线（v0.9.3 最小读语义，adr_0017；仍不参与门禁与排序） | ❌ |
+| `iterates` | A ⇄ B 反复迭代优化（仅文档性标注——迭代由内建 attempts 重试链承担，validate 逐条警告） | ❌ |
 | `decides` | ADR → 任意顶点：决策管辖，ADR 废弃时沿此传播 adr_flags（v0.5 知识边） | ❌ |
 | `relates` | context ↔ context：领域关系，`--rel-kind` 自由标注（v0.5 知识边） | ❌ |
 
@@ -321,7 +321,7 @@ graph serve                           # 打开 http://localhost:8934 看星空�
 | `graph delete-edge` | 软删除边 | `-i <id>` |
 | `graph status` | 状态概览 + 拓扑检查 | `--json` |
 | `graph validate` | schema + 引用 + 拓扑 + 环（逐文件定位） | `--json` |
-| `graph next` | 调度决策：可认领/可转 ready/等依赖/执行中/疑似卡住 | `--stale-ms <ms>`（默认 30 分钟）；`--json` |
+| `graph next` | 调度决策：可认领/可转 ready/等依赖/执行中/疑似卡住；死节点（重试耗尽）条目带替代路线标注 | `--stale-ms <ms>`（默认 30 分钟）；`--json` |
 | `graph verdict` | 记录裁决结论（Super Mario 用） | `-i <id>` `--verdict passed\|failed\|pending` `--note <text>` |
 | `graph snapshot` | 创建版本快照 | `-m <msg>`；`--git` 同时 git commit |
 | `graph snapshots` | 快照列表 | `--json` |

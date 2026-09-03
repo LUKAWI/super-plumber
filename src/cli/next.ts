@@ -3,6 +3,23 @@ import { cliGraphCtx } from "./graph-ctx.js";
 import { computeNextActions } from "../core/graph.js";
 import { coerceInt } from "./coerce.js";
 
+// F09（adr_0017）：死节点读面标注渲染——ready_eligible/blocked 桶条目附
+// attempts_exhausted（重试预算耗尽）与 fallback_routes（替代路线）。
+// ⚠️ 前缀对齐本仓库 adr_flags/review_flag 的标注渲染习惯（仅提示、零门禁）。
+function deadMarks(n: {
+  attempts_exhausted?: boolean;
+  fallback_routes?: { id: string; label: string }[];
+}): string {
+  if (!n.attempts_exhausted) return "";
+  const parts = ["重试预算耗尽"];
+  if (n.fallback_routes?.length) {
+    parts.push(
+      `fallback 路线: ${n.fallback_routes.map((f) => `${f.id}(${f.label})`).join(", ")}`,
+    );
+  }
+  return ` ⚠️ ${parts.join(" | ")}`;
+}
+
 export const nextCommand = new Command("next").alias("n")
   .description("调度决策：列出可认领 / 等依赖 / 执行中 / 疑似卡住的节点")
   .option(
@@ -40,7 +57,9 @@ export const nextCommand = new Command("next").alias("n")
       console.log(`\n🔓 可转 ready (门禁已满足):`);
       if (result.ready_eligible.length === 0) console.log(`   （无）`);
       for (const n of result.ready_eligible) {
-        console.log(`   ${n.id}: ${n.label}${n.waiting_human ? " 🧑 等真人" : ""}`);
+        console.log(
+          `   ${n.id}: ${n.label}${n.waiting_human ? " 🧑 等真人" : ""}${deadMarks(n)}`,
+        );
       }
       console.log(`\n⏳ 等依赖 (blocked 候选):`);
       if (result.blocked.length === 0) console.log(`   （无）`);
@@ -48,7 +67,7 @@ export const nextCommand = new Command("next").alias("n")
         console.log(
           `   ${n.id}: ${n.label} ← 未满足: ${n.unmet
             .map((u) => `${u.id}(${u.status})`)
-            .join(", ")}`,
+            .join(", ")}${deadMarks(n)}`,
         );
       }
       console.log(`\n🏃 执行中 (running):`);

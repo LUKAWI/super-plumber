@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { computeNextActions } from "../../src/core/scheduler.js";
+import { invalidateIndex } from "../../src/core/index-service.js";
 import { createNode, updateNodeStatus, updateExecutionReport, updateNodeContent, getNode } from "../../src/core/node.js";
 import { createEdge } from "../../src/core/edge.js";
 import { NodeType, NodeStatus, EdgeType } from "../../src/core/types.js";
@@ -225,5 +226,100 @@ describe("computeNextActions 注入时钟", () => {
     expect(r.ready.map((n) => n.id)).toEqual(["a"]);
     expect(r.blocked.map((n) => n.id)).toEqual(["b"]);
     expect(r.summary.total).toBe(2);
+  });
+});
+
+// F09（adr_0017）：fallback 边最小读语义——死节点（failed 且重试预算耗尽）在
+// ready_eligible/blocked 桶条目附 attempts_exhausted 与 fallback_routes（沿出向
+// fallback 边收集替代路线）。纯读面标注：零新增拒绝规则，桶归置不变。
+describe("computeNextActions F09 死节点标注（adr_0017）", () => {
+  // 一次完整失败循环：ready → running → failed
+  function failOnce(id: string): void {
+    updateNodeStatus(tmpDir, id, NodeStatus.Ready);
+    updateNodeStatus(tmpDir, id, NodeStatus.Running);
+    updateNodeStatus(tmpDir, id, NodeStatus.Failed);
+  }
+  // 消耗一次重试预算：failed → pending（重试，attempts+1）→ ready → running → failed
+  function burnAttempt(id: string): void {
+    updateNodeStatus(tmpDir, id, NodeStatus.Pending);
+    failOnce(id);
+  }
+
+  it("死节点 + 出向 fallback 边 → ready_eligible 条目带 attempts_exhausted 与 fallback_routes", () => {
+    createNode(tmpDir, { id: "a", type: NodeType.Task, label: "A", max_attempts: 1 });
+    createNode(tmpDir, { id: "r", type: NodeType.Task, label: "救生艇" });
+    createEdge(tmpDir, { id: "f1", source: "a", target: "r", type: EdgeType.Fallback });
+    failOnce("a"); // attempts=0（未耗尽）
+    burnAttempt("a"); // attempts=1 ≥ max_attempts=1 → 死节点
+    const r = computeNextActions(tmpDir);
+    const entry = r.ready_eligible.find((n) => n.id === "a");
+    expect(entry).toBeDefined();
+    expect(entry!.attempts_exhausted).toBe(true);
+    expect(entry!.fallback_routes).toEqual([{ id: "r", label: "救生艇" }]);
+  });
+
+  it("死节点无 fallback 边 → 只有 attempts_exhausted，无 fallback_routes 键", () => {
+    createNode(tmpDir, { id: "a", type: NodeType.Task, label: "A", max_attempts: 1 });
+    failOnce("a");
+    burnAttempt("a");
+    const entry = computeNextActions(tmpDir).ready_eligible.find((n) => n.id === "a")!;
+    expect(entry.attempts_exhausted).toBe(true);
+    expect("fallback_routes" in entry).toBe(false);
+  });
+
+  it("failed 但 attempts 未耗尽 → 两字段都不出现", () => {
+    createNode(tmpDir, { id: "a", type: NodeType.Task, label: "A" }); // 缺省 max_attempts=3
+    createNode(tmpDir, { id: "r", type: NodeType.Task, label: "R" });
+    createEdge(tmpDir, { id: "f1", source: "a", target: "r", type: EdgeType.Fallback });
+    failOnce("a"); // attempts=0 < 3
+    const entry = computeNextActions(tmpDir).ready_eligible.find((n) => n.id === "a")!;
+    expect(entry).toBeDefined();
+    expect("attempts_exhausted" in entry).toBe(false);
+    expect("fallback_routes" in entry).toBe(false);
+  });
+
+  it("死节点 + 门禁未满足 → blocked 条目带两字段", () => {
+    createNode(tmpDir, { id: "g", type: NodeType.Task, label: "G" }); // 未 passed 的门控前驱
+    createNode(tmpDir, { id: "a", type: NodeType.Task, label: "A", max_attempts: 1 });
+    createNode(tmpDir, { id: "r", type: NodeType.Task, label: "R" });
+    createEdge(tmpDir, { id: "f1", source: "a", target: "r", type: EdgeType.Fallback });
+    // 先把 a 打成死节点（此时无门禁边，可正常流转），再补挂门禁边模拟
+    // 「死节点重试入口被门禁挡住」——有未满足前驱的节点无法正常进入 ready
+    failOnce("a");
+    burnAttempt("a");
+    createEdge(tmpDir, { id: "e1", source: "g", target: "a", type: EdgeType.DependsOn });
+    const entry = computeNextActions(tmpDir).blocked.find((n) => n.id === "a")!;
+    expect(entry.unmet).toEqual([{ id: "g", status: "pending" }]);
+    expect(entry.attempts_exhausted).toBe(true);
+    expect(entry.fallback_routes).toEqual([{ id: "r", label: "R" }]);
+  });
+
+  it("max_attempts=0（不限重试）→ 永不标注", () => {
+    createNode(tmpDir, { id: "a", type: NodeType.Task, label: "A", max_attempts: 0 });
+    createNode(tmpDir, { id: "r", type: NodeType.Task, label: "R" });
+    createEdge(tmpDir, { id: "f1", source: "a", target: "r", type: EdgeType.Fallback });
+    failOnce("a");
+    burnAttempt("a"); // attempts=1
+    burnAttempt("a"); // attempts=2（预算不限，永不判死）
+    const entry = computeNextActions(tmpDir).ready_eligible.find((n) => n.id === "a")!;
+    expect("attempts_exhausted" in entry).toBe(false);
+    expect("fallback_routes" in entry).toBe(false);
+  });
+
+  it("fallback 边目标节点不存在 → 跳过该条（幽灵端点归 validate 报错）", () => {
+    createNode(tmpDir, { id: "a", type: NodeType.Task, label: "A", max_attempts: 1 });
+    createNode(tmpDir, { id: "r", type: NodeType.Task, label: "R" });
+    createEdge(tmpDir, { id: "f1", source: "a", target: "r", type: EdgeType.Fallback });
+    // 手写幽灵边（createEdge 拦截幽灵端点；调度面读到目标缺失的边时跳过该条）
+    fs.writeFileSync(
+      path.join(tmpDir, ".graph", "edges", "f-ghost.yaml"),
+      "id: f-ghost\nsource: a\ntarget: ghost\ntype: fallback\n",
+      "utf-8",
+    );
+    invalidateIndex(tmpDir);
+    failOnce("a");
+    burnAttempt("a");
+    const entry = computeNextActions(tmpDir).ready_eligible.find((n) => n.id === "a")!;
+    expect(entry.fallback_routes).toEqual([{ id: "r", label: "R" }]); // ghost 被跳过
   });
 });

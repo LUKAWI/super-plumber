@@ -500,6 +500,7 @@ server.registerTool(
       "调度决策工具 — 一次调用回答\"我现在该干什么\"。Use this as your primary planning loop: returns ready nodes (claimable now), ready_eligible nodes (pending/failed whose gates are satisfied — flip them to ready, including cold start), blocked nodes with their unmet predecessors, running nodes with elapsed time, and stale running nodes that may be stuck (reclaim them with graph_reclaim_node). " +
       "v0.5：ready/ready_eligible/running 条目可含 adr_flags（所依据 ADR 已 superseded → ⚠️ 决策依据过时，建议重审后再 claim）；知识顶点（context/adr）不进任何调度桶、不计入 summary。 " +
       "F06/F07：requires_human=条目含未完成的 human checkpoint（渐进审批，agent 勿认领/勿代签）；ready/ready_eligible 对无人认领的此类条目再带 waiting_human=true（等真人）；requires_human 的 running 节点 stale 阈值默认放大 8 倍（30 分钟基线 → 4 小时，显式 stale_ms 对全部节点生效）。 " +
+      "F09（adr_0017）：重试预算耗尽的死节点（failed 且 attempts≥max_attempts）在 ready_eligible/blocked 桶带 attempts_exhausted=true 与 fallback_routes（沿出向 fallback 边的替代路线，非空才出现；纯读面零门禁）。 " +
       "Each bucket is capped at limit (default 100); truncated flags tell you when more exist. Prefer this over combining graph_get_graph + graph_traverse + graph_search.",
     inputSchema: {
       stale_ms: z
@@ -712,7 +713,7 @@ server.registerTool(
       "v0.5 领域规则六条 + plan/DoD 文案 lint（manual §2.8 规则码 a/b/c，恒 warning）+ graph.yaml 引用列表双向漂移。" +
       "Use after graph_batch_create / 批量改动 / 手编文件后自检；" +
       "crash recovery 场景先调它再决定重跑范围。Returns { ok, errors[], warnings[], node_count, edge_count } — " +
-      "ok=false 时 errors 非空（结构问题），warnings 为提示性（如 entry/exit 描述为空、fallback/iterates 仅文档性标注）。",
+      "ok=false 时 errors 非空（结构问题），warnings 为提示性（如 entry/exit 描述为空、iterates 仅文档性标注；fallback 自 adr_0017 起有最小读语义不再警告）。",
     inputSchema: {},
   },
   async () => {
@@ -988,8 +989,9 @@ server.registerTool(
       "添加一条类型化边。type 可省略，缺省 depends_on（IL-011：与 CLI 既有默认对齐，双通道一致化）——" +
       "默认全用 depends_on，特殊边语义真有时才显式写（decides/relates 知识边、shares_context 非门禁标注）。" +
       "depends_on/validates 参与拓扑排序与门禁；fan_out/fan_in 参与门控边语义（向后兼容存量，新设计不再使用——语义与 depends_on 多边等价）。" +
-      "注意：shares_context 不参与门禁与排序（仅表达上下文共享）；fallback/iterates 当前为**文档性标注**——" +
-      "工具未实现其运行时回退/迭代语义，graph validate 会逐条警告（S2-10）。" +
+      "注意：shares_context 不参与门禁与排序（仅表达上下文共享）；fallback 已有最小读语义" +
+      "（next 桶死节点附 fallback_routes 替代路线，adr_0017）但仍不门禁不排序；iterates 仍为**文档性标注**——" +
+      "迭代语义由内建 attempts 重试链承担，graph validate 会逐条警告。" +
       "v0.5 知识边：decides（ADR → 任意顶点，决策管辖，superseded 时沿此传播 adr_flags）；relates（仅 context↔context，rel_kind 自由标注）。" +
       "跨 context 的工作流边是契约边：须填 contract，或由 context 对默认契约声明（context 顶点的 contract_add）覆盖——两者皆无会被 graph validate 警告；单边 contract 优先于声明（例外集成点精确表达）。Both endpoints must exist. " +
       "Duplicate edge id returns an error.",

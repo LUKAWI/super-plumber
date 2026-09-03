@@ -193,11 +193,13 @@ export function validateGraphDir(rootDir: string): GraphValidateResult {
       errors.push(`边 ${edge.id} 引用了不存在的目标节点: ${edge.target}`);
     }
   }
-  // FIX-B1（评审 B 级·运行时边装饰性）：运行时控制流边无运行时语义，显式警告
+  // F09（adr_0017）收窄 FIX-B1 警告口径：iterates 维持文档性标注（迭代语义由
+  // 内建 attempts 重试链承担，不参与门禁与排序）；fallback 已有最小读语义
+  // （调度面死节点替代路线标注），不再触发任何 warning
   for (const edge of edges) {
-    if (edge.type === "fallback" || edge.type === "iterates") {
+    if (edge.type === "iterates") {
       warnings.push(
-        `边 ${edge.id} (${edge.type}) 为运行时控制流边，但工具未实现其运行时语义（不执行回退/迭代）——当前仅文档性标注`,
+        `边 ${edge.id} (iterates) 为文档性标注——迭代语义由内建 attempts 重试链承担，不参与门禁与排序`,
       );
     }
   }

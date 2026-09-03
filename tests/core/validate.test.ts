@@ -9,7 +9,8 @@ import * as os from "node:os";
 import { validateGraphDir } from "../../src/core/validate.js";
 import { createGraph } from "../../src/core/graph-dir.js";
 import { createNode } from "../../src/core/node.js";
-import { NodeType } from "../../src/core/types.js";
+import { createEdge } from "../../src/core/edge.js";
+import { NodeType, EdgeType } from "../../src/core/types.js";
 
 let tmpDir: string;
 let graphDir: string;
@@ -187,5 +188,23 @@ describe("validateGraphDir：fatal 提前终止（渠道不渲染假成功进度
     expect(r.fatal_stage).toBe("edges");
     expect(r.node_count).toBe(1);
     expect(r.edge_count).toBe(0);
+  });
+});
+
+describe("validateGraphDir：fallback/iterates 警告口径（F09/adr_0017 收窄）", () => {
+  it("iterates 边触发文档性标注警告；fallback 边不再触发任何警告", () => {
+    createNode(graphDir, { id: "a", type: NodeType.Task, label: "A" });
+    createNode(graphDir, { id: "b", type: NodeType.Task, label: "B" });
+    createEdge(graphDir, { id: "ei", source: "a", target: "b", type: EdgeType.Iterates });
+    createEdge(graphDir, { id: "ef", source: "a", target: "b", type: EdgeType.Fallback });
+    const r = validateGraphDir(graphDir);
+    expect(r.ok).toBe(true);
+    const iteratesWarning = r.warnings.find((w) => w.includes("边 ei"));
+    expect(iteratesWarning).toBeDefined();
+    expect(iteratesWarning).toContain("iterates");
+    expect(iteratesWarning).toContain("文档性标注");
+    expect(iteratesWarning).toContain("attempts");
+    expect(iteratesWarning!.includes("fallback")).toBe(false);
+    expect(r.warnings.some((w) => w.includes("边 ef"))).toBe(false);
   });
 });

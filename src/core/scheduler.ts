@@ -8,6 +8,10 @@
 // 分家为纯移动：调度语义、文案、桶排序均不变；唯二增量 = ①可注入时钟
 // （computeNextActions 的 stale 判定，缺省系统时间）；②依赖方向改为
 // scheduler → index-service（取缓存索引），index-service 不再反向依赖本文件。
+// F09（adr_0017）：fallback 边最小读语义落位——死节点（重试预算耗尽）在
+// ready_eligible/blocked 桶条目附 attempts_exhausted 与 fallback_routes（沿出向
+// fallback 边收集替代路线）。纯读面增强：零新增拒绝规则，fallback 仍不进
+// GATE_EDGE_TYPES / TOPOLOGICAL_EDGE_TYPES（不门禁、不排序）。
 //
 // 为什么与索引缓存分开：index-service 的热点是"读得快"（文件 I/O 缓存），
 // 本文件的热点是"决策得对"（桶归置/旗标/文案装配）。两者变更节奏不同——
@@ -17,6 +21,7 @@ import {
   type NodeSchema,
   type GraphFog,
   NodeStatus,
+  EdgeType,
   isKnowledgeType,
 } from "./types.js";
 import { readGraph } from "./parser.js";
@@ -150,7 +155,9 @@ export interface NextActionsResult {
   }[];
   /** 门禁已满足、可转 ready 的 pending/failed 节点（冷启动与重试入口），同上排序。
    * DEC-1：图无 review 凭据时条目附 review_flag（仅提示、零门禁；只在
-   * ready_eligible 注入，ready 桶不注入）。requires_human / waiting_human 同 ready 桶 */
+   * ready_eligible 注入，ready 桶不注入）。requires_human / waiting_human 同 ready 桶。
+   * F09（adr_0017）：重试预算耗尽的死节点带 attempts_exhausted 与 fallback_routes
+   * （条件缺省，见 blocked 桶注释） */
   ready_eligible: {
     id: string;
     label: string;
@@ -159,12 +166,22 @@ export interface NextActionsResult {
     review_flag?: string;
     requires_human?: boolean;
     waiting_human?: boolean;
+    attempts_exhausted?: true;
+    fallback_routes?: { id: string; label: string }[];
   }[];
-  /** pending/failed 且门控前驱未齐的节点 */
+  /** pending/failed 且门控前驱未齐的节点。
+   * F09（adr_0017）：死节点读面标注——status=failed 且重试预算耗尽
+   * （对照 state-machine failed→pending 拦截口径：max_attempts>0 且
+   * attempts≥max_attempts；max_attempts 缺省按创建默认 3 兜底）的条目带
+   * attempts_exhausted: true；出向 fallback 边非空时再带 fallback_routes
+   * （替代路线 {id, label}[]，目标节点不存在则跳过该条）。纯读面提示、
+   * 零门禁——重试须走人类 --force 通道，fallback 仅供调度决策参考 */
   blocked: {
     id: string;
     label: string;
     unmet: { id: string; status: string }[];
+    attempts_exhausted?: true;
+    fallback_routes?: { id: string; label: string }[];
   }[];
   /** 执行中节点（含认领者与已运行时长）。F06：含未完成 human checkpoint
    * 的条目带 requires_human: true（条件缺省） */
@@ -206,6 +223,11 @@ export interface NextActionsResult {
  * running），ready/ready_eligible 对无人认领的此类条目再打 waiting_human
  * 「等真人」标记；human 类 stale 阈值默认放大（见 BASE_STALE_MS /
  * HUMAN_STALE_MULTIPLIER），显式 staleMs 传值优先生效。
+ *
+ * F09（adr_0017）：fallback 边最小读语义——重试预算耗尽的死节点（failed 且
+ * attempts≥max_attempts，max_attempts=0 不限除外）在 ready_eligible/blocked
+ * 桶条目附 attempts_exhausted 与 fallback_routes（沿出向 fallback 边收集，
+ * 非空才出现）。纯读面标注：零新增拒绝规则，不改变任何桶归置与状态机规则。
  */
 
 // F07（0.9.1）：human 类 stale 阈值单源——基线 30 分钟（agent 心跳尺度）×
@@ -235,6 +257,37 @@ export function computeNextActions(
   const index = buildGraphIndex(rootDir, { useCache: true });
   const { nodes, edges, gateReverseAdj } = index;
   const statusOf = new Map(nodes.map((n) => [n.id, n.status]));
+  // F09（adr_0017）：出向 fallback 边索引（纯读面）——死节点标注替代路线用。
+  // 目标节点在 nodes 里找不到（幽灵端点，归 validate 报错）→ 跳过该条
+  const nodeById = new Map(nodes.map((n) => [n.id, n]));
+  const fallbackTargets = new Map<string, { id: string; label: string }[]>();
+  for (const e of edges) {
+    if (e.type !== EdgeType.Fallback) continue;
+    const t = nodeById.get(e.target);
+    if (t === undefined) continue;
+    const list = fallbackTargets.get(e.source);
+    if (list !== undefined) list.push({ id: t.id, label: t.label });
+    else fallbackTargets.set(e.source, [{ id: t.id, label: t.label }]);
+  }
+  // F09（adr_0017）：死节点判定——对照 state-machine failed→pending 硬拦截口径
+  // （max_attempts>0 且 attempts≥max_attempts）；max_attempts=0 表示不限重试永不判死
+  // （同 validate S2-5），缺省（手编 YAML）按创建默认 3 兜底。
+  const isAttemptsExhausted = (n: NodeSchema): boolean =>
+    n.status === NodeStatus.Failed &&
+    (n.max_attempts ?? 3) > 0 &&
+    n.attempts >= (n.max_attempts ?? 3);
+  // 死节点读面标注装配：attempts_exhausted 恒随死节点出现；fallback_routes
+  // 仅在出向 fallback 边非空时出现（条件缺省——无路线则键不出现）
+  const deadAnnotation = (
+    n: NodeSchema,
+  ): { attempts_exhausted?: true; fallback_routes?: { id: string; label: string }[] } => {
+    if (!isAttemptsExhausted(n)) return {};
+    const routes = fallbackTargets.get(n.id);
+    return {
+      attempts_exhausted: true,
+      ...(routes !== undefined ? { fallback_routes: routes } : {}),
+    };
+  };
   // v0.5：知识顶点（context/adr）调度豁免——永不进任何调度桶，也不计入完成判定。
   // adr_flags：superseded 的 ADR 沿 decides 边把"决策依据已过时"传播到工作流条目。
   const workflowNodes = nodes.filter((n) => !isKnowledgeType(n.type));
@@ -316,7 +369,9 @@ export function computeNextActions(
         }
       }
       if (unmet.length > 0) {
-        blocked.push({ id: n.id, label: n.label, unmet });
+        // F09（adr_0017）：死节点在 blocked 桶同样带读面标注（重试入口被
+        // 门禁挡住时，替代路线信息不丢失）
+        blocked.push({ id: n.id, label: n.label, unmet, ...deadAnnotation(n) });
       } else {
         // F06/F07：requires_human / waiting_human 标注与 ready 桶同款
         const human = requiresHuman(n.checkpoints);
@@ -326,6 +381,7 @@ export function computeNextActions(
           ...(reviewFlag !== undefined ? { review_flag: reviewFlag } : {}),
           ...(human ? { requires_human: true } : {}),
           ...(human && n.assigned_to === undefined ? { waiting_human: true } : {}),
+          ...deadAnnotation(n),
         });
       }
     }

@@ -1,7 +1,7 @@
 # Super Plumber Operations 手册（唯一正本）
 
 > **定位**：三访问层（CLI / MCP / 脚本）操作语法、状态机、错误处理、solo 裁决边界的**唯一权威正本**。角色提示词与 skill 中的一切语法引用指向本文对应章节；本文不复述任何角色的判断力内容（边类型选型、设计甄别、DoD 质量裁量等归各自角色提示词，见 §10/§11）。
-> **版本锚点**：super-plumber **0.9.2**（全部 CLI 参数经 `graph --help` 实测：0.6.1 重构期全量校，其后增量（0.7.x 多图/导出、0.8.0 approve 与写作规范、0.8.1 拒绝理由凭据与分期导出、0.9.x 雾区/档位/分层审批）随交付核对；与旧文档不符处以实测为准，表中以〔已校〕标注）。
+> **版本锚点**：super-plumber **0.9.3**（全部 CLI 参数经 `graph --help` 实测：0.6.1 重构期全量校，其后增量（0.7.x 多图/导出、0.8.0 approve 与写作规范、0.8.1 拒绝理由凭据与分期导出、0.9.x 雾区/档位/分层审批、0.9.3 fallback 拍板）随交付核对；与旧文档不符处以实测为准，表中以〔已校〕标注）。
 > **分发**：正本住 `integrations/shared/manual.md`，由 `scripts/sync-integrations.mjs` 构建期同步进两个插件包（sha256 三方一致）；pi 侧只引用不拷贝。寻址写法见 §11。（该脚本属 v0.6.1 W3 波次，已接线并作为 prepublishOnly 发布门禁）
 
 目录：§1 访问层总览｜§2 design-ops｜§3 边类型判据式速查｜§4 execute-ops｜§5 状态机｜§6 工具总表（CLI+MCP）｜§7 脚本章｜§8 三层验收实操｜§9 错误处理大表｜§10 solo 自裁边界｜§11 寻址约定｜§12 漂移修正常记
@@ -273,7 +273,7 @@ serve 贯穿全程不关闭、已在运行不重复启动（编排纪律在 skil
 - **知识边（只在 ADR/领域建模阶段出现，工作流建图不产生）**：`decides` 仅 ADR→任意顶点（source 必须是 adr）；`relates` 仅 context↔context 且须附 `--rel-kind` 自由标注
 - **非门禁标注**：`shares_context` 不参与排序与门禁（仅表达上下文共享），语义真有时才显式写
 - **向后兼容存量、新设计不再使用**：`validates`（与 depends_on 机器行为同构）、`fan_in`/`fan_out`（门禁语义与多条 depends_on 入/出边等价）——存量图原样解析零迁移，新边一律 `depends_on`
-- **保留字禁用**：`fallback`/`iterates` 未实现运行时回退/迭代语义（文档性标注，validate 会逐条 warning）——不要在新图中使用
+- **保留字口径（0.9.3 adr_0017 分叉）**：`fallback` 有最小读语义——源节点 failed 且重试预算耗尽（死节点）时，next 桶该条目就地标注 `attempts_exhausted` 并沿出向 fallback 边列 `fallback_routes`（条件缺省，零门禁不排序）；`iterates` 仍为文档性标注（迭代语义由内建 attempts 重试链承担，validate 逐条 warning）——新图不要用 `iterates`
 - 两端跨 context 的工作流边是契约边：逐边 `--contract`，或由 context 顶点 `contracts:[{to,contract}]` 默认声明覆盖（`update-node --contract-add` 为追加通道，见 §2.4；单边 contract 优先）——该 context 对无声明且边无 contract 才 validate 警告（IL-012）；契约形状见 §2.3
 
 ---
@@ -291,7 +291,7 @@ graph_get_next_actions { }                       # MCP；可选 stale_ms（缺�
 graph next [--stale-ms <ms>] [--json]            # CLI
 ```
 
-一次返回五个桶：`ready`（可直接认领）/ `ready_eligible`（门禁已满足的 pending/failed，转 ready 即执行——**冷启动第一步从这里拿入口节点**）/ `blocked`（附 unmet 未满足前驱清单）/ `running`（附时长与执行者）/ `stale_running`（超阈值无更新的疑似卡死）。桶截断时 `truncated: true` → 加大 limit 翻页。条目可能带 `adr_flags`（⚠️ 所依据 ADR 已 superseded → 停下重审后再动工）。0.9.1 起读面另带（零门禁，条件缺省）：`requires_human`（含未完成 verifier:human checkpoint 的节点）与桶条目 `waiting_human`（等真人，未认领时）、`class_nudge`（雾/档矛盾提示，用户直发 `--by user` 凭据后静默）、`fog_graduation_nudge`（雾可毕业提示）；人读面同样渲染。
+一次返回五个桶：`ready`（可直接认领）/ `ready_eligible`（门禁已满足的 pending/failed，转 ready 即执行——**冷启动第一步从这里拿入口节点**）/ `blocked`（附 unmet 未满足前驱清单）/ `running`（附时长与执行者）/ `stale_running`（超阈值无更新的疑似卡死）。桶截断时 `truncated: true` → 加大 limit 翻页。条目可能带 `adr_flags`（⚠️ 所依据 ADR 已 superseded → 停下重审后再动工）。0.9.1 起读面另带（零门禁，条件缺省）：`requires_human`（含未完成 verifier:human checkpoint 的节点）与桶条目 `waiting_human`（等真人，未认领时）、`class_nudge`（雾/档矛盾提示，用户直发 `--by user` 凭据后静默）、`fog_graduation_nudge`（雾可毕业提示）；人读面同样渲染。0.9.3 起（adr_0017）：死节点条目（failed 且 max_attempts>0 且 attempts≥max_attempts）在 ready_eligible/blocked 两桶就地附 `attempts_exhausted: true` 与 `fallback_routes`（出向 fallback 边的目标 {id,label}，仅非空时出现；max_attempts=0 不限者永不判死），人读面渲染 `⚠️ 重试预算耗尽 | fallback 路线: <id>(<label>)`。
 
 **② CLAIM — 原子认领**
 
@@ -438,7 +438,7 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 | `reclaim` / `rc` | 回收死认领 running→pending | `-i --by` |
 | `update-node` / `un` | 编辑节点内容全家桶 | 见 §2.3 参数清单 |
 | `update-graph` / `ug` | 编辑图级字段 | 见 §2.2（0.9.1 增 `--by <名>`：class 变更凭据，缺省 agent，用户直发传 user；实际变更落 class_changed 事件） |
-| `next` / `n` | 调度五桶（ready/ready_eligible/blocked/running/stale_running） | `--stale-ms`（缺省基线 30 分钟，requires_human 节点 ×8=4h；显式传值对全部节点生效）`--json` |
+| `next` / `n` | 调度五桶（ready/ready_eligible/blocked/running/stale_running）；死节点条目带 attempts_exhausted/fallback_routes（0.9.3 adr_0017） | `--stale-ms`（缺省基线 30 分钟，requires_human 节点 ×8=4h；显式传值对全部节点生效）`--json` |
 | `verdict` / `vd` | 记录裁决结论到 verification | `-i --verdict pending/passed/failed --note` |
 | `snapshot` / `sp` | 版本快照（自动导出领域文档） | `-m --git` |
 | `snapshots` / `sps` | 快照列表 | `--json` |
@@ -455,7 +455,7 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 
 | 分组 | 工具 | 用途 | 注意 |
 |------|------|------|------|
-| 调度 | `graph_get_next_actions` | 规划循环首选，一次返回五桶 | stale_ms 缺省基线 30 分钟（requires_human ×8=4h，显式传值优先）；桶上限 limit=100；支持 assigned_to 过滤；0.9.1 起条目带 requires_human/waiting_human 与 class_nudge/fog_graduation_nudge 零门禁提示 |
+| 调度 | `graph_get_next_actions` | 规划循环首选，一次返回五桶 | stale_ms 缺省基线 30 分钟（requires_human ×8=4h，显式传值优先）；桶上限 limit=100；支持 assigned_to 过滤；0.9.1 起条目带 requires_human/waiting_human 与 class_nudge/fog_graduation_nudge 零门禁提示；0.9.3 起死节点条目带 attempts_exhausted/fallback_routes（adr_0017） |
 | 读 | `graph_get_node` | 节点全文+allowed_transitions+checkpoint_aggregate+ready_gate(+governing_adrs) | include_neighbors up/down |
 | 读 | `graph_get_graph` | 图拓扑+邻接（索引缓存） | 默认 summary 紧凑模式；full 用 offset/limit 分页（页默认200） |
 | 读 | `graph_traverse` | DFS 遍历邻居 | direction/max_depth（默认3、上限50）/max_nodes；返回 nodes+truncated+truncated_by_depth+truncated_by_nodes（IL-003：深度截断与节点数截断分别如实上报，truncated=任一发生；深链图一次到末端传足 max_depth，或从更远起点/汇聚点分段遍历） |

@@ -94,8 +94,9 @@ export function detectCycles(
 // FIX-B1（评审 B 级·运行时边装饰性）：隐藏环路 = 仅在引入 fan_out/fan_in
 // 门控边之后才闭合的环。这些边参与 ready 门禁（互等前驱 passed），环即真实
 // 互等死锁——今天就会发生，但拓扑排序/detectCycles 刻意忽略它们，完全不可见。
-// fallback/iterates 的单边闭合属于设计内的回退/迭代模式（不告警，改为
-// validate 对每条此类边发"无运行时语义"警告）。
+// fallback/iterates 的单边闭合属于设计内的回退/迭代模式（不告警）：iterates
+// 仍由 validate 逐条发文档性标注警告；fallback 自 F09（adr_0017）起有最小读
+// 语义（调度面死节点替代路线标注），不再触发任何警告。
 const HIDDEN_CYCLE_EDGE_TYPES: readonly EdgeType[] = [...GATE_EDGE_TYPES];
 
 function cycleKey(cycle: string[]): string {

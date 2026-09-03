@@ -17,6 +17,7 @@
 | ADR · accepted | adr_0014 | sp-grilling 纪律技能：意图对齐与决策纠正的统一对话核心（替代 quiz 三问） | 2026-08-30T14:27:35.303Z |
 | ADR · accepted | adr_0015 | Codex 渠道采用官方 .codex-plugin 插件路线 | 2026-08-31T12:08:23.380Z |
 | ADR · accepted | adr_0016 | 档位凭据命令 /plumber-class：用户直发 class + class_changed 凭据 + 方向性请示纪律 | 2026-09-01T23:39:45.659Z |
+| ADR · accepted | adr_0017 | fallback 最小读语义 + iterates 维持文档性标注（F09 纸面边清偿） | 2026-09-03T12:28:21.415Z |
 | task · passed | arch-c2-scheduler-split | [0.9.1·架构] C2 调度策略与索引缓存分家（scheduler.ts 新家） | 2026-09-02T16:31:19.594Z |
 | task · passed | arch-c3a-claim-nudges | [0.9.1·架构] C3a 认领提示包 core 单源（CLI 补齐 review_flag） | 2026-09-02T14:27:38.813Z |
 | task · passed | arch-c3b-validate-core | [0.9.1·架构] C3b validate 七步编排下沉 core（单源结果、双渠道薄渲染） | 2026-09-02T14:55:24.731Z |
@@ -73,4 +74,7 @@
 | task · passed | v091-tooling | [0.9.1] F06 requires_human 派生标注 + F07 等真人标记与 human stale 阈值 | 2026-09-02T17:17:03.986Z |
 | task · passed | v091-verify | [0.9.1] 0.9.1 交叉验证 | 2026-09-02T17:34:29.424Z |
 | task · passed | v092-progressive | [0.9.2] F08 approve --level 分批准入（仅 program 类） | 2026-09-03T00:06:11.054Z |
+| task · passed | v092-release | [0.9.2] 0.9.2 发布收尾 | 2026-09-03T01:10:22.915Z |
 | task · passed | v092-verify | [0.9.2] 0.9.2 交叉验证 | 2026-09-03T00:53:02.961Z |
+| task · passed | v093-fallback | [0.9.3] F09 fallback 最小语义 或 降级出枚举（按 DEC-3 判据拍板） | 2026-09-03T12:16:18.014Z |
+| task · passed | v093-verify | [0.9.3] 0.9.3 交叉验证 | 2026-09-03T12:25:40.202Z |

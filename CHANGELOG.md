@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.9.3] — 2026-09-03（minor：纸面边清偿——fallback 最小读语义）
+
+> 主题：F09 拍板落地——fallback/iterates 不再是「validate 自己都警告」的纸面边：fallback 按 DEC-3（adr_0003）判据获得最小运行时读语义（死节点时刻的替代路线亮灯），iterates 同场裁决维持文档性标注；降级出枚举案否决（adr_0017）。
+
+- **F09 fallback 最小读语义（adr_0017，双通道）**：`graph next` / `graph_get_next_actions` 对**死节点**（failed 且 max_attempts>0 且 attempts≥max_attempts——口径对照 state-machine 重试拦截，缺省按 3 兜底、0=不限永不判死）在 ready_eligible/blocked 两桶条目就地标注 `attempts_exhausted: true` 与 `fallback_routes`（沿出向 fallback 边收集 {id,label}，仅非空时出现，幽灵目标跳过）；CLI 人读面渲染 `⚠️ 重试预算耗尽 | fallback 路线: <id>(<label>)`（⚠️ 前缀对齐 adr_flags/review_flag 渲染习惯）。**零新增拒绝规则**——纯读面增强，不进 GATE_EDGE_TYPES/TOPOLOGICAL_EDGE_TYPES，死节点仍留原桶；编排 agent 不再需要全图扫边自找退路。
+- **iterates 同场裁决（防半吊子清偿）**：维持文档性标注——其名义语义（重试/迭代）已被内建 attempts 重试链覆盖，无独立最小语义可做；validate 的 per-edge「无运行时语义」警告收窄为 iterates 单型（新文案「迭代语义由内建 attempts 重试链承担」），fallback 不再触发任何此类警告；shares_context 独立汇总提示不变。
+- **拍板过程在案**：降级出枚举案否决——schema EDGE_TYPES 直接派生自 EdgeType 枚举（降级=存量图 fallback 边全变 schema 错误，破坏性变更）+ 拆掉 v0.8.0 设计明文引用的「先留标注、后升语义」升级通道先例 + 设计者表达意图的信息损失真实。**adr_0017 accepted**（super-mario 依 v093-verify 实测证据裁决，提议/裁决分离，IL-020 签署代录）。
+- 测试：后端 91 文件 **795 用例**全绿（0.9.2 为 91 文件 787：+7 调度死节点场景 +2 validate 口径 +1 CLI 渲染）+ web-ui **109 用例**；`graph validate` 0 error；sync --check 通过（含版本面一致）；export --docs --check 通过。
+- 治理：issue-log 前馈回路入册 IL-037（Windows EBUSY 文件锁抖动——环境性 flaky 首例，与 perf 墙钟不同源）/ IL-038（主控派单措辞两连击被实测纠正——attempts 语义口径与大写 ID 规则，「派单即契约」）；v093-verify 由 super-mario 独立临时图实测（8 节点 5 边逐断言：双桶标注齐备/条件缺省成立/0=不限永不判死/警告收窄，IL-020 签署代录模式）。
+- 发布动作：npm 0.9.3（latest）+ GitHub tag v0.9.3。
+
 ## [0.9.2] — 2026-09-03（minor：渐进审批——分层凭据 + 审批成家/改图组合器两路架构收口）
 
 > 主题：adr_0001 凭据哲学的粒度扩展——program 类大图可审一层批一层（approve --level）；C4b/C5 两路架构债清偿（审批凭据成家 review.ts + parser 减负解环、改图「begin→写→complete」三步舞组合器化、skipAmendGuard 通道退役）。

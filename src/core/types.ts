@@ -53,7 +53,9 @@ export enum EdgeType {
   Relates = "relates",  // context ↔ context（领域关系，rel_kind 自由标注）
 }
 
-// 参与拓扑排序的边类型（不包含 fallback / iterates 等运行时边，也不含 decides / relates 知识边）
+// 参与拓扑排序的边类型（不含运行时边——fallback 有最小读语义但仍不排序
+// （adr_0017：调度面死节点替代路线标注）、iterates 仍纯文档性标注；
+// 也不含 decides / relates 知识边）
 export const TOPOLOGICAL_EDGE_TYPES: EdgeType[] = [
   EdgeType.DependsOn,
   EdgeType.Validates,
@@ -61,7 +63,9 @@ export const TOPOLOGICAL_EDGE_TYPES: EdgeType[] = [
 
 // 参与 ready 门禁的边类型：depends_on（顺序依赖）、validates（验证）、
 // fan_in（汇聚，全部上游完成）、fan_out（"A 完成后 B/C 可并行"——完成语义同样构成前置）。
-// shares_context / fallback / iterates 是运行时控制流边，不构成门禁。
+// shares_context / fallback / iterates 不构成门禁：fallback 有最小读语义
+// （adr_0017——调度面对重试预算耗尽的死节点沿出向 fallback 边标注替代路线，
+// 只读不拦）、iterates 纯文档性标注（validate 逐条警告）。
 // 定义在 types.ts（而非 node.ts）以避免 index-service ↔ node 的循环依赖。
 export const GATE_EDGE_TYPES: readonly EdgeType[] = [
   EdgeType.DependsOn,
