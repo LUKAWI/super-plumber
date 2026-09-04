@@ -89,6 +89,7 @@
 | task · passed | v094-gov | [0.9.4] S06 PR 双通道清单 + S08 accept adr_0008/adr_0009 + DEC-4 修订记录 | 2026-09-04T07:05:45.782Z |
 | task · passed | v094-hooks | [0.9.4] S04 hooks 适配层（默认关闭） | 2026-09-04T06:18:36.501Z |
 | task · passed | v094-oneline | [0.9.4] F18 graph status --oneline 双通道 | 2026-09-04T00:56:47.616Z |
+| task · passed | v094-release | [0.9.4] 0.9.4 发布收尾 | 2026-09-04T08:55:16.382Z |
 | task · passed | v094-restructure | [0.9.4] S01 正本收拢 integrations/src/ + gen 门禁 | 2026-09-04T00:04:12.387Z |
 | task · passed | v094-scripts | [0.9.4] S03 八脚本收敛 sp.mjs 薄封装（≡ CLI 语义面） | 2026-09-04T07:38:47.985Z |
 | task · passed | v094-verify | [0.9.4] 0.9.4 交叉验证 | 2026-09-04T08:31:43.887Z |
