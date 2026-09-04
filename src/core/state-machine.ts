@@ -1,4 +1,6 @@
 import { NodeStatus, AdrStatus, NodeType, type NodeSchema, type Checkpoint } from "./types.js";
+// arch-c1（C1）：非法转换/门禁未满足/预算耗尽三族错误落机器可读 code（单源 errors.ts）
+import { ErrorCode, GraphError } from "./errors.js";
 
 // 允许的转换表：每个状态 → 可以转换到的状态列表
 // v0.3 新增：
@@ -56,13 +58,15 @@ export function assertPassedEligible(node: NodeSchema): void {
     typeof report.summary !== "string" ||
     report.summary.trim() === ""
   ) {
-    throw new Error(
+    throw new GraphError(
+      ErrorCode.GateNotSatisfied,
       `Node ${node.id} 无执行报告（execution_report.summary 为空），不能标记 passed。` +
         `先填写交接单（graph_update_execution_report），确需强制（仅人类运维）请用 --force`,
     );
   }
   if (report.verification?.verdict === "failed") {
-    throw new Error(
+    throw new GraphError(
+      ErrorCode.GateNotSatisfied,
       `Node ${node.id} 已有 failed 裁决，不能标记 passed。请修复缺陷并重新裁决`,
     );
   }
@@ -72,12 +76,14 @@ export function assertPassedEligible(node: NodeSchema): void {
       (c) => c.status !== "passed" && c.status !== "skipped",
     );
     if (hasFailed) {
-      throw new Error(
+      throw new GraphError(
+        ErrorCode.GateNotSatisfied,
         `Node ${node.id} 存在 failed checkpoint，不能标记 passed`,
       );
     }
     if (hasIncomplete) {
-      throw new Error(
+      throw new GraphError(
+        ErrorCode.GateNotSatisfied,
         `Node ${node.id} 存在未完成 checkpoint，不能标记 passed。` +
           `全部 checkpoint passed/skipped 后才能完成`,
       );
@@ -92,20 +98,23 @@ export function transition(
 ): NodeSchema {
   // v0.5 知识顶点分支：context 一律拒绝；adr 走三态机（superseded 必须已带接替者）
   if (node.type === NodeType.Context) {
-    throw new Error(
+    throw new GraphError(
+      ErrorCode.InvalidTransition,
       `Node ${node.id} 是 context 顶点：无状态（status 恒 pending）、无执行语义，不支持任何状态变更`,
     );
   }
   if (node.type === NodeType.Adr) {
     const allowed = ADR_TRANSITIONS[node.status as string] ?? [];
     if (!allowed.includes(to as string)) {
-      throw new Error(
+      throw new GraphError(
+        ErrorCode.InvalidTransition,
         `Invalid ADR transition: ${node.status} → ${to}. ` +
           `ADR 状态机仅 proposed → accepted → superseded`,
       );
     }
     if (to === AdrStatus.Superseded && !node.superseded_by) {
-      throw new Error(
+      throw new GraphError(
+        ErrorCode.InvalidTransition,
         `ADR ${node.id} 置 superseded 前必须设置 superseded_by（接替 ADR id）`,
       );
     }
@@ -113,7 +122,8 @@ export function transition(
   }
 
   if (!canTransition(node.status as NodeStatus, to as NodeStatus)) {
-    throw new Error(
+    throw new GraphError(
+      ErrorCode.InvalidTransition,
       `Invalid transition: ${node.status} → ${to}. ` +
       `Allowed: [${getAllowedTransitions(node.status as NodeStatus).join(", ")}]`
     );
@@ -126,7 +136,8 @@ export function transition(
     node.max_attempts > 0 &&
     node.attempts >= node.max_attempts
   ) {
-    throw new Error(
+    throw new GraphError(
+      ErrorCode.AttemptsExhausted,
       `Node ${node.id} 已达最大重试次数 (${node.attempts}/${node.max_attempts})，` +
         `请人工介入。确需强制重试请使用 --force（仅人类运维）`
     );
@@ -145,7 +156,8 @@ export function transition(
     node.max_attempts > 0 &&
     node.attempts >= node.max_attempts
   ) {
-    throw new Error(
+    throw new GraphError(
+      ErrorCode.AttemptsExhausted,
       `Node ${node.id} 已达最大重试次数 (${node.attempts}/${node.max_attempts})，` +
         `cancelled 重开同样受上限约束，请人工介入。确需强制重开请使用 --force（仅人类运维）`
     );

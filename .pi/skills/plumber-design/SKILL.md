@@ -8,40 +8,22 @@ description: Use when 接到新需求/任务需要拆解成任务拓扑图、设
 ## Overview
 
 - **产出物 = 用户审核通过的拓扑图**（v0.5 起含领域结构：bounded context 与 ADR 是图中一等公民），不是执行结果。
-- 本页是**编排剧本**：建图与验证的操作语法在 Operations 手册，设计判断力（九边选型、领域建模方法、ADR 甄别）在 sp-designer agent，此处只管阶段推进与硬 gate。
+- 本页是**编排剧本**：建图与验证的操作语法在 Operations 手册，设计判断力（九边选型、领域建模方法、ADR 甄别）在 sp-designer agent，此处只管阶段推进与硬 gate；细则按需读 `attachments/`（与本文件同目录，两渠道同构可解析）：workflow-classes / review-brief / disciplines-map / wayfinder-mode / amend-mode。
 
 **审核是硬性 gate**：用户批准之前绝不进入执行阶段；审核通过后切换 `plumber-execute`。
 
----
+## When to Use / 衔接关系（subagent 与 skill 已解耦）
 
-## When to Use / Do NOT
-
-- Use：接到新需求需拆解为 3–20 个有依赖关系的任务；设计或修改 `.graph/` 拓扑（entry/exit、节点、边）；验证拓扑质量；serve 预览并请求用户审核；审核后提修改意见 → 回本 skill（改图 → 重验 → 重预览 → 再审）。
-- Do NOT：执行已审核通过的拓扑（用 plumber-execute）；纯 todo 列表。
-
-## 衔接关系（subagent 与 skill 已解耦，不再是 REQUIRED SUB-SKILL）
-
+- Use：接到新需求需拆解为 3–20 个有依赖关系的任务；设计或修改 `.graph/` 拓扑（entry/exit、节点、边）；验证拓扑质量；serve 预览并请求用户审核；审核后提修改意见 → 回本 skill（改图 → 重验 → 重预览 → 再审）。Do NOT：执行已审核通过的拓扑（用 plumber-execute）；纯 todo 列表。
 - 设计专业协议的唯一载体是 `.pi/agents/sp-designer.md`（建图序列纪律、九边选型判断力、领域建模细则、ADR 三判据、节点三要素）——本 skill 引用它，绝不复述。
-- 需要专职设计 → 按下节「派单模板」派 `sp-designer` subagent；检测不到可用 subagent → 走「solo 分支」主线程扮演。
+- 需要专职设计 → 按「派单模板」派 `sp-designer` subagent；检测不到可用 subagent → 走「solo 分支」主线程扮演。
 - 用户审核通过 → 进入 `plumber-execute`（建议用户明确说"开始执行"）；节点状态裁决 / checkpoint 聚合 / 重试管理 → `super-mario` agent。
-
----
 
 ## 流程（Phase 0 定档 + 5 步，严格按序，绝不跳步）
 
 ### Phase 0 — 路由决策表（两问定档，先于 Step 1；DEC-2）
 
-对需求问两问：**① 有雾吗**（存在说不出精确问题的未知区）？**② 一个会话装得下吗**？按答案锁定档位，后续步骤按档取舍：
-
-| 档位 | 判定 | 走法 |
-|------|------|------|
-| **quick** | 无雾 + 装得下 | 单节点图：entry=任务一句话、exit=验收一句话；跳过 serve 人审与 doctor 质检，只跑 `graph validate`；执行协议减为 claim→report→passed（checkpoint 可选）；init 后立即 `graph approve --by <agent 名> --status self` 自签（自签是话术约定：无 --self 参数，用 `--status self` 表达） |
-| **standard** | 无雾 + 装不下 | 本 skill 现状全流程（Step 1–5 一项不减） |
-| **program** | 有雾 / 跨会话 / 跨图 | 走下文「chart the graph 模式」：绘图会话只画图不解题，解雾交 work 模式（0.9.0 雾区进 schema） |
-
-定档拿不准时升档执行（存疑按 standard 走）；定档后冒出雾 → 回本表重定档。
-
-**档位凭据纪律（adr_0016）**：用户未设档时由 agent 按上表自判档位（现状维持，缺省 `--by` 即 agent 自判）；用户说「设为某档」=凭据效力（pi 对话约定，与 `/plumber-class` 命令同款），agent 代发 `graph update-graph --class <档>` 须带 `--by user`；升降档须用户批准。
+对需求问两问：**① 有雾吗**（存在说不出精确问题的未知区）？**② 一个会话装得下吗**？——**quick**（无雾+装得下：单节点图，entry/exit 各一句话，跳过 serve 人审与 doctor、只跑 `graph validate`，执行协议减为 claim→report→passed，init 后 `graph approve --by <agent 名> --status self` 自签）/ **standard**（无雾+装不下：Step 1–5 一项不减）/ **program**（有雾/跨会话/跨图：切 chart 模式）。三级路由细则与档位凭据纪律（adr_0016）→ `attachments/workflow-classes.md`；定档拿不准时升档执行（存疑按 standard 走），定档后冒出雾 → 回本节重定档。
 
 ### Step 1 — 理解需求
 
@@ -49,23 +31,10 @@ description: Use when 接到新需求/任务需要拆解成任务拓扑图、设
 
 ### Step 2 — 派发设计（先 entry/exit 后 L1-Ln 是铁律）
 
-- 两条铁律写进派单：建图顺序 = **entry 和 exit 永远第一个定义**（先图级字段后 L1-Ln 分层动脉）；需求跨多个关注点 → **领域建模与 ADR 甄别是 designer 必做项**（bounded context 划界/术语表/跨 context 契约边、够三判据的 ADR），点名不可裁剪。
-- 建图必须走完整 designer 协议并通过体检；协议细节与命令语法以 designer 提示词 + 手册 §2 为准。
-- **有 subagent**：按「派单模板」派出 sp-designer，等待其交付 `.graph/` 与设计报告。
-- **无 subagent**：走「solo 分支」，主线程原地扮演设计师完成同等产出。
-
-**置层准则（L1-Ln 怎么分层；IL-001，细则见手册 §2.9）**：
-
-- level 表达**少数有意义的分层带**，推荐与图的分期/领域结构对齐（如分期带，或修复/实现/验证带）。
-- **不把依赖深度编码进 level**——层内顺序由 depends_on 边与 priority 表达，不靠层数堆叠（事故实证：33 层 1:1 深度编码被用户审出，手工重编为 4 层分期带）。
-- 层数建议 ≤5，避免出现单节点层；同一图内准则一致。
-- designer **出图前先声明置层方案**（分几带、每带含义），声明与图不符按设计缺陷返工。
-
-**查历史拒绝理由（出图/改图前必做；WF05）**——派发/动笔前筛查本图已否决过的方案，防止重蹈。三步：
-
-1. **看软删归档**：`ls .graph/*/nodes/*.deleted*.yaml .graph/nodes/*.deleted*.yaml 2>/dev/null`；命中文件读顶层键 `deleted_reason` / `deleted_at` / `deleted_by`（0.8.1 F14 起随软删写入；更早的旧归档无这三个键、只有节点原文，按 label 与删除时间轴对照辨认）。
-2. **查审计事件**：`graph events -k node_deleted --json`（MCP `graph_events {kind:"node_deleted"}`）——`detail` 带 `reason="…"` 与 cascade 边清单，可补全旧档缺失的理由。
-3. **命中即回应**：待建/待改节点与已删方案同域或同目标 → 设计报告逐一回应删除理由（换道，或给出理由已失效的依据）；报告无回应 = 重蹈已否决方案，按设计缺陷返工。有 subagent 时主线程先筛、命中结果随派单交付 designer；solo 分支动笔前自跑。
+- 两条铁律写进派单：**entry 和 exit 永远第一个定义**（先图级字段后 L1-Ln 分层动脉）；需求跨多个关注点 → **领域建模与 ADR 甄别是 designer 必做项**（bounded context 划界/术语表/跨 context 契约边、够三判据的 ADR），点名不可裁剪。节点类型×默认纪律与 plan 纪律指针写法（WF07）→ `attachments/disciplines-map.md`。
+- 建图必须走完整 designer 协议并通过体检，协议细节与命令语法以 designer 提示词 + 手册 §2 为准。**置层准则（IL-001）**：level 表达少数有意义的分层带（与分期/领域结构对齐），**不把依赖深度编码进 level**，层数建议 ≤5、避免单节点层；designer 出图前先声明置层方案（分几带、每带含义），声明与图不符按设计缺陷返工——细则 → 手册 §2.9。
+- **查历史拒绝理由（WF05，出图/改图前必做）**：看软删归档（`ls .graph/*/nodes/*.deleted*.yaml`，读 `deleted_reason` 等顶层键）→ `graph events -k node_deleted --json` 补全旧档理由 → 待建/待改节点命中已删方案时，设计报告逐一回应删除理由（换道，或给出理由已失效的依据），无回应 = 重蹈已否决方案，按设计缺陷返工。有 subagent 时主线程先筛、命中结果随派单交付 designer；solo 分支动笔前自跑。
+- **有 subagent**：按「派单模板」派出 sp-designer，等待其交付 `.graph/` 与设计报告；**无 subagent** → 走「solo 分支」。
 
 ### Step 3 — 双关卡验证门禁
 
@@ -77,27 +46,13 @@ description: Use when 接到新需求/任务需要拆解成任务拓扑图、设
 
 ### Step 5 — 请求用户审核（硬性 gate）
 
-- 开场告知"拓扑图已在浏览器打开（端口 X），可以开始审核"；此后人审对话**接 sp-grilling 质检**：designer 引导用户对**已画好的图**跑 sp-grilling——一次只问一个问题、每问附上你的推荐答案，先覆盖三类结构决策（节点粒度是否得当？阻塞边是否真门槛？该合并还是再拆？），再沿决策树逐支深入；验收标准、领域划分与 ADR 纳入后续问题序列。事实自查（读图、validate 结果自己查），决策归用户。
-- 建议切**三透镜**审阅（Web UI 左侧 map 勾选器）：**工作流图**（任务拆分与依赖）/ **领域图**（context 边界与术语，点开看节点即文档详情）/ **叠加图**（簇壳包裹成员、ADR 徽章、契约边高亮——归属是否合理一眼可见）。
-- 用户**否决/提意见** → 回 Step 2 修改 → Step 3 重验 → 浏览器刷新后再次请求审核。
-- 用户**批准** → designer 调一次 `graph approve --by <审核者>` 落审批凭据（DEC-1：status 默认 approved；凭据只记录、不替代审核对话），随后才可进入 `plumber-execute`（建议用户明确说"开始执行"触发）。
-- program 类图可按层分批 approve（`graph approve --by <审核者> --level L1 …`）：审一层批一层，分层凭据照记（review.layers），零门禁不变（F08）。
-- **旅程告知（WF10，图定稿出场时必做）**：向用户交底「下一步是什么、需要你做什么」——① serve 页继续开着供复查（看板零门禁，正式凭据是 `graph approve --by <审核者名>` 的人工审核记录）；② 之后说"开始执行"即切 `plumber-execute` 编排执行；③ 也可另开会话用 `/plumber-join` 让执行者冷启动入场自主认领（DEC-5：join 是新会话入场认领，journey 是阶段出场告知，两者互补不互斥）。
+- 开场告知"拓扑图已在浏览器打开（端口 X），可以开始审核"；此后人审对话**接 sp-grilling 质检**（quiz 三问、三透镜审阅、approve 凭据与分层批准、旅程告知 WF10 等对话细则 → `attachments/review-brief.md`）；事实自查（读图、validate 结果自己查），决策归用户。
+- 用户**否决/提意见** → 回 Step 2 修改 → Step 3 重验 → 浏览器刷新后再次请求审核；用户**批准** → designer 调一次 `graph approve --by <审核者>` 落审批凭据（DEC-1：凭据只记录、不替代审核对话），随后才可进入 `plumber-execute`（建议用户明确说"开始执行"触发）。
 - **绝不**在未获批准时 claim 节点或改动节点状态；**绝不**自行调用 plumber-execute 开始执行任何节点——**设计完成 ≠ 可以执行**。
-
----
 
 ## chart the graph 模式（program 档：绘图会话只画图不解题）
 
-Phase 0 定档 program（有雾 / 跨会话 / 跨图）→ 本 skill 切 chart 模式：说得清的骨架照画（entry/exit、已知节点与边、领域结构），说不出精确问题的未知区登记为**雾区**，把「想清楚」本身拆成 research 型票交给 work 会话——本会话不解题、不冒充精确。
-
-1. **登记雾区**（图级字段，单一真相源；不做雾节点载体）：CLI `graph update-graph --set-fog '{"id":"ra","description":"哪里模糊","graduation":"怎样算想清楚","ignited":["r1"]}' --class program`；MCP `graph_update_graph` 同名字段（`fog:{id,description,graduation,ignited?}` 整体 upsert；`class` 标 quick|standard|program）。参数全集 → 手册 §2.2。
-2. **点火 research 票，绝不建边**：research 票 = 普通 task + plan 自述调研目标；fan_out 点火关系由雾侧 `ignited` 字段（或票 plan 自述）承载，**绝不建 depends_on 边**——雾不是票、无状态机，fog→票 边会把票永久锁死在 ready 门禁外（试跑实证死锁，不存在合法边能表达点火）。
-3. **一次会话一张票**：research/原型节点按单票范式登记——一票 = 一个会话装得下的调研量；chart 端按此拆票，work 端按此解题。
-4. **收尾照旧**：validate 照跑（图有雾只提示不阻止）、serve 人审照走；人审通过后交棒 `plumber-execute` 的 work the graph 模式逐票解雾，雾毕业前图不宣告「精确」。
-5. 本节为正文允许节承载，S02 附件化收编（wayfinder-mode.md）归 0.9.4。
-
----
+骨架照画（entry/exit、已知节点与边、领域结构），说不出精确问题的未知区登记为**雾区**，把「想清楚」本身拆成 research 型票交 work 会话解——雾区登记语法、点火不建边、一次会话一张票、收尾交棒全程细则 → `attachments/wayfinder-mode.md`（chart/work 两模式）。
 
 ## 派单模板（给 sp-designer subagent 的标准提示词骨架）
 
@@ -106,7 +61,7 @@ Phase 0 定档 program（有雾 / 跨会话 / 跨图）→ 本 skill 切 chart �
 3. 首行固定指引：`Read integrations/shared/manual.md §2、§6`（claude/zcode 插件包环境按手册 §11 寻址约定改为包根相对路径）。
 4. **信息优先级声明**：任务派单 ＞ 角色提示词（sp-designer.md）/ 手册 ＞ skill 正文；冲突时上位胜出。
 5. **产物交付要求**：交付物 = `<仓库根>/.graph/` 中可通过 validate 的图，附设计报告（L1 清单、context 与 ADR 计数、体检结果）；报告只作陈述，图本身是真相源。
-6. **派发前合规自查（三条缺一不派发）**：派出 sp-designer 前逐条核对——① 任务目标含领域结构要求（bounded context 与 ADR 甄别点名不可裁剪，对应第 1 条）；② 派单首行含 Read 手册 §2、§6 指引（对应第 3 条，路径按渠道寻址约定）；③ 含信息优先级声明（对应第 4 条）。任一缺失即派单不合规，必须补齐后才允许派发（C1 防线：领域建模不可被派单降级或裁剪）。
+6. **派发前合规自查（三条缺一不派发，C1 防线）**：① 任务目标含领域结构要求（对应第 1 条）；② 首行含 Read 手册 §2、§6 指引（对应第 3 条，路径按渠道寻址约定）；③ 含信息优先级声明（对应第 4 条）。任一缺失即派单不合规，补齐后才允许派发。
 
 ## solo 分支（检测不到可用 subagent 时）
 

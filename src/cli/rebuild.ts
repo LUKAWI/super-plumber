@@ -1,11 +1,14 @@
-import { Command } from "commander";
-import { cliGraphDir } from "./graph-ctx.js";
+// src/cli/rebuild.ts — arch-c1（C1）全迁：flags 声明 + 纯渲染，错误/图解析归
+// runner。未初始化拒绝（防半初始化假成功，BUG-07）复用 core
+// workspaceNotInitialized 单源文案（"ENOENT 提示六份归一"）。
 import { readGraph } from "../core/parser.js";
 import { buildGraphIndex } from "../core/graph.js";
 import { toGraphDir } from "../core/graph-dir.js";
+import { workspaceNotInitialized } from "../core/errors.js";
 import type { GraphExportMeta } from "./export-mermaid.js";
 import { vertexColors, EDGE_STYLE_LEGEND, commentSafe } from "./export-mermaid.js";
 import type { EdgeSchema, NodeSchema } from "../core/types.js";
+import { defineCommand } from "./runner.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -74,17 +77,14 @@ export function buildDotTopology(
   return lines.join("\n") + "\n";
 }
 
-export const rebuildCommand = new Command("rebuild").alias("rb")
+export const rebuildCommand = defineCommand("rebuild").alias("rb")
   .description("从源文件重建 index/ 派生索引（graph.json 完整数据 + meta.json + topology.dot）")
-  .action(() => {
-    const rootDir = cliGraphDir(process.cwd());
+  .action((_options: Record<string, unknown>, _cmd, ctx) => {
+    const rootDir = ctx.rootDir;
 
     // 未初始化时直接报错，不自动创建 index/（避免半初始化假成功）
     if (!fs.existsSync(path.join(rootDir, "graph.yaml"))) {
-      console.error(
-        `❌ 未找到图（${rootDir} 无 graph.yaml），请先运行 graph init <内容名>`,
-      );
-      process.exit(1);
+      throw workspaceNotInitialized(rootDir);
     }
 
     const indexPath = path.join(toGraphDir(rootDir), "index");

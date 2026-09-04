@@ -20,6 +20,8 @@ import {
   type GraphClass,
 } from "./types.js";
 import { toGraphDir } from "./graph-dir.js";
+// arch-c1（C1）：校验失败族落机器可读 code（单源 errors.ts）
+import { ErrorCode } from "./errors.js";
 
 export interface SchemaIssue {
   field: string;
@@ -31,7 +33,9 @@ export type LoadResult<T> =
   | { ok: false; issues: SchemaIssue[]; enoent?: boolean };
 
 export class SchemaValidationError extends Error {
-  readonly code = "SCHEMA_ERROR";
+  // arch-c1（C1）：code 从私有 "SCHEMA_ERROR" 收敛为最小集六枚的 VALIDATION_FAILED
+  // （全库无 SCHEMA_ERROR 消费方，改码零破坏；instanceof 判定通道保持不变）
+  readonly code = ErrorCode.ValidationFailed;
   constructor(
     public readonly file: string,
     public readonly issues: SchemaIssue[],

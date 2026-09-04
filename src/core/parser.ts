@@ -21,6 +21,8 @@ import { withGraphAmend } from "./amend.js";
 // index-service 的读原语（readNode/readEdge）改道 graph-io（arch-c4b 解环）。
 // fix_index_cache：写路径必须主动失效索引缓存。
 import { invalidateIndex } from "./index-service.js";
+// arch-c1（C1）：deleteNode 缺失节点落 NODE_NOT_FOUND（与 getNode 同族单源）
+import { nodeNotFound } from "./errors.js";
 // arch-c4b 解环：文件 I/O 原语层（graph.yaml 与实体文件读写、图级锁、引用列表
 // 重建）下沉至 graph-io.ts，本模块保留用例编排层。下方兼容 re-export 保持
 // 对外路径（@lukawi/super-plumber/core 与 ../core/parser.js 深引）与函数签名
@@ -88,7 +90,7 @@ export function deleteNode(
 ): void {
   return withLockSync(rootDir, id, () => {
     const filePath = nodeFilePath(rootDir, id);
-    if (!fs.existsSync(filePath)) throw new Error(`Node ${id} not found`);
+    if (!fs.existsSync(filePath)) throw nodeNotFound(id);
 
     // 引用边检查：默认拒绝（防悬挂引用），--cascade 连同软删除
     const referencing: string[] = [];

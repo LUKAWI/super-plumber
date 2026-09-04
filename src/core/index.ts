@@ -28,3 +28,5 @@ export * from "./graph-summary.js";
 // arch-c3b：validate 编排单源（命名避让 schema.ts 的 validateGraph——后者是
 // graph.yaml schema 校验器，早已由本桶文件公开）
 export * from "./validate.js";
+// arch-c1（C1）：机器可读错误码单源（最小集六枚 + GraphError + 判定谓词）
+export * from "./errors.js";

@@ -12,12 +12,15 @@
 | ADR · accepted | adr_0005 | skills 入口策略修订 + 纪律技能族自建（DEC-6） | 2026-08-30T23:32:50.554Z |
 | ADR · accepted | adr_0006 | 改图协议 amend：三级分流 + 三条轻机器约束，不新增 skill（DEC-7） | 2026-09-01T05:11:26.877Z |
 | ADR · accepted | adr_0007 | 雾区进 schema：轻字段 + 只提示不阻止（0.9.0 设计基准） | 2026-09-01T16:15:49.179Z |
+| ADR · accepted | adr_0008 | 单真相源重组：正本唯一化 integrations/src/，双视图变构建产物（0.9.4） | 2026-09-04T07:03:46.405Z |
+| ADR · accepted | adr_0009 | hooks 是可选 harness 资产，不是 SP 机制（0.9.4） | 2026-09-04T07:03:50.880Z |
 | ADR · accepted | adr_0012 | 过程问题前馈回路：失败与用户反馈一律入账、转图节点、按常规流程治理 | 2026-08-30T09:33:39.056Z |
 | ADR · accepted | adr_0013 | 多图工作区知识视图导出按图名分离存放（根治 A1 跨图视图挤占） | 2026-08-30T11:39:27.326Z |
 | ADR · accepted | adr_0014 | sp-grilling 纪律技能：意图对齐与决策纠正的统一对话核心（替代 quiz 三问） | 2026-08-30T14:27:35.303Z |
 | ADR · accepted | adr_0015 | Codex 渠道采用官方 .codex-plugin 插件路线 | 2026-08-31T12:08:23.380Z |
 | ADR · accepted | adr_0016 | 档位凭据命令 /plumber-class：用户直发 class + class_changed 凭据 + 方向性请示纪律 | 2026-09-01T23:39:45.659Z |
 | ADR · accepted | adr_0017 | fallback 最小读语义 + iterates 维持文档性标注（F09 纸面边清偿） | 2026-09-03T12:28:21.415Z |
+| task · passed | arch-c1-cli-runner | [0.9.1-0.9.2·架构] C1 核心错误码六枚 + CLI defineCommand 统一骨架（全迁） | 2026-09-04T00:26:16.806Z |
 | task · passed | arch-c2-scheduler-split | [0.9.1·架构] C2 调度策略与索引缓存分家（scheduler.ts 新家） | 2026-09-02T16:31:19.594Z |
 | task · passed | arch-c3a-claim-nudges | [0.9.1·架构] C3a 认领提示包 core 单源（CLI 补齐 review_flag） | 2026-09-02T14:27:38.813Z |
 | task · passed | arch-c3b-validate-core | [0.9.1·架构] C3b validate 七步编排下沉 core（单源结果、双渠道薄渲染） | 2026-09-02T14:55:24.731Z |
@@ -25,6 +28,7 @@
 | task · passed | arch-c4b-review-home | [0.9.2·架构] C4b 审批凭据成家（review.ts）+ parser 减负解环 | 2026-09-02T23:41:03.563Z |
 | task · passed | arch-c5-amend-combinator | [0.9.2·架构] C5 改图守卫组合器（skipAmendGuard 通道退役） | 2026-09-03T00:43:55.722Z |
 | task · passed | arch-c7a-view-tree-gate | [0.9.1·架构] C7a ADR 导出视图合树 + export --check 门禁 + 散文锚点即修 | 2026-09-02T14:55:24.764Z |
+| task · passed | arch-c7b-anchor-gate | [0.9.4·架构] C7b sync --check 增散文锚点断言（manual 版本锚点 + README 计数器） | 2026-09-04T01:01:12.709Z |
 | task · passed | fix-v080-a1 | [fix·0.7.0] A1 根治：ADR 编号×共享知识视图目录冲突（方案系统测试后定） | 2026-08-30T11:39:27.258Z |
 | task · passed | fix-v080-b1 | [fix·0.7.0] B1 短期门禁：skill 双副本 diff 检查项落地 | 2026-08-30T11:39:27.202Z |
 | task · passed | fix-v080-b2 | [fix·0.7.0] B2 manual §2.3 契约边示例修订为实测形状 | 2026-08-30T11:39:27.229Z |
@@ -77,4 +81,14 @@
 | task · passed | v092-release | [0.9.2] 0.9.2 发布收尾 | 2026-09-03T01:10:22.915Z |
 | task · passed | v092-verify | [0.9.2] 0.9.2 交叉验证 | 2026-09-03T00:53:02.961Z |
 | task · passed | v093-fallback | [0.9.3] F09 fallback 最小语义 或 降级出枚举（按 DEC-3 判据拍板） | 2026-09-03T12:16:18.014Z |
+| task · passed | v093-release | [0.9.3] 0.9.3 发布收尾 | 2026-09-03T12:51:21.030Z |
 | task · passed | v093-verify | [0.9.3] 0.9.3 交叉验证 | 2026-09-03T12:25:40.202Z |
+| task · passed | v094-agents | [0.9.4] S05 subagent 瘦身 + S09 sp-executor 定义 | 2026-09-04T06:39:56.288Z |
+| task · passed | v094-attachments | [0.9.4] S02 SKILL.md 分层：主文档 <100 行 + attachments 七件 | 2026-09-04T08:14:56.864Z |
+| task · passed | v094-disciplines | [0.9.4] S11 纪律族起步：plumber-tdd + plumber-review | 2026-09-04T06:06:57.405Z |
+| task · passed | v094-gov | [0.9.4] S06 PR 双通道清单 + S08 accept adr_0008/adr_0009 + DEC-4 修订记录 | 2026-09-04T07:05:45.782Z |
+| task · passed | v094-hooks | [0.9.4] S04 hooks 适配层（默认关闭） | 2026-09-04T06:18:36.501Z |
+| task · passed | v094-oneline | [0.9.4] F18 graph status --oneline 双通道 | 2026-09-04T00:56:47.616Z |
+| task · passed | v094-restructure | [0.9.4] S01 正本收拢 integrations/src/ + gen 门禁 | 2026-09-04T00:04:12.387Z |
+| task · passed | v094-scripts | [0.9.4] S03 八脚本收敛 sp.mjs 薄封装（≡ CLI 语义面） | 2026-09-04T07:38:47.985Z |
+| task · passed | v094-verify | [0.9.4] 0.9.4 交叉验证 | 2026-09-04T08:31:43.887Z |

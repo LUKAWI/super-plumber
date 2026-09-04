@@ -1,5 +1,6 @@
 // tests/cli/sp-traverse-script.test.ts
-// IL-017：sp-traverse.mjs 脚本通道语义收编——输出 ≡ MCP graph_traverse（IL-003 形状）：
+// IL-017 + S03 八脚本收敛：sp.mjs traverse 子命令（原 sp-traverse.mjs 单文件退役）语义收编
+// ——输出 ≡ MCP graph_traverse（IL-003 形状）：
 // { nodes, truncated, truncated_by_depth, truncated_by_nodes } JSON 一行；
 // max_depth 缺省 3、上限 50（传 60 也只到 50）；两类截断如实上报，不静默缺失。
 // 测试方式：进程级 spawn 脚本（与 tests/cli 既有组织方式一致），
@@ -13,7 +14,7 @@ import { createNode } from "../../src/core/node.js";
 import { createEdge } from "../../src/core/edge.js";
 import { NodeType, EdgeType } from "../../src/core/types.js";
 
-const SCRIPT_PATH = path.resolve("integrations/shared/sp-scripts/sp-traverse.mjs");
+const SCRIPT_PATH = path.resolve("integrations", "src", "sp-scripts", "sp.mjs");
 
 let tmpDir: string;
 
@@ -32,7 +33,7 @@ interface ScriptResult {
 }
 
 function runScript(args: string[]): ScriptResult {
-  const res = spawnSync(process.execPath, [SCRIPT_PATH, ...args], {
+  const res = spawnSync(process.execPath, [SCRIPT_PATH, "traverse", ...args], {
     cwd: tmpDir,
     encoding: "utf-8",
   });
@@ -63,7 +64,7 @@ function buildChain(n: number, branchTo?: number): string[] {
   return ids;
 }
 
-describe("IL-017 sp-traverse.mjs 脚本通道语义 ≡ MCP graph_traverse", () => {
+describe("IL-017 sp.mjs traverse 子命令语义 ≡ MCP graph_traverse（S03 八脚本收敛后）", () => {
   it("缺省用法：max_depth=3，nodes 为 DFS 有序列表，深度截断如实上报", () => {
     buildChain(33, 15);
     const res = runScript(["c00"]);
@@ -159,6 +160,6 @@ describe("IL-017 sp-traverse.mjs 脚本通道语义 ≡ MCP graph_traverse", () 
     expect(runScript(["c00", "downstream", "0"]).status).toBe(1);
     expect(runScript(["c00", "downstream", "abc"]).status).toBe(1);
     expect(runScript([]).status).toBe(1);
-    expect(runScript([]).stderr).toContain("Usage: node sp-traverse.mjs <node_id>");
+    expect(runScript([]).stderr).toContain("Usage: node sp.mjs traverse <node_id>");
   });
 });

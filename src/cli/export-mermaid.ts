@@ -1,6 +1,4 @@
 // src/cli/export-mermaid.ts
-import { Command } from "commander";
-import { cliGraphDir } from "./graph-ctx.js";
 import { listNodes } from "../core/node.js";
 import { listEdges } from "../core/edge.js";
 import { readGraph } from "../core/parser.js";
@@ -282,7 +280,13 @@ export function parseBandNames(raws: string[]): Record<number, string> {
   return bandNames;
 }
 
-export const exportMermaidCommand = new Command("export").alias("x")
+// arch-c1（C1）全迁：flags 声明 + 纯函数（buildMermaid/filterByLevels/parseLevels/
+// parseBandNames 保持纯可单测），错误/图解析/JSON 切换归 runner；参数解析错误改抛
+// CliUsageError（消息与拆钩前逐字一致）；--docs 漂移门禁的多行诊断 + exit 1 保留
+// （成功路径的诊断出口，同 delete-graph --confirm 交互门）。
+import { defineCommand, CliUsageError } from "./runner.js";
+
+export const exportMermaidCommand = defineCommand("export").alias("x")
   .description("导出拓扑图（默认 Mermaid 流程图；--docs 导出领域知识顶点为 markdown 视图）")
   .option("--mermaid", "导出为 Mermaid 格式")
   .option("--docs", "v0.5：导出知识顶点为 markdown（多图按图分树：ADR→docs/<图名>/adr/，context→docs/<图名>/CONTEXT-MAP.md + docs/<图名>/contexts/）")
@@ -309,13 +313,21 @@ export const exportMermaidCommand = new Command("export").alias("x")
     "--levels <levels>",
     "IL-004：大图分段导出——只导出指定 level 分期带（逗号分隔，如 1,2）；知识顶点仅保留仍被保留边引用者",
   )
-  .action((options) => {
-    const rootDir = cliGraphDir(process.cwd());
+  .action((options: {
+    mermaid?: boolean;
+    docs?: boolean;
+    check?: boolean;
+    adrDir?: string;
+    ctxDir?: string;
+    output: string;
+    bandName: string[];
+    levels?: string;
+  }, _cmd, ctx) => {
+    const rootDir = ctx.rootDir;
 
     // --check 只在 --docs 模式有意义：单独传是参数误用，响亮失败而非静默按 mermaid 导出
     if (options.check && !options.docs) {
-      console.error("❌ --check 仅支持与 --docs 同用（文档视图漂移门禁：graph export --docs --check）");
-      process.exit(1);
+      throw new CliUsageError("--check 仅支持与 --docs 同用（文档视图漂移门禁：graph export --docs --check）");
     }
 
     // v0.5 文档视图模式：图为真相源，md 是可重生成的视图
@@ -355,15 +367,8 @@ export const exportMermaidCommand = new Command("export").alias("x")
     const edges = listEdges(rootDir);
 
     // IL-004：分期带组名与分段导出参数解析（非法参数响亮失败，不静默导出）
-    let bandNames: Record<number, string>;
-    let levelFilter: number[] | undefined;
-    try {
-      bandNames = parseBandNames(options.bandName ?? []);
-      levelFilter = options.levels ? parseLevels(options.levels) : undefined;
-    } catch (err) {
-      console.error(`❌ ${(err as Error).message}`);
-      process.exit(1);
-    }
+    const bandNames = parseBandNames(options.bandName ?? []);
+    const levelFilter = options.levels ? parseLevels(options.levels) : undefined;
 
     let exportNodes = nodes;
     let exportEdges = edges;

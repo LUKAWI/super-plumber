@@ -267,9 +267,9 @@ Option B · skill scripts (shipped with the `plumber-execute` skill; for pi at `
 ```bash
 SCRIPTS=~/.pi/agent/skills/plumber-execute/scripts
 
-node $SCRIPTS/sp-claim.mjs l1_register backend-agent
-node $SCRIPTS/sp-checkpoint.mjs l1_register cp1 passed
-node $SCRIPTS/sp-report.mjs l1_register "Registration done" "dist/register.js,test/register.test.js" "" "bcrypt hashing"
+node $SCRIPTS/sp.mjs claim l1_register backend-agent
+node $SCRIPTS/sp.mjs checkpoint l1_register cp1 passed
+node $SCRIPTS/sp.mjs report l1_register "Registration done" "dist/register.js,test/register.test.js" "" "bcrypt hashing"
 ```
 
 ### Step 6 — Visualize and share
@@ -556,7 +556,7 @@ cd super-plumber
 npm install
 npm run build && npm --prefix web-ui run build
 
-# Tests (534 backend + 68 frontend: state machine/topology/CLI/MCP protocol/multi-graph migration & perf/concurrency hardening/escaping/render smoke)
+# Tests (822 backend + 109 frontend: state machine/topology/CLI/MCP protocol/multi-graph migration & perf/concurrency hardening/escaping/render smoke)
 npm test
 
 # Link globally for development
@@ -582,7 +582,7 @@ graph --version
 | `❌ force 仅人类运维通道…` | By design: agents cannot override. Humans use CLI `graph update-status --force` (audited as force_override) |
 | `❌ Node x already claimed by y` | Lost a concurrent claim race (atomic protection). Pick another ready node |
 | `❌ Node x 已达最大重试次数` | Attempts exhausted. Intervene manually or `graph update-node --reset-attempts` (audited) |
-| `❌ Node x 无执行报告，不能标记 passed` | Passed hard gate: file the handoff report first (MCP `graph_update_execution_report` or `sp-report.mjs`, non-empty summary); unaggregated checkpoints or a failed verdict also block |
+| `❌ Node x 无执行报告，不能标记 passed` | Passed hard gate: file the handoff report first (MCP `graph_update_execution_report` or `sp.mjs report`, non-empty summary); unaggregated checkpoints or a failed verdict also block |
 | `❌ Node x 被 N 条边引用` | Deleting would leave dangling references. Use `--cascade` or delete edges first |
 | `❌ 节点长时间 running 无进展` | Dead claim: `graph reclaim -i <id>` returns it to pending (executor crashed) |
 | `❌ schema 校验失败: ...` | Hand-edited YAML typo. `graph validate` locates it per file |
@@ -595,7 +595,7 @@ graph --version
 ## Project status
 
 ```text
-Tests: 534 (backend) + 68 (frontend) ✅ | CLI: 27 commands | MCP: 24 tools | State machine: 7 states + ready gate + max_attempts + passed hard gate + audit log + ADR 3-state machine (knowledge vertices exempt) | Edge types: 9 | Versioning: snapshot/diff/rollback (incl. design-only) | Web UI: Svelte 5 + D3.js starfield observatory (v0.7.0 Deep-Space Instrument Bay)
+Tests: 822 (backend) + 109 (frontend) ✅ | CLI: 29 commands | MCP: 26 tools | Slash commands: 4 | State machine: 7 states + ready gate + max_attempts + passed hard gate + audit event log + ADR 3-state machine (knowledge vertices exempt) + design review credentials (v0.8.0) + delete-refusal reason credentials & DECISIONS.md decision index (v0.8.1) + human-machine division in scheduling: requires_human derivation / waiting-for-human flag / human stale 4h + class credentials /plumber-class & class_changed events (v0.9.1) | Edge types: 9 | Versioning: snapshot/diff/rollback (incl. design-only) | Web UI: Svelte 5 + D3.js starfield observatory (v0.7.0 Deep-Space Instrument Bay + v0.8.1 frontier one-click views / phase legend / Avoid annotations)
 ```
 
 - **npm**: [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)

@@ -262,6 +262,38 @@ function graphBriefOf(wsRoot: string, name: string, current: string) {
   return { ...summarize(wsRoot, name), isCurrent: name === current };
 }
 
+// ── F18（0.9.4）单行状态（graph status --oneline）的 MCP 承载 ──
+// 旗标扩展纪律：不新增工具/命令条目——挂在既有读面 graph_list_graphs 的
+// oneline 参数上（每份图摘要附加 oneline 字符串 + workflow 计数两个字段）。
+// workflow 计数与 CLI status 同一单源（computeNextActions 的调度 summary：
+// total + 七工作流态零填充，知识顶点不参与）；oneline 字面组装是呈现层，与
+// src/cli/status.ts 的 formatOneline 逐字同构——文件边界（只许改 status/
+// server.ts/tests/）不允许下沉 core，也不恢复 mcp → cli 层次倒挂 import，
+// 双通道逐字等价由 tests/oneline.test.ts 金测锁定（同一图上 CLI stdout 行 ===
+// MCP oneline 字段），改一侧必须同步另一侧。
+function formatOneline(
+  name: string,
+  summary: Record<string, number> & { total: number },
+): string {
+  const passed = summary.passed ?? 0;
+  const total = summary.total ?? 0;
+  const pct = total > 0 ? Math.round((passed / total) * 100) : 0;
+  const parts = [
+    `${name} ${passed}/${total} passed (${pct}%)`,
+    `ready ${summary.ready ?? 0}`,
+    `running ${summary.running ?? 0}`,
+    `failed ${summary.failed ?? 0}`,
+    `blocked ${summary.blocked ?? 0}`,
+  ];
+  if ((summary.cancelled ?? 0) > 0) parts.push(`cancelled ${summary.cancelled}`);
+  return parts.join("｜");
+}
+
+function onelineExtras(dir: string, name: string) {
+  const workflow = computeNextActions(dir).summary;
+  return { oneline: formatOneline(name, workflow), workflow };
+}
+
 server.registerTool(
   "graph_switch",
   {
@@ -332,12 +364,17 @@ server.registerTool(
   {
     description:
       "v0.5.2 列举工作区全部图（或查指定图详情）：名/label/节点数/running/passed/最近活动/is_current。与 CLI graph list 同构。" +
+      "oneline=true（F18，与 CLI graph status --oneline 同款）：每份摘要附加 oneline 单行状态字符串 + workflow 计数（调度口径七工作流态零填充）——判定图健康度的最轻量读面（图名/进度 passed/total/前沿 ready/running/failed/blocked），hooks 与旅程提示的数据源，勿为此拉全图。" +
       "注意：建图（graph init）/删图（trash）/文档导出（export --docs）刻意不设 MCP 通道（工作区级破坏性操作，人类走 CLI）——agent 需要时提示用户执行 CLI。",
     inputSchema: {
       name: z.string().optional().describe("图名（缺省列全部）"),
+      oneline: z
+        .boolean()
+        .optional()
+        .describe("附加单行状态摘要（F18 graph status --oneline 同款：oneline + workflow 字段）"),
     },
   },
-  async ({ name }) => {
+  async ({ name, oneline }) => {
     const gctx = await resolveGraphCtx();
     const names = listGraphNames(gctx.wsRoot);
     if (names.length === 0) {
@@ -351,11 +388,17 @@ server.registerTool(
             (hint.length ? `（你是想查 ${hint.join(" / ")} 吗？）` : ""),
         );
       }
-      return jsonGraph(gctx, graphBriefOf(gctx.wsRoot, name, gctx.name));
+      return jsonGraph(gctx, {
+        ...graphBriefOf(gctx.wsRoot, name, gctx.name),
+        ...(oneline ? onelineExtras(graphDirOf(gctx.wsRoot, name), name) : {}),
+      });
     }
     return jsonGraph(gctx, {
       current: gctx.name,
-      graphs: names.map((n) => graphBriefOf(gctx.wsRoot, n, gctx.name)),
+      graphs: names.map((n) => ({
+        ...graphBriefOf(gctx.wsRoot, n, gctx.name),
+        ...(oneline ? onelineExtras(graphDirOf(gctx.wsRoot, n), n) : {}),
+      })),
     });
   },
 );

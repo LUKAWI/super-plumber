@@ -1,8 +1,8 @@
 # Super Plumber Operations 手册（唯一正本）
 
 > **定位**：三访问层（CLI / MCP / 脚本）操作语法、状态机、错误处理、solo 裁决边界的**唯一权威正本**。角色提示词与 skill 中的一切语法引用指向本文对应章节；本文不复述任何角色的判断力内容（边类型选型、设计甄别、DoD 质量裁量等归各自角色提示词，见 §10/§11）。
-> **版本锚点**：super-plumber **0.9.3**（全部 CLI 参数经 `graph --help` 实测：0.6.1 重构期全量校，其后增量（0.7.x 多图/导出、0.8.0 approve 与写作规范、0.8.1 拒绝理由凭据与分期导出、0.9.x 雾区/档位/分层审批、0.9.3 fallback 拍板）随交付核对；与旧文档不符处以实测为准，表中以〔已校〕标注）。
-> **分发**：正本住 `integrations/shared/manual.md`，由 `scripts/sync-integrations.mjs` 构建期同步进两个插件包（sha256 三方一致）；pi 侧只引用不拷贝。寻址写法见 §11。（该脚本属 v0.6.1 W3 波次，已接线并作为 prepublishOnly 发布门禁）
+> **版本锚点**：super-plumber **0.9.4**（全部 CLI 参数经 `graph --help` 实测：0.6.1 重构期全量校，其后增量（0.7.x 多图/导出、0.8.0 approve 与写作规范、0.8.1 拒绝理由凭据与分期导出、0.9.x 雾区/档位/分层审批、0.9.3 fallback 拍板、0.9.4 单真相源重组后 gen 门禁/锚点断言）随交付核对；与旧文档不符处以实测为准，表中以〔已校〕标注）。
+> **分发**：唯一正本住 `integrations/src/manual.md`（0.9.4 S01 单真相源重组起），由 `scripts/sync-integrations.mjs` gen 构建期生成 `integrations/shared/manual.md`（pi 寻址位）与 `integrations/plugin/manual.md`（插件包）两份产物，`--check` 比对手改即拦（原 sha256 三方同步断言退役）。寻址写法见 §11。（该脚本仍作为 prepublishOnly 发布门禁）
 
 目录：§1 访问层总览｜§2 design-ops｜§3 边类型判据式速查｜§4 execute-ops｜§5 状态机｜§6 工具总表（CLI+MCP）｜§7 脚本章｜§8 三层验收实操｜§9 错误处理大表｜§10 solo 自裁边界｜§11 寻址约定｜§12 漂移修正常记
 
@@ -160,8 +160,10 @@ entry/exit 描述与逐条验收标准 + 边样式图例以**导出文件头注�
 
 ```bash
 graph validate          # 结构关：逐文件 schema 校验 + 幽灵边 + 循环依赖（含 fan 门控隐藏环）+ 领域规则六条 + graph.yaml 引用双向漂移；必须 0 error
-node .pi/skills/plumber-design/scripts/sp-check-design.mjs [--json]   # 质量关（doctor），从含 .graph/ 的目录运行
+node .pi/skills/plumber-execute/scripts/sp.mjs check-design [--json]   # 质量关（doctor），从含 .graph/ 的目录运行
 ```
+
+脚本位随渠道不同（上面寻址行由 gen 构建期按渠道渲染，正本唯一在 integrations/src/sp-scripts/）：pi 渠道 = `.pi/skills/plumber-execute/scripts/`，插件包渠道 = 包根下 `scripts/`；doctor 也可直接运行脚本位里的 `sp-check-design.mjs`，等价。
 
 两关都 0 error 才允许 serve 预览。doctor 体检项权威表（以现行代码为准）：
 
@@ -298,7 +300,7 @@ graph next [--stale-ms <ms>] [--json]            # CLI
 ```bash
 graph_update_node_status {id, status:"running", claim_by:"<你的agent名>"}   # 同一调用原子写入 assigned_to+started_at
 graph update-status -i <id> -s running --claim-by <agent>                   # CLI 等价
-node sp-claim.mjs <node_id> <claim_by>                                      # 脚本等价
+node sp.mjs claim <node_id> <claim_by>                                      # 脚本等价
 ```
 
 - ready_eligible 节点先 `{status:"ready"}`（核心层再次校验门禁）再 claim；**绝不 claim 非 ready 节点**，`pending→running` 一步到位会被状态机拒绝
@@ -312,7 +314,7 @@ node sp-claim.mjs <node_id> <claim_by>                                      # �
 
 ```bash
 graph_update_checkpoint {node_id, checkpoint_id, status}     # status ∈ pending|running|passed|failed|skipped
-node sp-checkpoint.mjs <node_id> <cp_id> <status>            # CLI 无子命令，脚本等价
+node sp.mjs checkpoint <node_id> <cp_id> <status>            # CLI 无子命令，脚本等价
 ```
 
 每完成一个立即上报（绝不攒批）；同状态重复上报幂等成功；checkpoint 小状态机见 §5 尾。
@@ -321,7 +323,7 @@ node sp-checkpoint.mjs <node_id> <cp_id> <status>            # CLI 无子命令�
 
 ```bash
 graph_update_execution_report {node_id, summary, artifacts:["真实路径",...], blockers:[...], notes}
-node sp-report.mjs <node_id> "<summary>" [artifacts.csv] [blockers.csv] [notes]
+node sp.mjs report <node_id> "<summary>" [artifacts.csv] [blockers.csv] [notes]
 ```
 
 `artifacts` 填真实文件路径——主控会核验存在性并回报 `exists:false` 明示缺失，绝不填编造路径。
@@ -482,27 +484,29 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 
 ---
 
-## §7 脚本章：sp-\*.mjs
+## §7 脚本章：sp.mjs 单入口（0.9.4 S03 七脚本收敛）
 
 何时查这章：所在环境没有 MCP 客户端（纯 bash agent），需要 claim/report/流转时。
 
 **路径布局（两处都要知道）**：
 
-- **未来正本位**：`integrations/shared/sp-scripts/*.mjs` —— 构建期由 `scripts/sync-integrations.mjs` 把一份正本拷贝三方（sha256 一致）
-- **当前运行地**：`.pi/skills/plumber-execute/scripts/`（全局安装版 `~/.pi/agent/skills/plumber-execute/scripts/`）——今天从这里运行；正本位接线完成后会随同步分发覆盖
-- 全部是核心引擎薄包装（`sp-core.mjs` 统一加载公开 API，先项目本地后 npm root -g），跨平台；状态机/门禁/次数上限都在核心层强制，脚本不能绕过
+- **唯一正本位**：`integrations/src/sp-scripts/sp.mjs` —— gen 构建期随两渠道分发（adr_0008 单真相源；产物手改会被 `scripts/sync-integrations.mjs --check` 拦截）
+- **运行地**：`.pi/skills/plumber-execute/scripts/sp.mjs`（插件包为 `scripts/sp.mjs`；全局安装 pi 版 `~/.pi/agent/skills/plumber-execute/scripts/sp.mjs`）——从含 `.graph/` 的项目目录运行
+- 单入口薄封装，零依赖（仅 node 内置；先项目本地解析 `@lukawi/super-plumber`，回退 npm root -g，同 §6.1 定位约定）：CLI 面子命令（claim / update-status / get-node）只做参数组装 → 调 CLI，语义 ≡ CLI；CLI 尚无对应子命令的（checkpoint / report / traverse）单点调用核心公开 API。状态机/门禁/次数上限都在核心层强制，脚本不能绕过
 
-| 文件 | 用法 | 说明 |
-|------|------|------|
-| `sp-core.mjs` | （被其余脚本 import，不单独调用） | 共享加载器：定位 `@lukawi/super-plumber/core` |
-| `sp-claim.mjs` | `node sp-claim.mjs <node_id> <claim_by>` | ready→running 原子认领；非 ready 被核心拦截 |
-| `sp-update-status.mjs` | `node sp-update-status.mjs <node_id> <status> [--force]` | 一般流转（含门禁校验） |
-| `sp-checkpoint.mjs` | `node sp-checkpoint.mjs <node_id> <cp_id> <status>` | 上报一个 checkpoint（幂等） |
-| `sp-report.mjs` | `node sp-report.mjs <node_id> <summary> [artifacts.csv] [blockers.csv] [notes]` | 提交 execution_report |
-| `sp-get-node.mjs` | `node sp-get-node.mjs <node_id>` | 输出节点完整 JSON |
-| `sp-traverse.mjs` | `node sp-traverse.mjs <node_id> [downstream/upstream/both] [max_depth=3]` | 从指定节点遍历邻居 |
+**子命令表**（`node sp.mjs <subcommand> [args...]`；不带参数打印用法）：
 
-设计侧体检脚本 `sp-check-design.mjs` 住在 `.pi/skills/plumber-design/scripts/`（用法见 §2.6）。装不上核心时先 `npm install -g @lukawi/super-plumber`。
+| 子命令 | 用法 | 说明 |
+|--------|------|------|
+| `claim` | `node sp.mjs claim <node_id> <claim_by>` | ready→running 原子认领；非 ready 被核心拦截 |
+| `update-status` | `node sp.mjs update-status <node_id> <status> [--force]` | 一般流转（含门禁校验；`--force` 仅人类运维通道） |
+| `checkpoint` | `node sp.mjs checkpoint <node_id> <cp_id> <status>` | 上报一个 checkpoint（幂等） |
+| `report` | `node sp.mjs report <node_id> <summary> [artifacts.csv] [blockers.csv] [notes]` | 提交 execution_report |
+| `get-node` | `node sp.mjs get-node <node_id>` | 输出节点完整 JSON |
+| `traverse` | `node sp.mjs traverse <node_id> [downstream|upstream|both] [max_depth=3]` | 从指定节点遍历邻居（IL-17 输出形状） |
+| `check-design` | `node sp.mjs check-design [--json] [root]` | 设计质量体检 doctor（判据见 §2.6；转发同目录 `sp-check-design.mjs`） |
+
+历史注记：旧 `sp-{core,claim,update-status,checkpoint,report,get-node,traverse}.mjs` 七件连同各自的入口语义层已随 0.9.4 S03 收敛退役，旧脚本名不再有入口。装不上核心时先 `npm install -g @lukawi/super-plumber`。
 
 ---
 
@@ -611,7 +615,7 @@ solo 合同义务一句话：机械项自己核对并在 notes 留证据；主�
 | pi | `Read integrations/shared/manual.md §<章节>` | 相对**仓库根** |
 | claude / zcode 插件包 | `Read ./manual.md §<章节>` | 相对**插件包根**（Skill base-dir / plugin root 可解析） |
 
-- 手册唯一正本在 `integrations/shared/manual.md`；插件包内的是构建期同步的正本拷贝（内容一致），pi 侧不放副本以防漂移
+- 手册唯一正本在 `integrations/src/manual.md`（0.9.4 S01 起）；`integrations/shared/`（pi 寻址位）与插件包内的是 gen 构建期正本拷贝（内容一致，手改会被 `scripts/sync-integrations.mjs --check` 拦截）
 - **信息优先级**：任务派单 ＞ 角色提示词 / 本手册 ＞ skill 正文（冲突时上位胜出；本手册专管操作语法，不管角色裁量）
 
 ---

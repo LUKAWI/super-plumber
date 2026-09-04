@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.9.4] — 2026-09-04（minor：单真相源重组——integrations/src/ 唯一正本，双视图变构建产物）
+
+> 主题：adr_0008 落地——从「几份一致」升级为「只有一份，其余全是 gen 产物」：正本收拢 `integrations/src/`，gen+比对进 CI 与 prepublishOnly，0.9.1 式 SKILL 双副本漏传（IL-028/B1）被机器根绝。重组本体不夹带语义变更；本版唯一新增读面能力为 F18 oneline，hooks 与纪律族均为默认不激活的可选资产。
+
+- **S01 单真相源重组（adr_0008 accepted）**：skill/agent/命令/手册/脚本正本收拢 `integrations/src/`；`.pi/`、`integrations/plugin/`、`integrations/shared/` 全部变 gen 构建产物，`scripts/sync-integrations.mjs` 演进为 gen 引擎——渲染比对 `--check` 不一致即 exit 1（原 sha256 三方同步断言退役）；SKILL/agents 副本传导纳入 gen 面（改正本不重新生成＝双渠道同时判漂移，IL-028 机制性根治）；CI 增 gen --check 步；prepublishOnly 门禁改为生成完整性检查。迁移清单 `integrations/src/MIGRATION-0.9.4.md`。
+- **C1 核心错误码六枚 + CLI defineCommand 统一骨架**：新建 `src/core/errors.ts`（NODE_NOT_FOUND / WORKSPACE_NOT_INITIALIZED / INVALID_TRANSITION / GATE_NOT_SATISFIED / ATTEMPTS_EXHAUSTED / VALIDATION_FAILED，机器可读单源）+ `src/cli/runner.ts`（图目录解析/枚举校验/JSON-文本切换/错误码→退出码映射单源，coerce 摘除 process.exit 变纯函数）；29 条命令一次性全迁（增量迁移已否决），命令文件退化为 flags 声明+纯渲染；isNodeNotFound 三副本删除、ENOENT 提示 6 份归一、枚举校验 6 份收口。
+- **F18 `graph status --oneline` 双通道**：一行图状态摘要（图名/进度计数/百分比/前沿数/running/failed/blocked，零值照排）；CLI 旗标 + MCP `graph_list_graphs` 增 `oneline` 参数同款字段（26 工具数不变，双通道逐字等价金测锁定）；hooks session-brief 与 journey 提示的数据源。
+- **S03 八脚本收敛 sp.mjs 单入口（≡ CLI 语义面）**：sp-claim/sp-update-status/sp-checkpoint/sp-report/sp-get-node/sp-traverse 七脚本 + sp-check-design 收编为 `sp.mjs` 子命令式薄封装（claim/update-status/checkpoint/report/get-node/traverse/check-design），只做参数组装→调 CLI→错误透传，零依赖仅 node 内置；旧脚本全产物面退役（grep 无残留）；manual §2.6/§4.1/§7 寻址改 sp.mjs 形态+渠道自适应模板变量；插件渠道按寻址行实跑 check-design 取证（0 error 退出）。pi 真会话回归因本机 pi 未配置以 node 直跑两渠道产物等价替代（用户拍板，执行报告留档）。
+- **S02 SKILL.md 分层**：plumber-design 主文档 113→68 行、plumber-execute 158→99 行（常驻 token 只减不增，DEC-4 口径）；七件 attachments 落位（workflow-classes / review-brief / disciplines-map / wayfinder-mode / amend-mode / context-hygiene / prototype-research），细节迁出主文档+指路寻址；gen 双视图同步。
+- **S05+S09 subagent 瘦身与执行三角补全**：sp-designer/super-mario 定义只留角色+边界+指路（协议细节归手册与工具响应）；新增 sp-executor 定义（协议唯一来源指向 plumber-join，零复制）；DEC-4 入口冻结首次解除（经 DEC-5/6 授权，修订记录落 docs/v0.8.0-design.md）；新会话零转述实测走通——headless 全新进程凭定义自主完成 switch→认领→开工→verdict→passed（临时图 sp-executor-trial 取证）。
+- **S04 hooks 适配层（adr_0009 accepted；可选资产，默认关闭）**：`integrations/src/hooks/` 两件——git-guardrails（PreToolUse 拦危险 git 命令，12 规则+放行例外清单，`SP_GIT_GUARDRAILS_OFF`/`SP_GIT_GUARD_EXTRA` 可调）+ session-brief（SessionStart 注入一行 oneline 图状态，CLI 五级解析、异常静默）；结构性默认关：gen 三表零投影+无注册面引用，不启用＝不在任何 harness 视野；核心层零 hook 事件总线（`src/` 零改动）；README 取舍节在位（「用户选择的额外护栏，不是 SP 的新机制」）。
+- **S11 纪律族起步（adr_0005/DEC-6）**：plumber-tdd（预约定 seam + 三大反模式）与 plumber-review（双轴并行、结论不合并）model-invoked 注册（plugin.json skills 4→6，command:null）；两件均写明「服务图中节点」防蔓延定位与条件式指针惯例；实战取证：review 双轴法对 v094-oneline 产物真实交叉复核在案。
+- **C7b 散文锚点断言**：sync --check 增两条轻断言——manual 版本锚点==package.json version；README 状态行 CLI 命令数/MCP 工具数/测试计数==实测值（CLI/MCP 数 dist 注册、测试数 vitest 动态取，vitest 不可用明示跳过）；锚点行固化为可 grep 模板；可红实测三次 exit 1。prepublishOnly 全链（test→build→web-ui build→export --docs --check→gen --check）跑通。
+- **S06+S08 治理面**：PR 模板双通道三行清单（MCP 工具/CLI 命令/脚本封装，缺一写明理由）+ 纪律行「语义（校验/编排/提示文案）core 单源，渠道只做渲染差异」（2026-09-02 架构评审 C3，不立 ADR 以清单承载）；adr_0008/adr_0009 经 super-mario 裁决 accepted（IL-020 签署代录）；DEC-4 修订记录在案。
+- 测试：后端 95 文件 **822 用例**全绿（0.9.3 为 91 文件 795：+7 错误码 +5 coerce +6 oneline +9 sp.mjs 回归）+ web-ui **109 用例**；`graph validate` 0 error；gen --check 通过（含版本面+散文锚点）；export --docs --check 通过。v094-verify 由 super-mario 六断言逐项取证（改正本→双视图同步且手改产物被拦 exit 1／sp.mjs≡CLI 抽样对照／主文档行数／hooks 零行为变化／executor 实测复核／纪律族复核）+ 三层验收（状态/结构/成果）全过。
+- 发布动作：npm 0.9.4（latest）+ GitHub tag v0.9.4。
+
 ## [0.9.3] — 2026-09-03（minor：纸面边清偿——fallback 最小读语义）
 
 > 主题：F09 拍板落地——fallback/iterates 不再是「validate 自己都警告」的纸面边：fallback 按 DEC-3（adr_0003）判据获得最小运行时读语义（死节点时刻的替代路线亮灯），iterates 同场裁决维持文档性标注；降级出枚举案否决（adr_0017）。

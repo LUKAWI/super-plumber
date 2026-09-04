@@ -280,13 +280,13 @@ graph update-status -i l1_login -s running
 SCRIPTS=~/.pi/agent/skills/plumber-execute/scripts
 
 # 认领 ready 节点（记录 claim_by + started_at；非 ready 节点会被状态机拦截）
-node $SCRIPTS/sp-claim.mjs l1_register backend-agent
+node $SCRIPTS/sp.mjs claim l1_register backend-agent
 
 # 每完成一个检查点就上报一次（报告完的进度不会丢）
-node $SCRIPTS/sp-checkpoint.mjs l1_register cp1 passed
+node $SCRIPTS/sp.mjs checkpoint l1_register cp1 passed
 
 # 交付交接单（summary + artifacts + blockers + notes）
-node $SCRIPTS/sp-report.mjs l1_register "注册功能完成" "dist/register.js,test/register.test.js" "" "密码加密采用 bcrypt"
+node $SCRIPTS/sp.mjs report l1_register "注册功能完成" "dist/register.js,test/register.test.js" "" "密码加密采用 bcrypt"
 ```
 
 ### 第 6 步：可视化与分享
@@ -567,6 +567,21 @@ npm 包随包分发集成资产（`package.json` 的 `files` 含 `integrations/`
 
 ---
 
+## Hooks 适配层（v0.9.4，可选资产，默认关闭）
+
+`integrations/src/hooks/` 提供两个可选 harness（Claude Code / ZCode）hook 资产（adr_0009）。定位先说清：这是「**用户选择的额外护栏，不是 SP 的新机制**」——SP 已有强制力的地方（状态机门禁、ready 前置校验、max_attempts 拦截）不需要 hook 重复，核心层没有也不加 hook 事件总线（`src/` 零改动）；hooks 只补 SP 覆盖不到的一个高价值面：纯文件存储仓库的 git 误操作防护。
+
+**默认关闭是结构性的**：两个资产不在任何注册面登记（插件清单无 hooks 注册、`.pi/settings.json` 不引用），gen 管线也未把它们投影到 `.pi/` / `integrations/plugin/` / `integrations/shared/` 任何产物面——分发给的就是正本目录本身，不启用时全量行为与没有这两个文件完全一致。
+
+| 资产 | 作用 | 启用 |
+|------|------|------|
+| `git-guardrails.mjs` | PreToolUse（matcher `Bash`）拦截危险 git 命令：`push -f`、`reset --hard`、`clean -fd`、`checkout --`/`restore` 丢弃、`filter-branch/repo`、`rebase`、`branch -D`、`reflog expire`、`gc --prune=now`、`stash drop/clear`（完整清单与放行例外见 `integrations/src/hooks/README.md`） | 在 settings 的 `hooks.PreToolUse` 登记 `node <检出路径>/integrations/src/hooks/git-guardrails.mjs` |
+| `session-brief.mjs` | SessionStart 注入一行图状态（数据源 `graph status --oneline`，F18）；图未初始化 / CLI 缺失 / 超时一律静默跳过 | 在 settings 的 `hooks.SessionStart` 登记 `node <检出路径>/integrations/src/hooks/session-brief.mjs` |
+
+取舍（DEC-3 判据）：护栏是启发式正则，防误操作、不防绕过、不是沙箱；退出码 fail-open（脚本自身故障不阻塞会话/命令）；带自我校验的形态（`--force-with-lease`、`restore --staged`、`rebase --abort`）放行。启用 JSON 片段、拦截清单、环境变量开关（`SP_GIT_GUARDRAILS_OFF` / `SP_GIT_GUARD_EXTRA` / `SP_GRAPH_BIN`）详见 `integrations/src/hooks/README.md`。
+
+---
+
 ## 开发与测试
 
 ```bash
@@ -576,7 +591,7 @@ cd super-plumber
 npm install
 npm run build && npm --prefix web-ui run build
 
-# 测试（后端 534 例 + 前端 68 例：状态机/拓扑/CLI/MCP 协议/多图迁移与性能/并发加固/转义/渲染冒烟）
+# 测试（后端 822 例 + 前端 109 例：状态机/拓扑/CLI/MCP 协议/多图迁移与性能/并发加固/转义/渲染冒烟）
 npm test
 
 # 本地链接全局（开发调试用）
@@ -591,7 +606,7 @@ graph --version
 每次发版按序过一遍（IL-016 教训：版本面只改 package.json 一处、漏同步 manifest 会被审出）：
 
 1. **版本面同步**：把 version 逐个改齐、一处不漏——`package.json`、`.claude-plugin/marketplace.json`（`plugins[].version`）、`integrations/plugin/.claude-plugin/plugin.json`（0.9.5 起再加 `.codex-plugin/plugin.json` 与 `.agents/plugins/marketplace.json`）；
-2. 跑 `node scripts/sync-integrations.mjs --check`：版本面一致性断言 + 共享件 sha256 断言必须全绿（exit 0）——它也是 `prepublishOnly` 的第一道门禁，版本面漏改会在这里被拦下；
+2. 跑 `node scripts/sync-integrations.mjs --check`：版本面一致性断言 + gen 渲染比对（正本 integrations/src/ vs 两渠道产物，手改即拦）+ 散文锚点断言（manual 版本锚点==version、README 计数行==实测）必须全绿（exit 0）——它也是 `prepublishOnly` 的第一道门禁，版本面/正本漂移会在这里被拦下；
 3. 更新 `CHANGELOG.md`：新增版本条目（含「发布动作」行）；
 4. `npm test && npm run build && npm --prefix web-ui run build`（`prepublishOnly` 发布时还会自动再跑一遍）；
 5. `npm publish` + 打 GitHub tag。
@@ -614,7 +629,7 @@ graph --version
 | `❌ force 仅人类运维通道（CLI…），MCP 拒绝执行` | 设计如此：agent 无法越权。人类运维请走 CLI `graph update-status --force`（写 force_override 审计事件） |
 | `❌ Node x already claimed by y` | 并发认领竞争失败（原子保护）。换一个 ready 节点 |
 | `❌ Node x 已达最大重试次数` | attempts 用尽。人工介入，或 `graph update-node --reset-attempts` 显式归零（写审计事件；改 plan 不再自动重置） |
-| `❌ Node x 无执行报告，不能标记 passed` | passed 硬门禁：先填交接单（MCP `graph_update_execution_report` 或 skill 脚本 `sp-report.mjs`，summary 非空）；checkpoint 未聚合或 failed 裁决也会被拒 |
+| `❌ Node x 无执行报告，不能标记 passed` | passed 硬门禁：先填交接单（MCP `graph_update_execution_report` 或 skill 脚本 `sp.mjs report`，summary 非空）；checkpoint 未聚合或 failed 裁决也会被拒 |
 | `❌ Node x 被 N 条边引用` | 删除会留悬挂引用。`--cascade` 或先 `delete-edge` |
 | `❌ 节点长时间 running 无进展` | 死认领：`graph reclaim -i <id>` 收回 pending 重新调度（执行 agent 已崩溃时） |
 | `❌ schema 校验失败: ...` | 手改 YAML 拼错字段。`graph validate` 逐文件定位修正 |
@@ -626,8 +641,12 @@ graph --version
 
 ## 项目状态
 
+<!-- 散文锚点（机器门禁，0.9.4 C7b）：下方代码块首行的 Tests/CLI/MCP 三段为固定模板，
+     由 scripts/sync-integrations.mjs --check 断言其 == 实测（CLI/MCP 数 dist 注册，测试数 vitest list 动态取）；
+     manual 版本锚点同受门禁（见 integrations/src/manual.md 首行）。改数字请连同实测一起刷新。 -->
+
 ```text
-Tests: 764（后端）+ 109（前端）✅ | CLI: 29 命令 | MCP: 26 工具 | 斜杠命令: 4 | 状态机: 7 态 + ready 门禁 + max_attempts + passed 硬门禁 + 事件日志审计 + ADR 三态机（知识顶点豁免）+ 设计审批凭据（v0.8.0）+ 删除拒绝理由凭据与 DECISIONS.md 决议索引（v0.8.1）+ 人机分工进调度：requires_human 派生/等真人标记/human stale 4h + 档位凭据 /plumber-class 与 class_changed 事件（v0.9.1） | 边类型: 9 种 | 版本控制: snapshot/diff/rollback（含 design-only）| Web UI: Svelte 5 + D3.js 星空观测台（v0.7.0 深空仪器舱 + v0.8.1 前沿一键视图/分期图例/Avoid 呈现）
+Tests: 822（后端）+ 109（前端）✅ | CLI: 29 命令 | MCP: 26 工具 | 斜杠命令: 4 | 状态机: 7 态 + ready 门禁 + max_attempts + passed 硬门禁 + 事件日志审计 + ADR 三态机（知识顶点豁免）+ 设计审批凭据（v0.8.0）+ 删除拒绝理由凭据与 DECISIONS.md 决议索引（v0.8.1）+ 人机分工进调度：requires_human 派生/等真人标记/human stale 4h + 档位凭据 /plumber-class 与 class_changed 事件（v0.9.1） | 边类型: 9 种 | 版本控制: snapshot/diff/rollback（含 design-only）| Web UI: Svelte 5 + D3.js 星空观测台（v0.7.0 深空仪器舱 + v0.8.1 前沿一键视图/分期图例/Avoid 呈现）
 ```
 
 - **npm**: [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)

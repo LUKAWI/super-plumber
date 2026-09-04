@@ -1,12 +1,14 @@
-// src/cli/init.ts
-import { Command } from "commander";
+// src/cli/init.ts — arch-c1（C1）全迁：工作区级命令（workspace 模式跳过图目录
+// 解析），参数校验改抛 CliUsageError（消息与拆钩前逐字一致），错误渲染/退出码归
+// runner——本文件不再持有 console.error + process.exit 散点。
 import { createGraph, listGraphNames, writeWorkspaceDefault, trashGraph, migrateLegacyLayout } from "../core/graph-dir.js";
 import { GRAPH_CLASSES } from "../core/schema.js";
 import { VERSION } from "../version.js";
+import { defineCommand, CliUsageError } from "./runner.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-export const initCommand = new Command("init").alias("i")
+export const initCommand = defineCommand("init", { workspace: true }).alias("i")
   .description("初始化图：新仓库必须带图名（内容命名，如 refactor-auth）；旧仓库带名 init = 一次性迁移 + 建新图")
   .argument("[name]", "图名（^小写[a-z0-9-]，内容命名；新仓库必填）")
   .option("-l, --label <label>", "图显示名", "untitled")
@@ -15,11 +17,15 @@ export const initCommand = new Command("init").alias("i")
     `工作类预设：${GRAPH_CLASSES.join(" | ")}（DEC-2 三级路由；缺省不标注）`,
   )
   .option("-f, --force", "（仅旧式无名单图）已初始化时强制覆盖，慎用")
-  .action((name: string | undefined, options) => {
+  .action((name: string | undefined, options: {
+    label: string;
+    class?: string;
+    force?: boolean;
+  }) => {
     const rootDir = process.cwd();
-    if (options.class !== undefined && !(GRAPH_CLASSES as readonly string[]).includes(options.class)) {
-      console.error(`❌ --class 仅允许 ${GRAPH_CLASSES.join(" | ")}（收到: ${options.class}）`);
-      process.exit(1);
+    const graphClass = options.class as (typeof GRAPH_CLASSES)[number] | undefined;
+    if (graphClass !== undefined && !(GRAPH_CLASSES as readonly string[]).includes(graphClass)) {
+      throw new CliUsageError(`--class 仅允许 ${GRAPH_CLASSES.join(" | ")}（收到: ${options.class}）`);
     }
     const existing = listGraphNames(rootDir);
     const isLegacySingle = existing.length > 0 &&
@@ -31,47 +37,39 @@ export const initCommand = new Command("init").alias("i")
 
     if (name !== undefined) {
       // 带名 init：v0.5.2 语义——建图（旧布局会在此触发一次性迁移，锁内原子）
-      try {
-        const wasLegacy = isLegacySingle;
-        // --force：已存在的同名图原地重置（旧语义保留；软删除旧目录可救回）
-        if (options.force && existing.includes(name)) {
-          trashGraph(rootDir, name, "cli");
-          console.log(`📦 已存在同名图 "${name}"，--force 已将旧图移入 .trash/ 后重建`);
-        }
-        createGraph(rootDir, name, options.label, { actor: "cli", version: VERSION, class: options.class });
-        if (wasLegacy) {
-          console.log(`📦 旧布局已一次性迁移至 .graph/default/（建第二图触发，锁内原子）`);
-        }
-        writeSchemaDoc();
-        // 新图建好即设为工作区默认（建它就是为了干活）
-        writeWorkspaceDefault(rootDir, name, "cli");
-        console.log(`✅ 已创建图 "${name}" 并设为工作区默认: ${path.join(rootDir, ".graph", name)}`);
-        console.log(`   切换：graph switch <名>；列举：graph list`);
-      } catch (err: any) {
-        console.error(`❌ ${err.message}`);
-        process.exit(1);
+      const wasLegacy = isLegacySingle;
+      // --force：已存在的同名图原地重置（旧语义保留；软删除旧目录可救回）
+      if (options.force && existing.includes(name)) {
+        trashGraph(rootDir, name, "cli");
+        console.log(`📦 已存在同名图 "${name}"，--force 已将旧图移入 .trash/ 后重建`);
       }
+      createGraph(rootDir, name, options.label, { actor: "cli", version: VERSION, class: graphClass });
+      if (wasLegacy) {
+        console.log(`📦 旧布局已一次性迁移至 .graph/default/（建第二图触发，锁内原子）`);
+      }
+      writeSchemaDoc();
+      // 新图建好即设为工作区默认（建它就是为了干活）
+      writeWorkspaceDefault(rootDir, name, "cli");
+      console.log(`✅ 已创建图 "${name}" 并设为工作区默认: ${path.join(rootDir, ".graph", name)}`);
+      console.log(`   切换：graph switch <名>；列举：graph list`);
       return;
     }
 
     // 无名 init：仅保留旧式单图兼容路径（已有多图/已迁移的工作区拒绝）
     const graphFile = path.join(rootDir, ".graph", "graph.yaml");
     if (existing.length > 0 && !isLegacySingle) {
-      console.error(
-        `❌ 本工作区已有多张图（${existing.join(", ")}）。请带图名创建：graph init <内容名> -l "<显示名>"`,
+      throw new CliUsageError(
+        `本工作区已有多张图（${existing.join(", ")}）。请带图名创建：graph init <内容名> -l "<显示名>"`,
       );
-      process.exit(1);
     }
     if (fs.existsSync(graphFile) && !options.force) {
-      console.error(`❌ ${graphFile} 已存在，请勿重复初始化（如需重置请加 --force）`);
-      process.exit(1);
+      throw new CliUsageError(`${graphFile} 已存在，请勿重复初始化（如需重置请加 --force）`);
     }
     if (!fs.existsSync(graphFile)) {
       // 新仓库无名单图 init：v0.5.2 起要求内容命名（default 式指代不清的名称禁止）
-      console.error(
-        `❌ 新仓库初始化必须带图名（内容命名）：graph init <名> -l "<显示名>"，如 graph init refactor-auth -l "认证重构"`,
+      throw new CliUsageError(
+        `新仓库初始化必须带图名（内容命名）：graph init <名> -l "<显示名>"，如 graph init refactor-auth -l "认证重构"`,
       );
-      process.exit(1);
     }
     // S1-10：--force 整目录重置（对齐带名 init 的 trash 语义）——旧实现只把
     // graph.yaml 引用列表清空、不删 nodes/*.yaml，重置后 readdir 与 refs 永久
@@ -82,7 +80,7 @@ export const initCommand = new Command("init").alias("i")
       console.log(`📦 旧布局已迁移至 .graph/default/（${moved.length} 项）`);
     }
     trashGraph(rootDir, "default", "cli");
-    createGraph(rootDir, "default", options.label, { actor: "cli", version: VERSION, class: options.class });
+    createGraph(rootDir, "default", options.label, { actor: "cli", version: VERSION, class: graphClass });
     writeWorkspaceDefault(rootDir, "default", "cli");
     writeSchemaDoc();
     console.log(`✅ 已整目录重置旧式单图: ${path.join(rootDir, ".graph", "default")}（旧内容在 .graph/.trash/ 可手工救回）`);
@@ -140,4 +138,3 @@ const SCHEMA_DOC = `# Super Plumber — 节点/边/图 schema 说明（v${VERSIO
 # fog: { id, description, graduation, ignited?[] }
 #            （F04 adr_0007 可选雾区：单雾起步；毕业=graph graduate-fog 清除 + fog_graduated 事件）
 `;
-

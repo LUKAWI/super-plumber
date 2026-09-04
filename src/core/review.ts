@@ -7,6 +7,7 @@
 // 测试零改动（同 graduateFog 迁入 fog.ts 的先例）。
 import { type GraphSchema, type GraphReviewLayer } from "./types.js";
 import { withGraphLock, readGraph, writeGraphCore } from "./graph-io.js";
+import { isWorkspaceNotInitialized } from "./errors.js";
 import { appendEvent } from "./eventlog.js";
 
 // ── F21 (b)（DEC-7 / adr_0006）：结构修订后的 review 凭据回置 ──
@@ -23,7 +24,7 @@ export function resetGraphReview(
     try {
       graph = readGraph(rootDir);
     } catch (err: any) {
-      if (err?.code === "ENOENT") return false; // 图未初始化：无凭据可回置
+      if (isWorkspaceNotInitialized(err)) return false; // 图未初始化：无凭据可回置（arch-c1 code 判定）
       throw err;
     }
     if (graph.review === undefined) return false;

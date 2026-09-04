@@ -2,7 +2,7 @@
 
 hooks 只作为插件分发可选资产——git-guardrails（危险 git 命令拦截）+ session-brief（会话开始注入一行图状态，数据源 F18 status --oneline），全部默认关闭、README 写明取舍；核心层不加 hook 事件总线。
 
-**Status：** proposed（待裁决）
+**Status：** accepted
 
 **Context：** 纯文件存储仓库对 git 护栏价值极高，但 DEC-3 判据下核心已有强制力的不需 hook 重复、nudge 已内嵌工具响应。
 

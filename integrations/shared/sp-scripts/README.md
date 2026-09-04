@@ -1,1 +1,0 @@
-sp-* 执行脚本的唯一正本区：integrations/shared/sp-scripts/ 是权威源，`.pi/skills/plumber-execute/scripts/` 与 `integrations/{claude-code,zcode-plugin}/scripts/` 均为下游拷贝，改动请改这里再跑 `node scripts/sync-integrations.mjs`；本快照取自 super-plumber v0.6.1 的 `.pi` 目录。

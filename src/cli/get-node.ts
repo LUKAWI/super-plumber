@@ -1,24 +1,15 @@
-import { Command } from "commander";
-import { cliGraphDir } from "./graph-ctx.js";
+// src/cli/get-node.ts — arch-c1（C1）全迁：flags 声明 + 纯渲染，错误/图解析/JSON
+// 切换归 runner。原 isNodeNotFound 三副本之一已删——NODE_NOT_FOUND 由 core 落码、
+// runner 单源渲染 `节点不存在: <id>`（本文件不再持有错误分类逻辑）。
 import { getNode, checkReadyGate, getGoverningAdrs } from "../core/node.js";
 import { buildClaimNudgePackage } from "../core/scheduler.js";
 import { buildGraphIndex } from "../core/graph.js";
 import { allowedTransitionsFor, aggregateCheckpointStatus } from "../core/state-machine.js";
 import { requiresHuman } from "../core/domain.js";
 import { isKnowledgeType } from "../core/types.js";
+import { defineCommand, type RunContext } from "./runner.js";
 
-// S3-9（f16）：错误分类双通道——结构化 code 优先（核心层落 NODE_NOT_FOUND 后即纯 code 判定），
-// message 兜底保持现状行为。核心层 node.ts 的 getNode 目前把 ENOENT 转成无 code 的
-// 普通 Error（`Node <id> not found`），node.ts 不在 f16 文件边界内，根治需主线跟进。
-// 注意：不认 ENOENT——getNode 已吞掉 ENOENT，若此处误认会把无关 fs 错误归类为"节点不存在"。
-function isNodeNotFound(err: any): boolean {
-  return (
-    err?.code === "NODE_NOT_FOUND" ||
-    (typeof err?.message === "string" && err.message.includes("not found"))
-  );
-}
-
-export const getNodeCommand = new Command("get-node").alias("gn")
+export const getNodeCommand = defineCommand("get-node").alias("gn")
   .description("读取单个节点全部内容（解压压缩包）+ 合法转换 + 门禁状态")
   .requiredOption("-i, --id <id>", "节点 ID")
   .option("--json", "输出稳定 JSON（供脚本/agent 消费）")
@@ -27,113 +18,101 @@ export const getNodeCommand = new Command("get-node").alias("gn")
     "附加返回拓扑上游(up)/下游(down)相邻节点（紧凑字段，默认 none）",
     "none",
   )
-  .action((options) => {
-    const rootDir = cliGraphDir(process.cwd());
-    try {
-      const node = getNode(rootDir, options.id);
-      const allowed = allowedTransitionsFor(node);
-      const gate = isKnowledgeType(node.type)
-        ? { ok: true, unmet: [] }
-        : checkReadyGate(rootDir, node.id);
-      const cpAgg = node.checkpoints?.length
-        ? aggregateCheckpointStatus(node.checkpoints)
-        : null;
-      // v0.5：管辖 ADR（context/adr 知识顶点不适用）
-      const governing = isKnowledgeType(node.type)
-        ? { current: [], superseded: [] }
-        : getGoverningAdrs(rootDir, node.id);
+  .action((options: { id: string; neighbors: string }, _cmd, ctx: RunContext) => {
+    const rootDir = ctx.rootDir;
+    const node = getNode(rootDir, options.id);
+    const allowed = allowedTransitionsFor(node);
+    const gate = isKnowledgeType(node.type)
+      ? { ok: true, unmet: [] }
+      : checkReadyGate(rootDir, node.id);
+    const cpAgg = node.checkpoints?.length
+      ? aggregateCheckpointStatus(node.checkpoints)
+      : null;
+    // v0.5：管辖 ADR（context/adr 知识顶点不适用）
+    const governing = isKnowledgeType(node.type)
+      ? { current: [], superseded: [] }
+      : getGoverningAdrs(rootDir, node.id);
 
-      // 拓扑邻居（基于索引缓存，无全图扫描）
-      let neighborsUp: { id: string; status: string }[] = [];
-      let neighborsDown: { id: string; status: string }[] = [];
-      if (options.neighbors === "up" || options.neighbors === "down") {
-        const index = buildGraphIndex(rootDir, { useCache: true });
-        const statusOf = new Map(index.nodes.map((n) => [n.id, n.status]));
-        const compact = (ids: string[]) =>
-          ids.map((nid) => ({ id: nid, status: statusOf.get(nid) ?? "missing" }));
-        if (options.neighbors === "up") {
-          neighborsUp = compact(index.reverseAdj.get(node.id) ?? []);
-        } else {
-          neighborsDown = compact(index.adjacency.get(node.id) ?? []);
-        }
+    // 拓扑邻居（基于索引缓存，无全图扫描）
+    let neighborsUp: { id: string; status: string }[] = [];
+    let neighborsDown: { id: string; status: string }[] = [];
+    if (options.neighbors === "up" || options.neighbors === "down") {
+      const index = buildGraphIndex(rootDir, { useCache: true });
+      const statusOf = new Map(index.nodes.map((n) => [n.id, n.status]));
+      const compact = (ids: string[]) =>
+        ids.map((nid) => ({ id: nid, status: statusOf.get(nid) ?? "missing" }));
+      if (options.neighbors === "up") {
+        neighborsUp = compact(index.reverseAdj.get(node.id) ?? []);
+      } else {
+        neighborsDown = compact(index.adjacency.get(node.id) ?? []);
       }
+    }
 
-      if (options.json) {
-        console.log(
-          JSON.stringify(
-            {
-              node,
-              allowed_transitions: allowed,
-              checkpoint_aggregate: cpAgg,
-              // F06（0.9.1 渐进审批）：存在未完成 human checkpoint 的派生标注
-              // （core/domain.ts 单源；仅真值出现，条件缺省同 adr_flags/review_flag）
-              ...(requiresHuman(node.checkpoints) ? { requires_human: true } : {}),
-              ready_gate: gate,
-              ...(governing.current.length > 0 || governing.superseded.length > 0
-                ? { governing_adrs: governing }
-                : {}),
-              ...(neighborsUp.length > 0 ? { neighbors_up: neighborsUp } : {}),
-              ...(neighborsDown.length > 0 ? { neighbors_down: neighborsDown } : {}),
-            },
-            null,
-            2,
-          ),
-        );
-        return;
-      }
-
-      console.log(`节点: ${node.id} (${node.label})`);
-      console.log(`类型: ${node.type} | 层级: L${node.level} | 状态: ${node.status}`);
-      console.log(`重试: ${node.attempts}/${node.max_attempts}${node.assigned_to ? ` | 执行者: ${node.assigned_to}` : ""}`);
-      console.log(`合法转换: [${allowed.join(", ") || "无（终止态）"}]`);
+    // 纯格式化函数：人读面（runner 负责输出通道与错误渲染）
+    const renderText = () => {
+      ctx.out(`节点: ${node.id} (${node.label})`);
+      ctx.out(`类型: ${node.type} | 层级: L${node.level} | 状态: ${node.status}`);
+      ctx.out(`重试: ${node.attempts}/${node.max_attempts}${node.assigned_to ? ` | 执行者: ${node.assigned_to}` : ""}`);
+      ctx.out(`合法转换: [${allowed.join(", ") || "无（终止态）"}]`);
       if (cpAgg !== null) {
-        console.log(`checkpoint 聚合: ${cpAgg} (${node.checkpoints!.length} 个)`);
+        ctx.out(`checkpoint 聚合: ${cpAgg} (${node.checkpoints!.length} 个)`);
       }
       if (requiresHuman(node.checkpoints)) {
-        console.log(`🧑 requires_human: 存在 verifier=human 的未完成 checkpoint（等真人处理，勿代签）`);
+        ctx.out(`🧑 requires_human: 存在 verifier=human 的未完成 checkpoint（等真人处理，勿代签）`);
       }
       if (!gate.ok) {
-        console.log(
+        ctx.out(
           `⚠️  ready 门禁未满足: ${gate.unmet
             .map((u) => `${u.id}(${u.status}, via ${u.edgeType})`)
             .join(", ")}`,
         );
       }
       if (governing.current.length > 0) {
-        console.log(`📖 管辖 ADR（claim 后必读）: ${governing.current.map((g) => `${g.id} ${g.title}`).join(" | ")}`);
+        ctx.out(`📖 管辖 ADR（claim 后必读）: ${governing.current.map((g) => `${g.id} ${g.title}`).join(" | ")}`);
       }
       // arch-c3a 残留收敛：⚠️ 措辞与调度面 adr_flags 同源（buildClaimNudgePackage），零手写变体
       const nudge = buildClaimNudgePackage(rootDir, node.id);
       if (nudge.adr_flags !== undefined) {
-        console.log(`⚠️  ${nudge.adr_flags.join(" | ")}`);
+        ctx.out(`⚠️  ${nudge.adr_flags.join(" | ")}`);
       }
       if (node.plan?.description) {
-        console.log(`\n计划: ${node.plan.description}`);
+        ctx.out(`\n计划: ${node.plan.description}`);
       }
       if (node.expected_outcome?.definition_of_done?.length) {
-        console.log(`完成标准:`);
+        ctx.out(`完成标准:`);
         for (const d of node.expected_outcome.definition_of_done) {
-          console.log(`  - ${d}`);
+          ctx.out(`  - ${d}`);
         }
       }
       if (node.checkpoints?.length) {
-        console.log(`检查点:`);
+        ctx.out(`检查点:`);
         for (const c of node.checkpoints) {
-          console.log(`  [${c.status}] ${c.id}: ${c.label}`);
+          ctx.out(`  [${c.status}] ${c.id}: ${c.label}`);
         }
       }
       if (node.execution_report?.summary) {
-        console.log(`\n执行报告: ${node.execution_report.summary}`);
+        ctx.out(`\n执行报告: ${node.execution_report.summary}`);
         if (node.execution_report.artifacts?.length) {
-          console.log(`产物: ${node.execution_report.artifacts.join(", ")}`);
+          ctx.out(`产物: ${node.execution_report.artifacts.join(", ")}`);
         }
       }
-    } catch (err: any) {
-      if (isNodeNotFound(err)) {
-        console.error(`❌ 节点不存在: ${options.id}`);
-      } else {
-        console.error(`❌ ${err.message}`);
-      }
-      process.exit(1);
-    }
+    };
+
+    ctx.emit(
+      () => ({
+        node,
+        allowed_transitions: allowed,
+        checkpoint_aggregate: cpAgg,
+        // F06（0.9.1 渐进审批）：存在未完成 human checkpoint 的派生标注
+        // （core/domain.ts 单源；仅真值出现，条件缺省同 adr_flags/review_flag）
+        ...(requiresHuman(node.checkpoints) ? { requires_human: true } : {}),
+        ready_gate: gate,
+        ...(governing.current.length > 0 || governing.superseded.length > 0
+          ? { governing_adrs: governing }
+          : {}),
+        ...(neighborsUp.length > 0 ? { neighbors_up: neighborsUp } : {}),
+        ...(neighborsDown.length > 0 ? { neighbors_down: neighborsDown } : {}),
+      }),
+      renderText,
+    );
   });

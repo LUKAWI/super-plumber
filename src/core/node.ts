@@ -21,6 +21,8 @@ import { buildGraphIndex } from "./index-service.js";
 import { governingAdrsFor } from "./domain.js";
 import { appendEvent } from "./eventlog.js";
 import { withGraphAmend } from "./amend.js";
+// arch-c1（C1）：NODE_NOT_FOUND / 门禁 / 非法转换 / 接替者缺失落机器可读 code
+import { ErrorCode, GraphError, nodeNotFound } from "./errors.js";
 import * as fs from "node:fs";
 
 export { GATE_EDGE_TYPES } from "./types.js";
@@ -101,7 +103,8 @@ export function getNode(rootDir: string, id: string): NodeSchema {
     return readNode(rootDir, id);
   } catch (err: any) {
     if (err?.code === "ENOENT") {
-      throw new Error(`Node ${id} not found`);
+      // arch-c1（C1）：NODE_NOT_FOUND 落地（message 与拆码前逐字一致，entityId 供 CLI 单源渲染）
+      throw nodeNotFound(id);
     }
     throw err;
   }
@@ -183,7 +186,8 @@ export function updateNodeStatus(
 
     // v0.5 知识顶点：context 拒绝一切状态变更（无执行语义）
     if (node.type === NodeType.Context) {
-      throw new Error(
+      throw new GraphError(
+        ErrorCode.InvalidTransition,
         `Node ${id} 是 context 顶点：无状态（status 恒 pending）、无执行语义，不支持任何状态变更`,
       );
     }
@@ -194,19 +198,28 @@ export function updateNodeStatus(
       if (to === AdrStatus.Superseded) {
         const by = node.superseded_by;
         if (!by) {
-          throw new Error(`ADR ${id} 置 superseded 前必须设置 superseded_by（接替 ADR id）`);
+          throw new GraphError(
+            ErrorCode.InvalidTransition,
+            `ADR ${id} 置 superseded 前必须设置 superseded_by（接替 ADR id）`,
+          );
         }
         if (by === id) {
-          throw new Error(`ADR ${id} 的 superseded_by 不能指向自身`);
+          throw new GraphError(
+            ErrorCode.InvalidTransition,
+            `ADR ${id} 的 superseded_by 不能指向自身`,
+          );
         }
         let succ: NodeSchema;
         try {
           succ = getNode(rootDir, by);
         } catch {
-          throw new Error(`ADR ${id} 的 superseded_by 指向的节点不存在: ${by}`);
+          throw nodeNotFound(by, `ADR ${id} 的 superseded_by 指向的节点不存在: ${by}`);
         }
         if (succ.type !== NodeType.Adr) {
-          throw new Error(`ADR ${id} 的 superseded_by 指向的节点不是 adr 顶点: ${by}`);
+          throw new GraphError(
+            ErrorCode.InvalidTransition,
+            `ADR ${id} 的 superseded_by 指向的节点不是 adr 顶点: ${by}`,
+          );
         }
       }
       const updated = transition(node, to);
@@ -256,7 +269,8 @@ export function updateNodeStatus(
         const list = gate.unmet
           .map((u) => `${u.id}(${u.status}, via ${u.edgeType})`)
           .join(", ");
-        throw new Error(
+        throw new GraphError(
+          ErrorCode.GateNotSatisfied,
           `Node ${id} 前置未满足，不能进入 ${to}: [${list}]。` +
             `确需强制（仅人类运维）请用 --force`,
         );
@@ -322,7 +336,8 @@ export function reclaimNode(rootDir: string, id: string, by?: string): NodeSchem
   return withLockSync(rootDir, id, () => {
     const node = getNode(rootDir, id);
     if (node.status !== NodeStatus.Running) {
-      throw new Error(
+      throw new GraphError(
+        ErrorCode.InvalidTransition,
         `Node ${id} 当前状态为 ${node.status}，只有 running 节点可回收（死认领恢复）`,
       );
     }
@@ -585,18 +600,29 @@ export function supersedeAdr(
   return withLockSync(rootDir, id, () => {
     const node = getNode(rootDir, id);
     if (node.type !== NodeType.Adr) {
-      throw new Error(`Node ${id} 不是 adr 顶点，无法废弃`);
+      throw new GraphError(
+        ErrorCode.InvalidTransition,
+        `Node ${id} 不是 adr 顶点，无法废弃`,
+      );
     }
     // 接替者校验（锁内直读保证新鲜；与 updateNodeStatus 的守卫一致）
-    if (by === id) throw new Error(`ADR ${id} 的 superseded_by 不能指向自身`);
+    if (by === id) {
+      throw new GraphError(
+        ErrorCode.InvalidTransition,
+        `ADR ${id} 的 superseded_by 不能指向自身`,
+      );
+    }
     let succ: NodeSchema;
     try {
       succ = getNode(rootDir, by);
     } catch {
-      throw new Error(`接替者不存在: ${by}`);
+      throw nodeNotFound(by, `接替者不存在: ${by}`);
     }
     if (succ.type !== NodeType.Adr) {
-      throw new Error(`接替者不是 adr 顶点: ${by}`);
+      throw new GraphError(
+        ErrorCode.InvalidTransition,
+        `接替者不是 adr 顶点: ${by}`,
+      );
     }
     const updated = transition({ ...node, superseded_by: by }, AdrStatus.Superseded);
     writeNode(rootDir, updated);

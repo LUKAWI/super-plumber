@@ -5,6 +5,7 @@
 // → 拓扑/环（含 fan 门控隐藏环）→ 引用列表双向漂移）与全部警告文案正文住这里；
 // 渠道只做呈现：CLI 渲染进度行与退出码，MCP 渲染五字段 JSON（ok 语义 = errors 为空）。
 import { readGraph } from "./parser.js";
+import { isWorkspaceNotInitialized } from "./errors.js";
 import { topologicalSort, detectCycles, detectHiddenCycles } from "./graph.js";
 import { validateDomainRules } from "./domain.js";
 import { lintNodeWording } from "./style-lint.js";
@@ -83,7 +84,7 @@ export function validateGraphDir(rootDir: string): GraphValidateResult {
   try {
     graph = readGraph(rootDir);
   } catch (e: any) {
-    if (e?.code === "ENOENT") {
+    if (isWorkspaceNotInitialized(e)) {
       errors.push("无法读取 graph.yaml，图未初始化");
     } else if (e instanceof SchemaValidationError) {
       errors.push(`${e.file}: ${e.message}`);

@@ -2,7 +2,7 @@
 
 skill/agent/命令/手册/脚本正本收拢 integrations/src/ 一处；.pi/ 与 integrations/plugin/ 全部变 gen 构建产物，gen+比对入 CI，prepublishOnly 门禁改为生成完整性检查；sp-*.mjs 七脚本收敛 sp.mjs 薄封装（语义 ≡ CLI）；subagent 定义瘦身、SKILL.md 主文档 <100 行 + attachments/ 七件分层；纪律族与 commands 扩张只发生在 gen 新结构上。
 
-**Status：** proposed（待裁决）
+**Status：** accepted
 
 **Context：** 0.6.1 重构保证「几份一致」但不解决「为什么有几份」；三语义面改一处记三处；B1 实证 SKILL 双副本静默漂移。
 

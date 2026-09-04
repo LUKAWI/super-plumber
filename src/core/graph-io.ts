@@ -15,6 +15,7 @@ import {
   type NodeSchema,
   type EdgeSchema,
   type GraphSchema,
+  GRAPH_DIR,
   NODES_DIR,
   EDGES_DIR,
   GRAPH_FILE,
@@ -34,6 +35,11 @@ import {
 } from "./schema.js";
 import { withLockSync } from "./lock.js";
 import { toGraphDir } from "./graph-dir.js";
+// arch-c1（C1）：graph.yaml 缺失 → WORKSPACE_NOT_INITIALIZED 单源（此前 CLI 六份手写提示）
+import {
+  workspaceNotInitialized,
+  isWorkspaceNotInitialized,
+} from "./errors.js";
 // 循环依赖说明见文件头。fix_index_cache：写路径必须主动失效索引缓存。
 import { invalidateIndex } from "./index-service.js";
 
@@ -86,7 +92,13 @@ function assertWritable(
 export function readGraph(rootDir: string): GraphSchema {
   const res = loadGraphFile(rootDir);
   if (res.ok) return res.data;
-  if (res.enoent) throw enoent(path.join(toGraphDir(rootDir), GRAPH_FILE));
+  if (res.enoent) {
+    // arch-c1（C1）：WORKSPACE_NOT_INITIALIZED 单源。toGraphDir 对未初始化的
+    // ".graph" 目录会再降一级（.graph/.graph）——错误消息里归一回去，提示可读。
+    const g = toGraphDir(rootDir);
+    const dir = path.basename(g) === GRAPH_DIR ? path.dirname(g) : g;
+    throw workspaceNotInitialized(dir);
+  }
   throw new SchemaValidationError(
     GRAPH_FILE,
     res.issues,
@@ -157,7 +169,7 @@ export function rebuildGraphRefsLocked(rootDir: string): void {
   try {
     graph = readGraph(rootDir);
   } catch (err: any) {
-    if (err?.code === "ENOENT") return; // 图未初始化
+    if (isWorkspaceNotInitialized(err)) return; // 图未初始化（arch-c1：code 判定单源）
     throw err;
   }
   graph.nodes = listNodeFileNames(rootDir).map((f) => ({ file: `nodes/${f}` }));
@@ -179,7 +191,7 @@ function syncGraphRef(
     try {
       graph = readGraph(rootDir);
     } catch (err: any) {
-      if (err?.code === "ENOENT") return; // 图未初始化时跳过（无 graph.yaml 可同步）
+      if (isWorkspaceNotInitialized(err)) return; // 图未初始化时跳过（无 graph.yaml 可同步；arch-c1 code 判定）
       throw err; // schema 损坏必须浮出，不得静默
     }
     const list = kind === "node" ? graph.nodes : graph.edges;
