@@ -38,7 +38,7 @@
  *
  * 版本面门禁（IL-016，--check 路径，原样保留）：断言 package.json 的 version 与各 manifest 一致——
  *   .claude-plugin/marketplace.json（plugins[].version）、integrations/plugin/.claude-plugin/plugin.json（version）；
- *   0.9.5 起加 .codex-plugin/plugin.json 与 .agents/plugins/marketplace.json。
+ *   0.9.5 起加 integrations/plugin/.codex-plugin/plugin.json 与 .agents/plugins/marketplace.json。
  *   manifest 文件存在才校验其 version，不存在跳过（前向兼容，不硬编码报错）；
  *   不一致 exit(1) 并逐条列出差异文件与两边版本值。发版步骤见 README「发版清单」。
  *
@@ -337,7 +337,7 @@ function statIsDir(p) {
 const VERSION_MANIFESTS = [
   '.claude-plugin/marketplace.json',
   'integrations/plugin/.claude-plugin/plugin.json',
-  '.codex-plugin/plugin.json',
+  'integrations/plugin/.codex-plugin/plugin.json',
   '.agents/plugins/marketplace.json',
 ];
 

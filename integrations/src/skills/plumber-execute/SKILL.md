@@ -12,6 +12,7 @@ description: Use when 拓扑图已设计并审核通过、需要执行 .graph/ �
 ## When to Use 与衔接关系
 
 - Use：拓扑图已设计并审核通过，开始执行节点任务；claim / checkpoint / execution_report / 状态流转；判断串行还是派 subagent 并行；验证全部节点 passed、构建成果完整；节点 failed → 走重试链重新调度。
+- **代理层级边界**：skill 文本和“有 subagent 工具”都不能可靠识别代理深度，故每个会话默认**无派单权**，不得从能力存在推断授权。只有直接承接用户执行请求的外层协调者可持一次性、不可转授的 `orchestrator` 授权直接派 executor；授权在派发时耗尽，子任务只收到 `leaf` 约束，绝不可向下复制。缺授权一律 solo。当前通用宿主未向 skill 暴露可验证的签名层级令牌，因此这是行为协议而非硬隔离：需要强保证的宿主还必须在工具层移除子 agent 的派发能力。
 - 执行协议的工具调用语法与并行数据判读法 → 手册 §4；状态机七态与三条硬规则 → 手册 §5——本 skill 只留骨架与纪律，绝不复述语法。
 - 图未设计或未审核通过 → `plumber-design`；节点状态裁决 / checkpoint 聚合 / 输出抽查 → `super-mario` agent；派 executor subagent → 按「派单模板」，检测不到可用 subagent → 走「solo 分支」；新会话自主入场 → `/plumber-join`。
 
@@ -49,7 +50,7 @@ description: Use when 拓扑图已设计并审核通过、需要执行 .graph/ �
 - ready 列表直接可认领；blocked 带未满足前驱清单，补齐后自然放行。
 - **fan_out 批**（同一上游发散的无依赖节点）= 天然并行候选；**fan_in 汇聚点**必须等**全部**上游 passed 且报告齐备才能动工（门禁会拦截提前 claim）；主链（depends_on/validates 串行段）无并行空间，逐个来。
 
-### 第二步 · 叠加条件（全部满足才派 subagent）
+### 第二步 · 叠加条件（仅持未使用 `orchestrator` 授权的外层协调会话、且全部满足才派 subagent）
 
 | 条件 | 判据 |
 |------|------|
@@ -58,7 +59,7 @@ description: Use when 拓扑图已设计并审核通过、需要执行 .graph/ �
 | 不共享冲突上下文 | 不同时编辑同一文件/占用同一端口（共享只读输入 OK，共享写目标是冲突） |
 | 并行数 ≤ 3 | 多于 3 个分批，主 agent 验收不过来 |
 
-任一不满足 → 串行（自己 claim→work→report 逐个走）。每个 subagent **独立 CLAIM 自己的节点**（claim_by 各不相同）、各自 checkpoint/report；主 agent 在**汇合点**统一 verify 后才放行下游。subagent 类型读 `{{executor-agent-types}}` 占位符就地取值——**pi 语境 = hephaestus / sisyphus-junior / explore**（claude/zcode 插件包组装时各自本地化），按节点性质选。
+任一不满足、未持未使用授权或当前会话已经被派 → 串行（自己 claim→work→report 逐个走）。每个 subagent **独立 CLAIM 自己的节点**（claim_by 各不相同）、各自 checkpoint/report；主 agent 在**汇合点**统一 verify 后才放行下游。subagent 类型读 `{{executor-agent-types}}` 占位符就地取值——**pi 语境 = hephaestus / sisyphus-junior / explore**（claude/zcode 插件包组装时各自本地化），按节点性质选。
 
 ### stale 死认领回收（绝不 cancel）
 
@@ -78,7 +79,8 @@ description: Use when 拓扑图已设计并审核通过、需要执行 .graph/ �
 2. **显式文件边界**：只允许读写本节点 plan 列出的产出路径，以及经 graph CLI/MCP 维护的 `.graph/`；**不得 claim 或触碰他人已认领节点**（assigned_to 不是你的节点一律绕行）；**汇合点必须等齐 fan_in 上游全部 passed** 才能动工，等不齐就停下如实上报，不得 cancel 上游抢跑。
 3. 首行固定指引：`Read {{manual}} §4、§6`（claude/zcode 插件包环境按手册 §11 寻址约定改为包根相对路径）。
 4. **信息优先级声明**：任务派单 ＞ 角色提示词 / 手册 ＞ skill 正文；冲突时上位胜出。
-5. **产物交付要求**：artifacts 写明真实输出文件路径，summary 说清做了什么，blockers 如实填。
+5. **叶子约束**：你是被直接派出的执行工人；本任务不携带 `orchestrator` 授权，不得使用任何 subagent/delegation 工具，也不得把节点继续转派；在本会话完成获派节点或如实上报阻塞。
+6. **产物交付要求**：artifacts 写明真实输出文件路径，summary 说清做了什么，blockers 如实填。
 
 ## solo 分支（检测不到可用 subagent 时）
 

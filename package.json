@@ -1,6 +1,6 @@
 {
   "name": "@lukawi/super-plumber",
-  "version": "0.9.4",
+  "version": "0.9.5",
   "description": "工作流拓扑图管理工具（Super Plumber）— 将任务文档重构为 agent 可原生理解的拓扑结构",
   "type": "module",
   "engines": {
@@ -21,7 +21,8 @@
     "web-ui/dist/",
     "integrations/",
     ".pi/",
-    ".claude-plugin/"
+    ".claude-plugin/",
+    ".agents/"
   ],
   "publishConfig": {
     "access": "public"

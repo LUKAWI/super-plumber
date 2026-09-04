@@ -65,7 +65,7 @@ One YAML file per node/edge. No database, no server. Snapshot/diff/rollback prim
 | 🛡️ **Schema validation** | Every YAML file is validated on read (enums/types/required fields) with readable errors; `graph validate` locates issues per file + six domain rules (dangling membership=error, duplicate glossary terms=warning, cross-context missing contract=warning, relates endpoints=error, orphan ADR=warning, decides source=error) |
 | 🗂️ **Versioning** | `snapshot` / `diff` / `rollback` primitives (auto-backup before rollback, explicit confirm required; **design-only rollback** rewinds design fields while keeping execution progress); Branch/Merge stays with Git |
 | 🧾 **Event log** | `.graph/events.jsonl` append-only audit: who created/deleted/transitioned/claimed/overrode/reset/rolled back what and when, including the ADR lifecycle (adr_created/accepted/superseded) — `graph events` for one-command traceability |
-| 🤖 **Native MCP** | 24 `graph_*` tools covering the whole flow: design (batch create / add edge / edit entry-exit / **graph_create_adr**), execution (atomic claim with governing-ADR pointers / checkpoint / report / **reclaim of dead claims**), adjudication (verdict), versioning (snapshot/diff/rollback), self-check (**graph_validate**: structure + domain rules + reference drift), audit (**graph_events**: event-log replay) — all with zod-validated params |
+| 🤖 **Native MCP** | 26 `graph_*` tools covering the whole flow: design (batch create / add edge / edit entry-exit / **graph_create_adr**), execution (atomic claim with governing-ADR pointers / checkpoint / report / **reclaim of dead claims**), adjudication (verdict), versioning (snapshot/diff/rollback), self-check (**graph_validate**: structure + domain rules + reference drift), audit (**graph_events**: event-log replay) — all with zod-validated params |
 | 🎯 **Scheduling decisions** | `graph next` / `graph_get_next_actions` returns claimable / ready-eligible (cold-start entry) / waiting-on-deps / running / possibly-stale in one screen, with per-bucket pagination + truncated flags; ready buckets ordered by node `priority`; staleness = last activity (reporting acts as a heartbeat); entries may carry `adr_flags` (stale decision basis ⚠️); knowledge vertices never enter scheduling buckets — the agent planning loop's first call |
 | 📉 **Context economy** | All MCP read endpoints paginate: `graph_get_graph` defaults to summary mode (compact fields) + paginated full mode, `graph_search` limit, `graph_traverse` max_nodes, `graph_get_node` optional topology neighbors — no more token explosions on large graphs; ADRs are injected as title-level pointers only, never full-text |
 | ⚡ **Large-graph hot paths** | Two-level index cache (in-memory + on-disk graph.json): gate/scheduling drop from full-graph scans (~9s @10k) to table lookup + single-file reads; scheduling is O(N+M); **write paths actively invalidate the cache** (no betting on filesystem mtimes — long-running processes read-after-write consistent) |
@@ -517,20 +517,49 @@ The project ships 2 dedicated subagents (`.pi/agents/`) and 2 staged skills (`.p
 
 ## Multi-tool integration (v0.6.1)
 
-The same workflow assets (role prompts / staged skills / execution scripts / Operations manual) ship in two integration forms — pick per your agent tool:
+The same workflow assets (role prompts / staged skills / execution scripts / Operations manual) ship in several integration forms — pick per your agent tool:
 
 | Integration | How |
 |-------------|-----|
 | **pi** (repo-native) | Use the repo-root `.pi/` directly; to bring it elsewhere, copy the `.pi/` directory to that project root |
 | **Claude Code** (plugin `super-plumber`) | `/plugin marketplace add lukawi/super-plumber`, then install `super-plumber`; for local preview run `claude plugin marketplace add ./` at the repo root |
 | **ZCode** (same plugin) | Settings → Plugin management → Discover → add marketplace `lukawi/super-plumber` (or a local directory), then install `super-plumber` |
+| **Codex** (official plugin, v0.9.5) | `codex plugin marketplace add lukawi/super-plumber`, then install `super-plumber`; for a local checkout run `codex plugin marketplace add .` at the repo root |
 
-> Claude Code and ZCode install **the same plugin package** (`integrations/plugin/`, carried by a `.claude-plugin` manifest; zcode loads it via `.claude-plugin` fallback compatibility, agents discovered from conventional package directories) — one package, two tools.
+> Claude Code, ZCode, and Codex reuse **the same plugin package** (`integrations/plugin/`). Claude/ZCode use the `.claude-plugin` manifest, while Codex uses the package's `.codex-plugin/plugin.json`; skills, scripts, and the manual are shared, with host-specific registration and MCP configuration.
+
+### Codex plugin (v0.9.5)
+
+The repo-level Codex marketplace is `.agents/plugins/marketplace.json`. Install from GitHub:
+
+```bash
+codex plugin marketplace add lukawi/super-plumber
+codex plugin add super-plumber --marketplace lukawi-super-plumber
+```
+
+For a local checkout, run `codex plugin marketplace add .`, inspect it with `codex plugin list --marketplace lukawi-super-plumber --available`, and then install it. Start a new session after installation so the cached skills and MCP configuration are loaded.
+
+Claude/Codex compatibility notes:
+
+- Both read `integrations/plugin/skills/` and the plugin-root `manual.md`. The Codex manifest carries an inline `mcpServers.graph-mcp` entry (`command` + `args`); Claude keeps the existing `.mcp.json` with its `mcpServers` key, so Claude/ZCode configuration is unchanged.
+- Claude's four slash commands and automatic `agents/*.md` discovery are not Codex plugin components. Codex therefore defaults to the six skills' solo branch for design, execution, and adjudication.
+- If an independent designer/adjudicator is useful, add the optional project-level `.codex/agents/sp-designer.toml` and `.codex/agents/super-mario.toml`. These are host-project enhancements, not entries installed into the plugin cache, and they do not change the solo default.
+- This project's hooks harness is also unregistered and off by default for Claude/ZCode; Codex does not inherit Claude hook/settings registration. Enable it through each host's own configuration format rather than copying Claude snippets into the Codex manifest.
+- If a Windows host cannot resolve `npx` directly, use this `config.toml` fallback:
+
+  ```toml
+  [mcp_servers.super-plumber]
+  command = "cmd"
+  args = ["/c", "npx", "-y", "@lukawi/super-plumber", "graph-mcp"]
+  ```
+
+  The plugin manifest uses the same `npx -y @lukawi/super-plumber graph-mcp` command as Claude's `.mcp.json`; the wrapper is only a Windows fallback.
 
 After installing you get:
 
-- **2 slash commands**: `/plumber-design` — design-phase orchestration (requirements → graph → validate/doctor double-green → browser preview → user review); `/plumber-execute` — execution-phase orchestration (claim → checkpoint reporting → handoff → three-layer acceptance). pi has no slash commands; the `.pi/skills/` staged skills drive the same flows directly.
-- **2 subagents**: `sp-designer` and `super-mario`, dispatched by the skills' templates; a solo branch kicks in when no subagent facility exists.
+- **Claude/ZCode's 4 slash commands**: `/plumber-design` — design-phase orchestration (requirements → graph → validate/doctor double-green → browser preview → user review); `/plumber-execute` — execution-phase orchestration (claim → checkpoint reporting → handoff → three-layer acceptance); `/plumber-join` (v0.8.2) — cold-start entry; `/plumber-class` (v0.9.1) — work-class credentials. pi has no slash commands; the `.pi/skills/` staged skills drive the same flows directly.
+- **Codex's 6 skills + graph-mcp**: `plumber-design`, `plumber-execute`, `plumber-join`, `sp-grilling`, `plumber-tdd`, and `plumber-review`; Codex does not consume Claude slash-command registration or plugin `agents/*.md` files.
+- **Claude/ZCode's 2 subagents**: `sp-designer` and `super-mario`, dispatched by the skills' templates; a solo branch kicks in when no subagent facility exists. Codex's same-named TOML files are optional project-level enhancements (see above).
 - **Operations manual**: the single source of truth for command syntax. pi users read `integrations/shared/manual.md` at the repo root; plugin users read `manual.md` inside the plugin package (a build-time-synced copy).
 
 ### Solo mode (single person, single session)
@@ -539,7 +568,7 @@ When the main thread plays both designer and executor, the adjudication boundary
 
 ### npm fallback (when marketplaces are unreachable)
 
-The npm package ships the integration assets (`files` includes `integrations/` and `.pi/`). After installing, copy `integrations/plugin/` from `node_modules/@lukawi/super-plumber/` (point Claude Code / ZCode at that directory), or copy `.pi/` to your project root — no GitHub access required.
+The npm package ships the integration assets (`files` includes `integrations/`, `.pi/`, and `.agents/`). After installing, point Claude Code / ZCode at `node_modules/@lukawi/super-plumber/integrations/plugin/`; for Codex, register the installed package root as a local marketplace: `codex plugin marketplace add ./node_modules/@lukawi/super-plumber`. You can also copy `.pi/` to your project root — no GitHub access required.
 
 ### ZCode without the plugin
 

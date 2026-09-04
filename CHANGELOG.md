@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.9.5] — 2026-09-04（minor：Codex 官方插件渠道 + 叶子复核防嵌套）
+
+> 主题：以官方 `.codex-plugin` 形态接入第四渠道（pi / Claude / ZCode / Codex），共享既有 plugin 包、skills、scripts 与手册；不改图核心语义。同步收紧代理派单边界：复核纪律为纯叶子方法，防止代理在读到同一技能后递归派生。
+
+- **Codex 官方插件渠道（adr_0015）**：新增 `integrations/plugin/.codex-plugin/plugin.json`，注册 6 个 skills 和内联 `graph-mcp` stdio 配置；仓库 `.agents/plugins/marketplace.json` 以 `local` source 指向共享 `integrations/plugin/`，策略 `AVAILABLE` / `ON_INSTALL`。Claude 清单同步移除当前 CLI 拒绝的旧式 `skills` 与 `description_i18n` 字段，改由插件目录自动发现 skills；`.mcp.json` 保持原状。
+- **Codex 文档与可选角色**：README 中英文补齐 marketplace 安装、本地/NPM 兜底、Windows `npx` 包装和渠道边界；manual §11 固化 Codex 缓存包根 `Read ./manual.md` 寻址；可选 `.codex/agents/sp-designer.toml`、`super-mario.toml` 作为项目级增强，不进入插件缓存。
+- **代理层级防线**：`plumber-review` 取消任何派单权，所有调用均为叶子证据复核；双轴独立复核仅能由外层协调者直接派发，checkpoint/verdict/状态由独立 Super Mario / 裁决者核验证据后写入。`plumber-design`、`plumber-execute` 的派单模板和三份角色定义均加入叶子约束，禁止被派角色创建、转派或唤醒下级 agent，避免嵌套循环与自我裁决。
+- **验证**：插件 schema、gen/version/散文锚点门禁、后端 822 项和 web-ui 109 项测试、双端构建、npm 打包预检、Codex 本地 marketplace 安装与 `graph-mcp` 注册、Windows `npx` stdio 初始化均通过；取证见 `docs/roadmap-to-1-0-0/v095-codex-plugin-evidence.md`。
+- 发布动作：npm 0.9.5（latest）+ GitHub tag v0.9.5。
+
 ## [0.9.4] — 2026-09-04（minor：单真相源重组——integrations/src/ 唯一正本，双视图变构建产物）
 
 > 主题：adr_0008 落地——从「几份一致」升级为「只有一份，其余全是 gen 产物」：正本收拢 `integrations/src/`，gen+比对进 CI 与 prepublishOnly，0.9.1 式 SKILL 双副本漏传（IL-028/B1）被机器根绝。重组本体不夹带语义变更；本版唯一新增读面能力为 F18 oneline，hooks 与纪律族均为默认不激活的可选资产。

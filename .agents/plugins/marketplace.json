@@ -1,0 +1,22 @@
+{
+  "name": "lukawi-super-plumber",
+  "version": "0.9.5",
+  "interface": {
+    "displayName": "Lukawi Super Plumber"
+  },
+  "plugins": [
+    {
+      "name": "super-plumber",
+      "version": "0.9.5",
+      "source": {
+        "source": "local",
+        "path": "./integrations/plugin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

@@ -12,11 +12,13 @@ description: Use when 接到新需求/任务需要拆解成任务拓扑图、设
 
 **审核是硬性 gate**：用户批准之前绝不进入执行阶段；审核通过后切换 `plumber-execute`。
 
+**代理层级边界**：skill 文本和“有 subagent 工具”都不能可靠识别代理深度，故每个会话默认**无派单权**，不得从能力存在推断授权。只有直接承接用户需求的外层协调者可持一次性、不可转授的 `orchestrator` 授权直接派 `sp-designer`；授权在派发时耗尽，子任务只收到 `leaf` 约束，绝不可向下复制。缺授权一律走 solo。当前通用宿主未向 skill 暴露可验证的签名层级令牌，因此这是行为协议而非硬隔离：需要强保证的宿主还必须在工具层移除子 agent 的派发能力。
+
 ## When to Use / 衔接关系（subagent 与 skill 已解耦）
 
 - Use：接到新需求需拆解为 3–20 个有依赖关系的任务；设计或修改 `.graph/` 拓扑（entry/exit、节点、边）；验证拓扑质量；serve 预览并请求用户审核；审核后提修改意见 → 回本 skill（改图 → 重验 → 重预览 → 再审）。Do NOT：执行已审核通过的拓扑（用 plumber-execute）；纯 todo 列表。
 - 设计专业协议的唯一载体是 `.pi/agents/sp-designer.md`（建图序列纪律、九边选型判断力、领域建模细则、ADR 三判据、节点三要素）——本 skill 引用它，绝不复述。
-- 需要专职设计 → 按「派单模板」派 `sp-designer` subagent；检测不到可用 subagent → 走「solo 分支」主线程扮演。
+- 外层协调者持未使用的 `orchestrator` 授权且需要专职设计 → 按「派单模板」直接派一个叶子 `sp-designer`；未持授权或检测不到可用 subagent → 走「solo 分支」主线程扮演。被派会话一律不得再派。
 - 用户审核通过 → 进入 `plumber-execute`（建议用户明确说"开始执行"）；节点状态裁决 / checkpoint 聚合 / 重试管理 → `super-mario` agent。
 
 ## 流程（Phase 0 定档 + 5 步，严格按序，绝不跳步）
@@ -34,7 +36,7 @@ description: Use when 接到新需求/任务需要拆解成任务拓扑图、设
 - 两条铁律写进派单：**entry 和 exit 永远第一个定义**（先图级字段后 L1-Ln 分层动脉）；需求跨多个关注点 → **领域建模与 ADR 甄别是 designer 必做项**（bounded context 划界/术语表/跨 context 契约边、够三判据的 ADR），点名不可裁剪。节点类型×默认纪律与 plan 纪律指针写法（WF07）→ `attachments/disciplines-map.md`。
 - 建图必须走完整 designer 协议并通过体检，协议细节与命令语法以 designer 提示词 + 手册 §2 为准。**置层准则（IL-001）**：level 表达少数有意义的分层带（与分期/领域结构对齐），**不把依赖深度编码进 level**，层数建议 ≤5、避免单节点层；designer 出图前先声明置层方案（分几带、每带含义），声明与图不符按设计缺陷返工——细则 → 手册 §2.9。
 - **查历史拒绝理由（WF05，出图/改图前必做）**：看软删归档（`ls .graph/*/nodes/*.deleted*.yaml`，读 `deleted_reason` 等顶层键）→ `graph events -k node_deleted --json` 补全旧档理由 → 待建/待改节点命中已删方案时，设计报告逐一回应删除理由（换道，或给出理由已失效的依据），无回应 = 重蹈已否决方案，按设计缺陷返工。有 subagent 时主线程先筛、命中结果随派单交付 designer；solo 分支动笔前自跑。
-- **有 subagent**：按「派单模板」派出 sp-designer，等待其交付 `.graph/` 与设计报告；**无 subagent** → 走「solo 分支」。
+- **有未使用的 `orchestrator` 授权且需要专职设计**：按「派单模板」直接派出一个叶子 sp-designer，等待其交付 `.graph/` 与设计报告；**无授权、无 subagent 或当前已经被派** → 走「solo 分支」。
 
 ### Step 3 — 双关卡验证门禁
 
@@ -60,8 +62,9 @@ description: Use when 接到新需求/任务需要拆解成任务拓扑图、设
 2. **显式文件边界**：只允许读写 `<仓库根>/.graph/` 下经 graph CLI/MCP 维护的图文件；禁止改动源代码、`.pi/agents/`、`.pi/skills/`、`integrations/`、`docs/` 及一切未列举路径。
 3. 首行固定指引：`Read integrations/shared/manual.md §2、§6`（claude/zcode 插件包环境按手册 §11 寻址约定改为包根相对路径）。
 4. **信息优先级声明**：任务派单 ＞ 角色提示词（sp-designer.md）/ 手册 ＞ skill 正文；冲突时上位胜出。
-5. **产物交付要求**：交付物 = `<仓库根>/.graph/` 中可通过 validate 的图，附设计报告（L1 清单、context 与 ADR 计数、体检结果）；报告只作陈述，图本身是真相源。
-6. **派发前合规自查（三条缺一不派发，C1 防线）**：① 任务目标含领域结构要求（对应第 1 条）；② 首行含 Read 手册 §2、§6 指引（对应第 3 条，路径按渠道寻址约定）；③ 含信息优先级声明（对应第 4 条）。任一缺失即派单不合规，补齐后才允许派发。
+5. **叶子约束**：你是被直接派出的设计工人；本任务不携带 `orchestrator` 授权，不得使用任何 subagent/delegation 工具，也不得把设计任务继续转派；在本会话交付完整设计报告。
+6. **产物交付要求**：交付物 = `<仓库根>/.graph/` 中可通过 validate 的图，附设计报告（L1 清单、context 与 ADR 计数、体检结果）；报告只作陈述，图本身是真相源。
+7. **派发前合规自查（五条缺一不派发，C1 防线）**：① 存在本轮用户请求授予且尚未使用的 `orchestrator` 授权；② 任务目标含领域结构要求（对应第 1 条）；③ 首行含 Read 手册 §2、§6 指引（对应第 3 条，路径按渠道寻址约定）；④ 含信息优先级声明（对应第 4 条）；⑤ 含叶子约束（对应第 5 条）。授权不可复制进子任务；任一缺失即派单不合规，补齐后才允许派发。
 
 ## solo 分支（检测不到可用 subagent 时）
 

@@ -1,7 +1,7 @@
 # Super Plumber Operations 手册（唯一正本）
 
 > **定位**：三访问层（CLI / MCP / 脚本）操作语法、状态机、错误处理、solo 裁决边界的**唯一权威正本**。角色提示词与 skill 中的一切语法引用指向本文对应章节；本文不复述任何角色的判断力内容（边类型选型、设计甄别、DoD 质量裁量等归各自角色提示词，见 §10/§11）。
-> **版本锚点**：super-plumber **0.9.4**（全部 CLI 参数经 `graph --help` 实测：0.6.1 重构期全量校，其后增量（0.7.x 多图/导出、0.8.0 approve 与写作规范、0.8.1 拒绝理由凭据与分期导出、0.9.x 雾区/档位/分层审批、0.9.3 fallback 拍板、0.9.4 单真相源重组后 gen 门禁/锚点断言）随交付核对；与旧文档不符处以实测为准，表中以〔已校〕标注）。
+> **版本锚点**：super-plumber **0.9.5**（全部 CLI 参数经 `graph --help` 实测：0.6.1 重构期全量校，其后增量（0.7.x 多图/导出、0.8.0 approve 与写作规范、0.8.1 拒绝理由凭据与分期导出、0.9.x 雾区/档位/分层审批、0.9.3 fallback 拍板、0.9.4 单真相源重组后 gen 门禁/锚点断言）随交付核对；与旧文档不符处以实测为准，表中以〔已校〕标注）。
 > **分发**：唯一正本住 `integrations/src/manual.md`（0.9.4 S01 单真相源重组起），由 `scripts/sync-integrations.mjs` gen 构建期生成 `integrations/shared/manual.md`（pi 寻址位）与 `integrations/plugin/manual.md`（插件包）两份产物，`--check` 比对手改即拦（原 sha256 三方同步断言退役）。寻址写法见 §11。（该脚本仍作为 prepublishOnly 发布门禁）
 
 目录：§1 访问层总览｜§2 design-ops｜§3 边类型判据式速查｜§4 execute-ops｜§5 状态机｜§6 工具总表（CLI+MCP）｜§7 脚本章｜§8 三层验收实操｜§9 错误处理大表｜§10 solo 自裁边界｜§11 寻址约定｜§12 漂移修正常记
@@ -614,8 +614,12 @@ solo 合同义务一句话：机械项自己核对并在 notes 留证据；主�
 |------|---------|---------|
 | pi | `Read integrations/shared/manual.md §<章节>` | 相对**仓库根** |
 | claude / zcode 插件包 | `Read ./manual.md §<章节>` | 相对**插件包根**（Skill base-dir / plugin root 可解析） |
+| codex 插件 | `Read ./manual.md §<章节>` | 相对**插件包根**（Codex 插件缓存目录） |
 
 - 手册唯一正本在 `integrations/src/manual.md`（0.9.4 S01 起）；`integrations/shared/`（pi 寻址位）与插件包内的是 gen 构建期正本拷贝（内容一致，手改会被 `scripts/sync-integrations.mjs --check` 拦截）
+- Claude/ZCode/Codex 共用 `integrations/plugin/` 下的 skills、scripts、agents 与手册内容；渠道清单不同：Claude/ZCode 读取 `.claude-plugin/plugin.json` 与 `.mcp.json`（`mcpServers`），Codex 读取 `.codex-plugin/plugin.json`，其中 `mcpServers` 内联 `graph-mcp` 的 Codex 形状（`command` + `args`）。Codex 不会把 Claude 的斜杠命令或 `agents/*.md` 自动注册为同名入口。
+- Codex 插件缺少 Claude 的 Markdown subagent 注册位，默认走各 skill 的 solo 分支；需要独立设计师/裁决主控时，在宿主仓库提供项目级 `.codex/agents/sp-designer.toml` 与 `.codex/agents/super-mario.toml`（角色提示词内联），这两个 TOML 不属于插件缓存清单。
+- 本项目的 hooks harness 在 Claude/ZCode 侧也保持未注册、默认关闭；Codex 不会自动继承 Claude 的 hook/settings 注册。若要启用，按宿主各自的配置格式单独接线，不能把 Claude 配置片段直接复制到 Codex 清单。
 - **信息优先级**：任务派单 ＞ 角色提示词 / 本手册 ＞ skill 正文（冲突时上位胜出；本手册专管操作语法，不管角色裁量）
 
 ---

@@ -1,0 +1,44 @@
+{
+  "name": "super-plumber",
+  "version": "0.9.5",
+  "description": "Super Plumber workflow orchestration: design task graphs as agent-native topologies, then execute them node by node.",
+  "author": {
+    "name": "lukawi",
+    "url": "https://www.npmjs.com/package/@lukawi/super-plumber"
+  },
+  "homepage": "https://github.com/LUKAWI/super-plumber",
+  "repository": "https://github.com/LUKAWI/super-plumber",
+  "license": "MIT",
+  "keywords": [
+    "workflow",
+    "topology",
+    "mcp",
+    "agents",
+    "skills"
+  ],
+  "skills": "./skills/",
+  "mcpServers": {
+    "graph-mcp": {
+      "command": "npx",
+      "args": ["-y", "@lukawi/super-plumber", "graph-mcp"],
+      "enabled": true
+    }
+  },
+  "interface": {
+    "displayName": "Super Plumber",
+    "shortDescription": "Design and execute agent-native workflow graphs",
+    "longDescription": "Super Plumber turns requirements into validated workflow topologies and guides agents through claim, checkpoint, report, and acceptance using the bundled graph-mcp server.",
+    "developerName": "lukawi",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/LUKAWI/super-plumber",
+    "defaultPrompt": [
+      "Design a validated workflow graph for this task",
+      "Execute the next ready node and report evidence",
+      "Review workflow progress and identify the next safe action"
+    ]
+  }
+}

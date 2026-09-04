@@ -93,3 +93,5 @@
 | task · passed | v094-restructure | [0.9.4] S01 正本收拢 integrations/src/ + gen 门禁 | 2026-09-04T00:04:12.387Z |
 | task · passed | v094-scripts | [0.9.4] S03 八脚本收敛 sp.mjs 薄封装（≡ CLI 语义面） | 2026-09-04T07:38:47.985Z |
 | task · passed | v094-verify | [0.9.4] 0.9.4 交叉验证 | 2026-09-04T08:31:43.887Z |
+| task · passed | v095-docs | [0.9.5] Codex 渠道文档与寻址 | 2026-09-04T13:56:46.151Z |
+| task · passed | v095-manifest | [0.9.5] Codex 官方插件三件套落地 | 2026-09-04T13:56:05.809Z |

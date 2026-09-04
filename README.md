@@ -537,20 +537,49 @@ graph serve
 
 ## 多工具接入（v0.6.1）
 
-同一套工作流资产（角色提示词 / 阶段 skill / 执行脚本 / Operations 手册）提供两种接入形态，按你使用的 agent 工具任选：
+同一套工作流资产（角色提示词 / 阶段 skill / 执行脚本 / Operations 手册）提供多种接入形态，按你使用的 agent 工具任选：
 
 | 接入路径 | 接入方法 |
 |----------|----------|
 | **pi**（仓库直用） | 仓库内直接使用根目录 `.pi/`；带到其他项目：把 `.pi/` 整个目录拷贝到项目根 |
 | **Claude Code**（插件 `super-plumber`） | `/plugin marketplace add lukawi/super-plumber` 添加市场，然后安装 `super-plumber`；本地路径预览在仓库根执行 `claude plugin marketplace add ./` |
 | **ZCode**（同一插件） | 设置 → 插件管理 → 发现 → 添加市场源 `lukawi/super-plumber`（或本地目录），然后安装 `super-plumber` |
+| **Codex**（官方插件，v0.9.5） | `codex plugin marketplace add lukawi/super-plumber` 添加市场，然后安装 `super-plumber`；本地路径在仓库根执行 `codex plugin marketplace add .` |
 
-> Claude Code 与 ZCode 安装的是**同一个插件包**（`integrations/plugin/`，以 `.claude-plugin` 清单承载；zcode 经 `.claude-plugin` 兼容回退装载，agents 走包内约定目录自动发现）——一次封装，两工具通用。
+> Claude Code、ZCode 与 Codex 复用**同一个插件包**（`integrations/plugin/`）。Claude/ZCode 以 `.claude-plugin` 清单承载，Codex 以包内 `.codex-plugin/plugin.json` 清单承载；三者共享 skills、scripts 与手册，但注册入口和 MCP 配置格式按宿主分别适配。
+
+### Codex 插件（v0.9.5）
+
+Codex 的官方插件市场清单位于仓库 `.agents/plugins/marketplace.json`。远程仓库安装：
+
+```bash
+codex plugin marketplace add lukawi/super-plumber
+codex plugin add super-plumber --marketplace lukawi-super-plumber
+```
+
+本地检验（在本仓库根目录）使用 `codex plugin marketplace add .`，随后用 `codex plugin list --marketplace lukawi-super-plumber --available` 查看清单，再安装插件。安装后请开启新会话，让缓存中的 skills 与 MCP 配置生效。
+
+Codex 与 Claude 的兼容边界：
+
+- 两者都读取 `integrations/plugin/skills/` 与插件根 `manual.md`；Codex 插件清单内联 `mcpServers.graph-mcp`（`command` + `args`），Claude 继续使用现有 `.mcp.json` 的 `mcpServers` 键，不改动 Claude/ZCode 配置。
+- Claude 的 4 个斜杠命令和 `agents/*.md` 自动发现不是 Codex 插件清单组件；Codex 默认由 6 个 skills 的 solo 分支完成设计、执行与裁决。
+- 需要独立设计师/裁决主控时，可在宿主仓库放置可选 `.codex/agents/sp-designer.toml` 与 `.codex/agents/super-mario.toml`。它们是项目级增强角色，不会随插件缓存自动注册，也不改变 solo 默认路径。
+- 本项目的 hooks harness 在 Claude/ZCode 侧同样未注册、默认关闭；Codex 不会自动继承 Claude 的 hook/settings 配置。启用时按宿主各自格式单独接线，不能直接复制 Claude 配置片段。
+- Windows 若宿主无法直接解析 `npx`，可在 `config.toml` 使用包装命令：
+
+  ```toml
+  [mcp_servers.super-plumber]
+  command = "cmd"
+  args = ["/c", "npx", "-y", "@lukawi/super-plumber", "graph-mcp"]
+  ```
+
+  当前插件清单使用与 Claude `.mcp.json` 相同的 `npx -y @lukawi/super-plumber graph-mcp` 命令；包装写法仅作 Windows 兜底。
 
 装好后你会得到：
 
-- **4 个斜杠命令**：`/plumber-design`——设计期编排（需求拆解 → 拓扑建图 → validate/doctor 双绿 → 浏览器预览 → 请求用户审核）；`/plumber-execute`——执行期编排（claim → 逐 checkpoint 上报 → 交接单 → 三层验收）；`/plumber-join`（v0.8.2）——冷启动加入（新会话/单体 agent 零前文自主入场：list/switch → status → next → claim → 干活到 passed → 回队列）；`/plumber-class`（v0.9.1）——档位凭据（用户直发设定/变更工作类 quick|standard|program，agent 代发必带 `--by user` 落 class_changed 审计血统）。pi 无斜杠命令，由 `.pi/skills/` 的 skill 直接驱动同一流程。另含纪律技能 `sp-grilling`（v0.8.0）：model-invoked、无命令，按触发语自动进入（grill/拷问/对齐/深挖）。
-- **2 个 subagent**：`sp-designer`（拓扑设计师）与 `super-mario`（裁决主控），由 skill 按派单模板调度；检测不到 subagent 时走 skill 内 solo 分支。
+- **Claude/ZCode 的 4 个斜杠命令**：`/plumber-design`——设计期编排（需求拆解 → 拓扑建图 → validate/doctor 双绿 → 浏览器预览 → 请求用户审核）；`/plumber-execute`——执行期编排（claim → 逐 checkpoint 上报 → 交接单 → 三层验收）；`/plumber-join`（v0.8.2）——冷启动加入（新会话/单体 agent 零前文自主入场：list/switch → status → next → claim → 干活到 passed → 回队列）；`/plumber-class`（v0.9.1）——档位凭据（用户直发设定/变更工作类 quick|standard|program，agent 代发必带 `--by user` 落 class_changed 审计血统）。pi 无斜杠命令，由 `.pi/skills/` 的 skill 直接驱动同一流程。另含纪律技能 `sp-grilling`（v0.8.0）：model-invoked、无命令，按触发语自动进入（grill/拷问/对齐/深挖）。
+- **Codex 的 6 个 skills + graph-mcp**：复用 `plumber-design`、`plumber-execute`、`plumber-join`、`sp-grilling`、`plumber-tdd`、`plumber-review`；Codex 不读取 Claude 的斜杠命令注册，也不从插件清单装载 `agents/*.md`。
+- **Claude/ZCode 的 2 个 subagent**：`sp-designer`（拓扑设计师）与 `super-mario`（裁决主控），由 skill 按派单模板调度；检测不到 subagent 时走 skill 内 solo 分支。Codex 的同名 TOML 仅是可选项目级增强（见上）。
 - **Operations 手册**：操作语法唯一正本。pi 侧读仓库根 `integrations/shared/manual.md`，插件用户读插件包内 `manual.md`（构建期同步的正本拷贝）；提示词/skill 写「Read 手册 §N」时按此寻址（约定见手册 §11）。
 
 ### solo 模式（单人单会话，无独立裁决方）
@@ -559,7 +588,7 @@ graph serve
 
 ### npm 兜底（访问不了市场源时）
 
-npm 包随包分发集成资产（`package.json` 的 `files` 含 `integrations/` 与 `.pi/`）。安装后从 `node_modules/@lukawi/super-plumber/` 把 `integrations/plugin/` 拷出（Claude Code / ZCode 指向该目录安装即可），或把 `.pi/` 拷到项目根——无需访问 GitHub。
+npm 包随包分发集成资产（`package.json` 的 `files` 含 `integrations/`、`.pi/` 与 `.agents/`）。安装后，Claude Code / ZCode 可指向 `node_modules/@lukawi/super-plumber/integrations/plugin/`；Codex 则把已安装包根作为本地 marketplace：`codex plugin marketplace add ./node_modules/@lukawi/super-plumber`。也可把 `.pi/` 拷到项目根——无需访问 GitHub。
 
 ### ZCode 免装插件路径
 
@@ -605,7 +634,7 @@ graph --version
 
 每次发版按序过一遍（IL-016 教训：版本面只改 package.json 一处、漏同步 manifest 会被审出）：
 
-1. **版本面同步**：把 version 逐个改齐、一处不漏——`package.json`、`.claude-plugin/marketplace.json`（`plugins[].version`）、`integrations/plugin/.claude-plugin/plugin.json`（0.9.5 起再加 `.codex-plugin/plugin.json` 与 `.agents/plugins/marketplace.json`）；
+1. **版本面同步**：把 version 逐个改齐、一处不漏——`package.json`、`.claude-plugin/marketplace.json`（`plugins[].version`）、`integrations/plugin/.claude-plugin/plugin.json`、`integrations/plugin/.codex-plugin/plugin.json` 与 `.agents/plugins/marketplace.json`；
 2. 跑 `node scripts/sync-integrations.mjs --check`：版本面一致性断言 + gen 渲染比对（正本 integrations/src/ vs 两渠道产物，手改即拦）+ 散文锚点断言（manual 版本锚点==version、README 计数行==实测）必须全绿（exit 0）——它也是 `prepublishOnly` 的第一道门禁，版本面/正本漂移会在这里被拦下；
 3. 更新 `CHANGELOG.md`：新增版本条目（含「发布动作」行）；
 4. `npm test && npm run build && npm --prefix web-ui run build`（`prepublishOnly` 发布时还会自动再跑一遍）；
