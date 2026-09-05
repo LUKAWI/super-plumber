@@ -16,7 +16,7 @@
 |----|------|---------|-----------|
 | CLI `graph` | 29 个子命令入口（§6.1），bash 友好 | 全流程：init 建图、多图管理、设计读写、执行流转、verdict 裁决、快照回滚、events 审计、export/serve；**唯一人类运维通道**（--force、rename-graph、delete-graph） | agent 不使用 `--force`；非 JSON 的输出需 `--json` 供解析 |
 | MCP `graph_*` | 26 个工具（§6.2），zod 强校验 | 设计+执行+裁决+版本几乎全能，校验最强——agent 首选 | 刻意不设通道：init 建新图、rename-graph、delete-graph、export --docs（走 CLI）；`force:true` 被**协议级拒绝** |
-| 脚本 `sp-*.mjs` | 7 个文件（§7），薄包装 | 无 MCP 客户端时的 claim / checkpoint / report / 状态流转 / 读节点 / 遍历 | 只是核心引擎的包装，能力面窄于前两层；从含 `.graph/` 的 cwd 运行 |
+| 脚本 `sp.mjs` | 单入口子命令（§7），另有设计体检脚本 | 无 MCP 客户端时的 claim / checkpoint / report / 状态流转 / 读节点 / 遍历 | 只是核心引擎的包装，能力面窄于前两层；从含 `.graph/` 的 cwd 运行 |
 
 优先级：**MCP > CLI > 脚本**。执行期一切状态流转必须经这三者之一——**绝不手改 `.graph/` YAML 伪造状态**。
 
@@ -54,6 +54,9 @@ graph update-graph \
   --class program [--by user]
 # --add-criteria 可重复追加；清空验收标准用 --clear-criteria；
 # --set-context 设置 root_context（JSON 对象）；
+# 定档：关键未知阻止形成可信交付计划 → program；否则，一个会话能完成并验收 → quick，其余 → standard。
+# 跨会话/跨图/跨仓库不单独触发 program；fog.description 写未知及影响的决定，graduation 写可验证证据。
+# program 转 standard 须关键未知解决、可信交付计划成立并经增量人审；研究票 passed 或 fog 清空不足以单独转档。
 # --set-fog 登记/更新雾区（整体 upsert，0.9.0 F04/adr_0007）；--class 标注工作类 quick|standard|program（DEC-2）。
 # --by <名>（0.9.1 adr_0016）：class 变更的操作者凭据，缺省 "agent"；用户直发（/plumber-class 命令或对话批准）
 # 时由命令文本指示 agent 传 --by user——血统落 class_changed 审计事件（from/to/by 结构化字段，from 缺省=首次设置；
@@ -293,7 +296,7 @@ graph_get_next_actions { }                       # MCP；可选 stale_ms（缺�
 graph next [--stale-ms <ms>] [--json]            # CLI
 ```
 
-一次返回五个桶：`ready`（可直接认领）/ `ready_eligible`（门禁已满足的 pending/failed，转 ready 即执行——**冷启动第一步从这里拿入口节点**）/ `blocked`（附 unmet 未满足前驱清单）/ `running`（附时长与执行者）/ `stale_running`（超阈值无更新的疑似卡死）。桶截断时 `truncated: true` → 加大 limit 翻页。条目可能带 `adr_flags`（⚠️ 所依据 ADR 已 superseded → 停下重审后再动工）。0.9.1 起读面另带（零门禁，条件缺省）：`requires_human`（含未完成 verifier:human checkpoint 的节点）与桶条目 `waiting_human`（等真人，未认领时）、`class_nudge`（雾/档矛盾提示，用户直发 `--by user` 凭据后静默）、`fog_graduation_nudge`（雾可毕业提示）；人读面同样渲染。0.9.3 起（adr_0017）：死节点条目（failed 且 max_attempts>0 且 attempts≥max_attempts）在 ready_eligible/blocked 两桶就地附 `attempts_exhausted: true` 与 `fallback_routes`（出向 fallback 边的目标 {id,label}，仅非空时出现；max_attempts=0 不限者永不判死），人读面渲染 `⚠️ 重试预算耗尽 | fallback 路线: <id>(<label>)`。
+一次返回五个桶：`ready`（可直接认领）/ `ready_eligible`（门禁已满足的 pending/failed，转 ready 即执行——**冷启动第一步从这里拿入口节点**）/ `blocked`（附 unmet 未满足前驱清单）/ `running`（附时长与执行者）/ `stale_running`（超阈值无更新的疑似卡死）。桶截断时 `truncated: true` → 加大 limit 翻页。条目可能带 `adr_flags`（⚠️ 所依据 ADR 已 superseded → 停下重审后再动工）。0.9.1 起读面另带（零门禁，条件缺省）：`requires_human`（含未完成 verifier:human checkpoint 的节点）与桶条目 `waiting_human`（等真人，未认领时）、`class_nudge`（提示核对关键未知是否阻止可信交付计划，不凭 fog 存在自动判 program；用户直发 `--by user` 凭据后静默）、`fog_graduation_nudge`（研究票全部 passed 后提示核对毕业证据，不代表已满足毕业或转档条件）；人读面同样渲染。0.9.3 起（adr_0017）：死节点条目（failed 且 max_attempts>0 且 attempts≥max_attempts）在 ready_eligible/blocked 两桶就地附 `attempts_exhausted: true` 与 `fallback_routes`（出向 fallback 边的目标 {id,label}，仅非空时出现；max_attempts=0 不限者永不判死），人读面渲染 `⚠️ 重试预算耗尽 | fallback 路线: <id>(<label>)`。
 
 **② CLAIM — 原子认领**
 

@@ -34,26 +34,26 @@ describe("graph next 人读面渲染 nudge（v091-verify 补口）", () => {
     run(["update-graph", "--set-fog", '{"id":"ra","description":"d","graduation":"g"}']);
     run(["update-graph", "--class", "standard"]);
     const out = run(["next"]);
-    expect(out).toContain("雾中绘图对应 program 档");
+    expect(out).toContain("请核对关键未知是否阻止形成可信交付计划");
     expect(out).toContain("⚠️");
     // 同值重设不落事件（凭据链最新仍 by=agent，nudge 持续）——静默须异值直发落凭据事件
     run(["update-graph", "--class", "quick", "--by", "user"]);
-    expect(run(["next"])).not.toContain("雾中绘图对应 program 档");
+    expect(run(["next"])).not.toContain("请核对关键未知是否阻止形成可信交付计划");
   });
 
-  it("雾可毕业 nudge 人读可见（ignited 全 passed）；毕业后消失", () => {
+  it("请核对实际证据是否满足毕业条件 nudge 人读可见（ignited 全 passed）；毕业后消失", () => {
     run(["init", "t"]);
     createNode(tmpDir, { id: "r1", type: NodeType.Task, label: "研究票" });
     updateGraph(tmpDir, { fog: { id: "ra", description: "d", graduation: "g", ignited: ["r1"] } });
-    expect(run(["next"])).not.toContain("雾可毕业");
+    expect(run(["next"])).not.toContain("请核对实际证据是否满足毕业条件");
     updateNodeStatus(tmpDir, "r1", NodeStatus.Ready);
     updateNodeStatus(tmpDir, "r1", NodeStatus.Running);
     updateExecutionReport(tmpDir, "r1", { summary: "研究完成" });
     updateNodeStatus(tmpDir, "r1", NodeStatus.Passed);
     const out = run(["next"]);
-    expect(out).toContain("雾可毕业");
+    expect(out).toContain("请核对实际证据是否满足毕业条件");
     expect(out).toContain("graduate-fog");
     run(["graduate-fog", "--reason", "测试毕业"]);
-    expect(run(["next"])).not.toContain("雾可毕业");
+    expect(run(["next"])).not.toContain("请核对实际证据是否满足毕业条件");
   });
 });

@@ -14,22 +14,22 @@ description: Use when 拓扑图已设计并审核通过、需要执行 .graph/ �
 - Use：拓扑图已设计并审核通过，开始执行节点任务；claim / checkpoint / execution_report / 状态流转；判断串行还是派 subagent 并行；验证全部节点 passed、构建成果完整；节点 failed → 走重试链重新调度。
 - **代理层级边界**：skill 文本和“有 subagent 工具”都不能可靠识别代理深度，故每个会话默认**无派单权**，不得从能力存在推断授权。只有直接承接用户执行请求的外层协调者可持一次性、不可转授的 `orchestrator` 授权直接派 executor；授权在派发时耗尽，子任务只收到 `leaf` 约束，绝不可向下复制。缺授权一律 solo。当前通用宿主未向 skill 暴露可验证的签名层级令牌，因此这是行为协议而非硬隔离：需要强保证的宿主还必须在工具层移除子 agent 的派发能力。
 - 执行协议的工具调用语法与并行数据判读法 → 手册 §4；状态机七态与三条硬规则 → 手册 §5——本 skill 只留骨架与纪律，绝不复述语法。
-- 图未设计或未审核通过 → `plumber-design`；节点状态裁决 / checkpoint 聚合 / 输出抽查 → `super-mario` agent；派 executor subagent → 按「派单模板」，检测不到可用 subagent → 走「solo 分支」；新会话自主入场 → `/plumber-join`。
+- 图未设计或未审核通过 → `plumber-design`；节点状态裁决 / checkpoint 聚合 / 输出抽查 → `super-mario` agent；派 executor subagent → 按「派单模板」，检测不到可用 subagent → 走「solo 分支」；新会话缺少背景 → `/plumber-join` 获取最小上下文并置 ready 后回本技能；已有上下文直接执行，不重复入场。
 
 ## 执行协议（每节点 0–5 步，严格按序；各步调用语法统一 → 手册 §4.1）
 
-0. **PLAN** — 每轮决策前先看 `graph_get_next_actions` 五桶；**冷启动第一步从 ready_eligible 拿入口节点**（门禁已满足的 pending/failed 转 ready 即执行），不要拿 get_graph+search 手工拼数据。
+0. **PLAN** — 每轮决策前先看 `graph_get_next_actions` 五桶；优先已有 ready 节点，空时再从 ready_eligible 选择（门禁复校后转 ready），不要拿 get_graph+search 手工拼数据。
 1. **CLAIM** — **只 claim ready 节点**（eligible 先 `{status:"ready"}` 再 claim），必带 `claim_by`，拿到 already claimed 就换节点别重试同节点；claim 响应附 `governing_adrs` **必读**——**adr_flags ⚠️ 出现即停**：该节点依据的 ADR 已被接替，先弄清新决策再动手，ADR 状态只能由裁决方（super-mario/人类）改。
-2. **WORK** — 执行 `plan.description`，把 checkpoints 当逐条清单完成。
+2. **WORK** — 执行 `plan.description`，把 checkpoints 当逐条清单完成。测试先行、新增测试或缺陷修复 → 若可用，参考 `plumber-tdd`；遇到 `cross_review` 或指定 artifact 复核 → 若可用，交 `plumber-review`，结果交 super-mario/独立裁决方。两者都是软路由：技能缺失直接按 plan/DoD 与手册执行，不另找替代、不增加门禁；缺技能不取消原有交叉复核要求，独立复核者不可用时如实交接。
 3. **REPORT AS YOU GO** — 每完成一个 checkpoint **立即上报**，绝不攒批——完成的未上报 = 丢失的进度。
 4. **HAND OFF** — 干完立刻填 execution_report：artifacts 只写**真实文件路径**（会被存在性核验），绝不编造路径。
-5. **passed** — 核心层硬门禁一句话：非空 report + checkpoint 全 passed/skipped + 无 failed 裁决，缺一即拒——铁律**先 verdict 后 passed**（重试链 / attempts 上限 / blocked 解除 / reclaim 细节 → 手册 §4.3 与 §5）。
+5. **passed** — 委派工人止于 report，由 super-mario/独立裁决方写 verdict 并流转 passed；solo 按下文裁定边界处理。核心层硬门禁一句话：非空 report + checkpoint 全 passed/skipped + 无 failed 裁决，缺一即拒——铁律**先 verdict 后 passed**（重试链 / attempts 上限 / blocked 解除 / reclaim 细节 → 手册 §4.3 与 §5）。
 
-**节点 passed 后的旅程告知（WF10，必做）**：passed 不是静默流转——向用户概述当前下一前沿（`graph_get_next_actions` 五桶读数：前沿在哪、还剩几张票）；前沿有多个互不依赖的 ready 节点时，建议用户另开会话 `/plumber-join` 并行推进（并行判据见下文「并行决策」）。
+**节点 passed 后的旅程告知（WF10，必做）**：passed 不是静默流转——向用户概述当前下一前沿（`graph_get_next_actions` 五桶读数：前沿在哪、还剩几张票）；前沿有多个互不依赖的 ready 节点时，建议用户另开会话 `/plumber-join` 了解上下文并置 ready，再由 plumber-execute 并行推进（并行判据见下文「并行决策」）。
 
 ## work the graph 模式（program 档：工作会话解雾）
 
-图带未毕业雾区（class=program）→ 本 skill 切 work 模式：不跑整图，按「取前沿 → 解一张 → 毕业雾 → 决议回写 → to-standard 交棒」循环——解票是为了把雾想清楚，不是为了清桶赶进度。全程细则（research 票认领、graduate-fog 毕业命令与 amend 守卫、ADR 回写、档位例外）→ `../plumber-design/attachments/wayfinder-mode.md`；研究票产出物范式 → `attachments/prototype-research.md`。
+图已定 program，且关键未知仍阻止形成可信交付计划 → 本 skill 切 work 模式：不跑整图，按「取前沿 → 解一张 → 毕业雾 → 决议回写 → to-standard 交棒」循环——解票是为了把雾想清楚，不是为了清桶赶进度。关键未知解决且可信交付计划经增量人审后才转 standard；研究票全部 passed 或 fog 清空不单独触发转档。全程细则（research 票认领、graduate-fog 毕业命令与 amend 守卫、ADR 回写、档位例外）→ `../plumber-design/attachments/wayfinder-mode.md`；研究票产出物范式 → `attachments/prototype-research.md`。
 
 ## 发现图错的上报出口（改图三级分流）
 
@@ -75,7 +75,7 @@ description: Use when 拓扑图已设计并审核通过、需要执行 .graph/ �
 
 ## 派单模板（给 executor subagent 的标准提示词骨架）
 
-1. **任务目标一句话**：认领并完成 `<node_id>`（plan.description 要旨），一路 REPORT 到 passed。
+1. **任务目标一句话**：认领并完成 `<node_id>`（plan.description 要旨），完成 checkpoint/report 后交独立裁决方，不自行写 verdict/passed。
 2. **显式文件边界**：只允许读写本节点 plan 列出的产出路径，以及经 graph CLI/MCP 维护的 `.graph/`；**不得 claim 或触碰他人已认领节点**（assigned_to 不是你的节点一律绕行）；**汇合点必须等齐 fan_in 上游全部 passed** 才能动工，等不齐就停下如实上报，不得 cancel 上游抢跑。
 3. 首行固定指引：`Read integrations/shared/manual.md §4、§6`（claude/zcode 插件包环境按手册 §11 寻址约定改为包根相对路径）。
 4. **信息优先级声明**：任务派单 ＞ 角色提示词 / 手册 ＞ skill 正文；冲突时上位胜出。

@@ -6,7 +6,7 @@
 | 决议 | id | 标题 | 结论时间 |
 |------|----|------|---------|
 | ADR · accepted | adr_0001 | 设计审批：凭据 + 关键时刻提示，不做硬门禁（DEC-1） | 2026-08-30T23:32:49.659Z |
-| ADR · accepted | adr_0002 | 三级工作类路由：quick / standard / program（DEC-2） | 2026-08-30T23:32:49.871Z |
+| ADR · superseded | adr_0002 | 三级工作类路由：quick / standard / program（DEC-2） | 2026-09-05T09:02:08.667Z |
 | ADR · accepted | adr_0003 | 纪律分层判据：不变量归工具，流程归 skills（DEC-3） | 2026-08-30T23:32:50.091Z |
 | ADR · accepted | adr_0004 | 自主入场：冷启动加入协议 + sp-executor subagent 定义（DEC-5） | 2026-08-30T23:32:50.322Z |
 | ADR · accepted | adr_0005 | skills 入口策略修订 + 纪律技能族自建（DEC-6） | 2026-08-30T23:32:50.554Z |
@@ -20,6 +20,7 @@
 | ADR · accepted | adr_0015 | Codex 渠道采用官方 .codex-plugin 插件路线 | 2026-08-31T12:08:23.380Z |
 | ADR · accepted | adr_0016 | 档位凭据命令 /plumber-class：用户直发 class + class_changed 凭据 + 方向性请示纪律 | 2026-09-01T23:39:45.659Z |
 | ADR · accepted | adr_0017 | fallback 最小读语义 + iterates 维持文档性标注（F09 纸面边清偿） | 2026-09-03T12:28:21.415Z |
+| ADR · accepted | adr_0018 | 工作类按可信交付计划定档（修订 DEC-2） | 2026-09-05T09:02:08.656Z |
 | task · passed | arch-c1-cli-runner | [0.9.1-0.9.2·架构] C1 核心错误码六枚 + CLI defineCommand 统一骨架（全迁） | 2026-09-04T00:26:16.806Z |
 | task · passed | arch-c2-scheduler-split | [0.9.1·架构] C2 调度策略与索引缓存分家（scheduler.ts 新家） | 2026-09-02T16:31:19.594Z |
 | task · passed | arch-c3a-claim-nudges | [0.9.1·架构] C3a 认领提示包 core 单源（CLI 补齐 review_flag） | 2026-09-02T14:27:38.813Z |
@@ -99,6 +100,7 @@
 | task · passed | v095-verify | [0.9.5] 交叉验证 | 2026-09-04T14:30:00.961Z |
 | task · passed | v096-concurrency-identity | [0.9.6] 图身份与跨实体并发一致性 | 2026-09-05T06:59:05.622Z |
 | task · passed | v096-index-consistency | [0.9.6] Index 缓存与写入代际一致性 | 2026-09-05T06:50:27.711Z |
+| task · passed | v096-release | [0.9.6] 0.9.6 修复版发布收口 | 2026-09-05T09:37:38.111Z |
 | task · passed | v096-schema-contract | [0.9.6] Schema 与审批契约收口 | 2026-09-05T05:21:45.593Z |
 | task · passed | v096-snapshot-integrity | [0.9.6] Snapshot 路径隔离与原子回滚 | 2026-09-05T06:13:35.167Z |
 | task · passed | v096-verify | [0.9.6] 交叉验证：一致性与边界修复 | 2026-09-05T08:38:23.816Z |

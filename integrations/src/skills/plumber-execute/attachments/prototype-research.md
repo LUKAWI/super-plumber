@@ -22,4 +22,4 @@
 - **产物落真实 artifact**：调研笔记/对照结论/原型代码写成仓库内真实文件；原型代码可独立分支保留，不混入主干产物——分支名与票 id 对应，便于毕业后取舍。
 - **结论写进执行报告**：summary 给结论摘要，notes 给「下一步」（雾可否毕业、还差哪些问题）；报告里放**指针**（artifact 相对路径 + 一句话导读），不整篇粘贴。
 - **够 ADR 三判据 → 转正**：`graph adr create`（MCP `graph_create_adr`）落 proposed，accept/supersede 归裁决方（super-mario/人）；术语沉淀进所属 context 顶点 glossary。
-- **AFK 点火**：票登记即进入公共调度池——任何会话（含冷启动 `/plumber-join` 入场者）都能凭 next 桶自主认领研究票推进，无需原 chart 会话在场。
+- **AFK 点火**：票登记即进入公共调度池——任何已获执行授权的会话都能按 plumber-execute 凭 next 桶认领研究票推进（缺背景时先用 `/plumber-join` 入场至 ready），无需原 chart 会话在场。

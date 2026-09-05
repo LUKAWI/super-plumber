@@ -1,4 +1,4 @@
-// tests/core/fog-graduation-nudge.test.ts — IL-025：雾可毕业 nudge（零门禁）
+// tests/core/fog-graduation-nudge.test.ts — IL-025：请核对实际证据是否满足毕业条件 nudge（零门禁）
 // 纯函数派生（core/fog.ts，与 fogClassNudge 同址单源）：图有未毕业雾区且
 // fog.ignited 列票全部 passed → 提示毕业留痕（含 fog id 与 graduate-fog 命令建议）；
 // 两态装配断言（computeNextActions 桶装配 + validateGraphDir 警告编排）+
@@ -60,6 +60,8 @@ describe("fogGraduationNudge 纯函数（单源派生）", () => {
     expect(nudge).toContain("release-automation");
     expect(nudge).toContain("graduate-fog");
     expect(nudge).toContain(FOG.graduation);
+    expect(nudge).toContain("研究票全部 passed 不等于未知已解决");
+    expect(nudge).toContain("可信交付计划成立并经增量人审");
   });
 
   it("任一票未 passed / 缺失、ignited 缺省或空 → 不提示（宁缺勿滥）", () => {
@@ -115,14 +117,14 @@ describe("IL-025 装配两态（computeNextActions + validateGraphDir）", () =>
 
     const r = validateGraphDir(tmpDir);
     expect(r.ok).toBe(true); // 恒为 warning，不参与退出码
-    expect(r.warnings.some((w) => w.includes("雾可毕业") && w.includes("graduate-fog"))).toBe(true);
+    expect(r.warnings.some((w) => w.includes("请核对实际证据是否满足毕业条件") && w.includes("graduate-fog"))).toBe(true);
 
     // 票未 passed → 警告静默
     const g = JSON.parse(JSON.stringify(skeletonGraph()));
     writeGraph(tmpDir, g);
     createNode(tmpDir, { id: "r2", type: NodeType.Task, label: "研究票二" });
     updateGraph(tmpDir, { fog: { ...FOG, ignited: ["r2"] } });
-    expect(validateGraphDir(tmpDir).warnings.some((w) => w.includes("雾可毕业"))).toBe(false);
+    expect(validateGraphDir(tmpDir).warnings.some((w) => w.includes("请核对实际证据是否满足毕业条件"))).toBe(false);
   });
 
   it("毕业后不再注入（graduateFog 清除 fog 字段，nudge 条件自然不命中）", () => {
@@ -138,6 +140,6 @@ describe("IL-025 装配两态（computeNextActions + validateGraphDir）", () =>
     const r = computeNextActions(tmpDir);
     expect(r.fog).toBeUndefined();
     expect(r.fog_graduation_nudge).toBeUndefined();
-    expect(validateGraphDir(tmpDir).warnings.some((w) => w.includes("雾可毕业"))).toBe(false);
+    expect(validateGraphDir(tmpDir).warnings.some((w) => w.includes("请核对实际证据是否满足毕业条件"))).toBe(false);
   });
 });

@@ -128,6 +128,13 @@ const SOURCES = [
  *  「dir: 'commands' … 首个 sp-scripts」切片断言 commands 登记为 glob 驱动（无逐命令点名）。 */
 const COPIES = [
   {
+    src: path.join('skills', 'sp-grilling', 'agents', 'openai.yaml'),
+    targets: [
+      path.join('.pi', 'skills', 'sp-grilling', 'agents'),
+      path.join('integrations', 'plugin', 'skills', 'sp-grilling', 'agents'),
+    ],
+  },
+  {
     src: path.join('sp-scripts', 'README.md'),
     targets: [
       path.join('.pi', 'skills', 'plumber-execute', 'scripts'),

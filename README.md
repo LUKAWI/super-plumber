@@ -12,6 +12,12 @@
 
 ---
 
+### 工作流程档位
+
+先判断关键未知是否阻止形成可信交付计划：是则用 **program**，先研究、分阶段完善和审核计划；否则，一个会话能完成并验收用 **quick**，其余用 **standard**。可信计划要求目标、范围、验收、主要任务与关键依赖明确；节点内可解决的实现问题不触发 program。跨会话、跨图、跨仓库和并行人数不单独决定档位。program 转 standard 须关键未知解决、可信计划成立并经增量人审，研究票全部通过或 fog 清空不单独触发转档。
+
+具体规则与判例见 [档位规则](integrations/plugin/skills/plumber-design/attachments/workflow-classes.md)。
+
 ## 为什么需要它？
 
 普通的 Todo 列表只有一行行文字——没有依赖顺序、没有验收标准、没有生命周期。当任务交给 AI agent 执行时，它**看不懂**你的任务文档，只能靠猜。
@@ -81,7 +87,7 @@ branch/merge 直接交给 Git。
 | 📉 **上下文经济** | MCP 读接口全面分页：`graph_get_graph` 默认 summary 模式（紧凑字段）+ full 分页、`graph_search` limit、`graph_traverse` max_nodes、`graph_get_node` 可附拓扑邻居——大图不再 token 爆炸；ADR 只注入标题级指针，永不全文推送 |
 | ⚡ **大图热路径** | 索引两级缓存（内存 + 磁盘 graph.json）：门禁/调度从"每次全图扫描"（10k 图 ~9s）降为查表 + 单文件读；调度 O(N+M)；**写路径主动失效缓存**（不赌文件系统 mtime，长驻进程写后读一致） |
 | 📁 **纯文件存储** | 每个节点/边一个 YAML 文件，Git 是唯一真相源，人类可直接编辑，无数据库 |
-| 🧩 **agent 协作协议** | 内置 `plumber-design`（拓扑设计+领域建模+ADR 甄别+预览审核闸门）与 `plumber-execute`（拓扑执行+三层验收+管辖 ADR 纪律）双阶段 skill，加纪律技能 `sp-grilling`（v0.8.0：意图对齐与决策纠正的对话核心）+ 2 个专用 subagent（拆解 / 裁决） |
+| 🧩 **agent 协作协议** | 内置 `plumber-design`（拓扑设计+领域建模+ADR 甄别+预览审核闸门）与 `plumber-execute`（拓扑执行+三层验收+管辖 ADR 纪律）双阶段 skill，加纪律技能 `sp-grilling`（v0.8.0：意图对齐与决策纠正的对话核心）+ 3 个专用 subagent（设计 / 执行 / 裁决） |
 
 ---
 
@@ -524,14 +530,15 @@ graph serve
 
 ## Pi Agent 生态：subagent + skill
 
-项目内置 2 个专用 subagent（`.pi/agents/`）与 4 个 skill（`.pi/skills/plumber-design/` + `.pi/skills/plumber-execute/` + `.pi/skills/plumber-join/` 冷启动加入协议（v0.8.2 起）+ `.pi/skills/sp-grilling/` 纪律技能，v0.8.0 起）：
+项目内置 3 个专用 subagent（`.pi/agents/`）与 6 个 skill：plumber-design、plumber-execute、plumber-join、sp-grilling、plumber-tdd、plumber-review。
 
 | Agent | 角色 | 职责 |
 |-------|------|------|
 | `sp-designer` | 拓扑图设计师 | 把需求拆解为结构化拓扑，为每个节点制定 plan 和 definition_of_done |
+| `sp-executor` | 执行工人 | 按 plumber-execute 认领与交付报告，不自行裁决 |
 | `super-mario` | 拓扑主控 | 节点生命周期裁决（checkpoint 聚合 + 输出抽查）、重试管理、状态监测 |
 
-**两阶段 skill 协议**：`plumber-design` 负责**设计期**（需求拆解 → 拓扑图 → `graph validate` + 体检脚本验证无 bug → `graph serve` 打开浏览器预览 → 请求用户审核，审核是硬性 gate）；用户批准后 `plumber-execute` 负责**执行期**（claim → 逐 checkpoint 上报 → execution_report → passed，fan_out/fan_in 结构 + 条件判断决定何时派 subagent 并行，全部 task 节点 passed 后做三层验收：状态层全绿 + 结构层 validate 0 error + 成果层逐条对照 exit 验收标准与真实 artifact）。配套脚本：design 侧 `sp-check-design.mjs`（设计体检），execute 侧 6 个（read/status/claim/checkpoint/report/traverse），保证 agent 按协议操作拓扑图、不越权、不假报进度。
+**两阶段 skill 协议**：`plumber-design` 负责**设计期**（需求拆解 → 拓扑图 → `graph validate` + 体检脚本验证无 bug → `graph serve` 打开浏览器预览 → 请求用户审核，审核是硬性 gate）；用户批准后 `plumber-execute` 负责**执行期**（claim → 逐 checkpoint 上报 → execution_report → passed，fan_out/fan_in 结构 + 条件判断决定何时派 subagent 并行，全部 task 节点 passed 后做三层验收：状态层全绿 + 结构层 validate 0 error + 成果层逐条对照 exit 验收标准与真实 artifact）。配套脚本：design 侧 `sp-check-design.mjs`（设计体检），execute 侧 `sp.mjs` 单入口（read/status/claim/checkpoint/report/traverse 子命令），保证 agent 按协议操作拓扑图、不越权、不假报进度。
 
 ---
 
@@ -577,9 +584,9 @@ Codex 与 Claude 的兼容边界：
 
 装好后你会得到：
 
-- **Claude/ZCode 的 4 个斜杠命令**：`/plumber-design`——设计期编排（需求拆解 → 拓扑建图 → validate/doctor 双绿 → 浏览器预览 → 请求用户审核）；`/plumber-execute`——执行期编排（claim → 逐 checkpoint 上报 → 交接单 → 三层验收）；`/plumber-join`（v0.8.2）——冷启动加入（新会话/单体 agent 零前文自主入场：list/switch → status → next → claim → 干活到 passed → 回队列）；`/plumber-class`（v0.9.1）——档位凭据（用户直发设定/变更工作类 quick|standard|program，agent 代发必带 `--by user` 落 class_changed 审计血统）。pi 无斜杠命令，由 `.pi/skills/` 的 skill 直接驱动同一流程。另含纪律技能 `sp-grilling`（v0.8.0）：model-invoked、无命令，按触发语自动进入（grill/拷问/对齐/深挖）。
+- **Claude/ZCode 的 4 个斜杠命令**：`/plumber-design`——设计期编排（需求拆解 → 拓扑建图 → validate/doctor 双绿 → 浏览器预览 → 请求用户审核）；`/plumber-execute`——执行期编排（claim → 逐 checkpoint 上报 → 交接单 → 三层验收）；`/plumber-join`（v0.8.2）——低上下文入场（了解项目 → 查看进度 → 确定下一节点 → ready，随后交 plumber-execute）；`/plumber-class`（v0.9.1）——档位凭据（用户直发设定/变更工作类 quick|standard|program，agent 代发必带 `--by user` 落 class_changed 审计血统）。pi 无斜杠命令，由 `.pi/skills/` 的 skill 直接驱动同一流程。另含纪律技能 `sp-grilling`（v0.8.0）：仅用户主动调用、无独立命令，agent 不主动接入。
 - **Codex 的 6 个 skills + graph-mcp**：复用 `plumber-design`、`plumber-execute`、`plumber-join`、`sp-grilling`、`plumber-tdd`、`plumber-review`；Codex 不读取 Claude 的斜杠命令注册，也不从插件清单装载 `agents/*.md`。
-- **Claude/ZCode 的 2 个 subagent**：`sp-designer`（拓扑设计师）与 `super-mario`（裁决主控），由 skill 按派单模板调度；检测不到 subagent 时走 skill 内 solo 分支。Codex 的同名 TOML 仅是可选项目级增强（见上）。
+- **Claude/ZCode 的 3 个 subagent**：`sp-designer`（拓扑设计师）、`sp-executor`（执行工人）与 `super-mario`（裁决主控），由 skill 按派单模板调度；检测不到 subagent 时走 skill 内 solo 分支。Codex 的同名 TOML 仅是可选项目级增强（见上）。
 - **Operations 手册**：操作语法唯一正本。pi 侧读仓库根 `integrations/shared/manual.md`，插件用户读插件包内 `manual.md`（构建期同步的正本拷贝）；提示词/skill 写「Read 手册 §N」时按此寻址（约定见手册 §11）。
 
 ### solo 模式（单人单会话，无独立裁决方）

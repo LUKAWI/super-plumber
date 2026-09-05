@@ -1,6 +1,6 @@
 ---
 name: plumber-review
-description: Use when 要交叉复核一个节点的产物（执行者以外的第二双眼）、三层验收成果层要抽查某个 passed 节点、checkpoint 标了 cross_review 要做交叉评审、对节点 artifact 做双轴 review（规格轴 + 惯例轴）。Also use when asked to 复核这个节点、交叉复核、交叉评审、双轴复核、review 这个 artifact。Do NOT use for 图级 serve 人审与决策拷问（用 sp-grilling）、设计新图（用 plumber-design）、节点日常执行与编排（用 plumber-execute）。纪律族技能：model-invoked 自动触发，不发 command（DEC-6）。多工具通用（pi/claude/zcode）。
+description: Use when 要交叉复核一个节点的产物（执行者以外的第二双眼）、三层验收成果层要抽查某个 passed 节点、checkpoint 标了 cross_review 要做交叉评审、对节点 artifact 做双轴 review（规格轴 + 惯例轴）。Also use when asked to 复核这个节点、交叉复核、交叉评审、双轴复核、review 这个 artifact。Do NOT use for 图级 serve 人审（归 plumber-design）与用户主动发起的决策拷问（用 sp-grilling）、设计新图（用 plumber-design）、节点日常执行与编排（用 plumber-execute）。纪律族技能：model-invoked 自动触发，不发 command（DEC-6）。多工具通用（pi/claude/zcode）。
 ---
 
 # Plumber Review — 纪律技能：节点产物的双轴交叉复核

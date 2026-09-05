@@ -11,6 +11,12 @@
 
 ---
 
+### Workflow classes
+
+Choose **program** when a critical unknown prevents a credible delivery plan: research first, then refine and review the plan in stages. Otherwise, choose **quick** if the work can be completed and accepted in one session, or **standard** for larger work. A credible plan defines the goal, scope, acceptance criteria, main tasks, and key dependencies; implementation questions resolvable within a task do not require program. Multiple sessions, graphs, repositories, or agents alone do not trigger program. Returning to standard requires resolved critical unknowns and an incrementally reviewed credible delivery plan; completed research tasks or an empty fog field alone are insufficient.
+
+See the [workflow class rules](integrations/plugin/skills/plumber-design/attachments/workflow-classes.md) for examples.
+
 ## Why Super Plumber?
 
 A Todo list is just lines of text — no ordering, no acceptance criteria, no lifecycle. Hand that to an AI agent and it has to guess what you meant.
@@ -504,14 +510,15 @@ A **starfield** pinned to the developer's screen: every task is an eight-point s
 
 ## Pi agent ecosystem: subagents + skills
 
-The project ships 2 dedicated subagents (`.pi/agents/`) and 2 staged skills (`.pi/skills/plumber-design/` + `.pi/skills/plumber-execute/`):
+The project ships 3 dedicated subagents (`.pi/agents/`) and 6 skills: plumber-design, plumber-execute, plumber-join, sp-grilling, plumber-tdd, and plumber-review.
 
 | Agent | Role | Responsibility |
 |-------|------|----------------|
 | `sp-designer` | Topology designer | Decompose requirements into a structured topology; write plan and definition_of_done per node |
+| `sp-executor` | Execution worker | Follow plumber-execute through checkpoint/report; leave verdicts to the adjudicator |
 | `super-mario` | Topology adjudicator | Node lifecycle adjudication (checkpoint aggregation + output spot-checks), retry management, health monitoring |
 
-**Two-stage skill protocol**: `plumber-design` owns the **design phase** (requirements → graph → `graph validate` + doctor script → `graph serve` preview → user review, which is a hard gate); once approved, `plumber-execute` owns the **execution phase** (claim → checkpoint-by-checkpoint reporting → execution_report → passed; fan_out/fan_in structure + conditional judgment decide when to fan out subagents; after all task nodes pass, a three-layer acceptance: states all green + structure validate 0 errors + deliverables checked against exit criteria). Supporting scripts: `sp-check-design.mjs` (design doctor) on the design side; 6 scripts (read/status/claim/checkpoint/report/traverse) on the execute side.
+**Two-stage skill protocol**: `plumber-design` owns the **design phase** (requirements → graph → `graph validate` + doctor script → `graph serve` preview → user review, which is a hard gate); once approved, `plumber-execute` owns the **execution phase** (claim → checkpoint-by-checkpoint reporting → execution_report → passed; fan_out/fan_in structure + conditional judgment decide when to fan out subagents; after all task nodes pass, a three-layer acceptance: states all green + structure validate 0 errors + deliverables checked against exit criteria). Supporting scripts: `sp-check-design.mjs` (design doctor) on the design side; one `sp.mjs` entry point (read/status/claim/checkpoint/report/traverse subcommands) on the execute side.
 
 ---
 
@@ -557,9 +564,10 @@ Claude/Codex compatibility notes:
 
 After installing you get:
 
-- **Claude/ZCode's 4 slash commands**: `/plumber-design` — design-phase orchestration (requirements → graph → validate/doctor double-green → browser preview → user review); `/plumber-execute` — execution-phase orchestration (claim → checkpoint reporting → handoff → three-layer acceptance); `/plumber-join` (v0.8.2) — cold-start entry; `/plumber-class` (v0.9.1) — work-class credentials. pi has no slash commands; the `.pi/skills/` staged skills drive the same flows directly.
+- **Claude/ZCode's 4 slash commands**: `/plumber-design` — design-phase orchestration (requirements → graph → validate/doctor double-green → browser preview → user review); `/plumber-execute` — execution-phase orchestration (claim → checkpoint reporting → handoff → three-layer acceptance); `/plumber-join` (v0.8.2) — minimal-context entry ending at ready, then hand off to plumber-execute; `/plumber-class` (v0.9.1) — work-class credentials. pi has no slash commands; the `.pi/skills/` staged skills drive the same flows directly.
 - **Codex's 6 skills + graph-mcp**: `plumber-design`, `plumber-execute`, `plumber-join`, `sp-grilling`, `plumber-tdd`, and `plumber-review`; Codex does not consume Claude slash-command registration or plugin `agents/*.md` files.
-- **Claude/ZCode's 2 subagents**: `sp-designer` and `super-mario`, dispatched by the skills' templates; a solo branch kicks in when no subagent facility exists. Codex's same-named TOML files are optional project-level enhancements (see above).
+- **Claude/ZCode's 3 subagents**: `sp-designer`, `sp-executor`, and `super-mario`, dispatched by the skills' templates; a solo branch kicks in when no subagent facility exists. Codex's same-named TOML files are optional project-level enhancements (see above).
+- **sp-grilling** is user-invoked only, never automatically called by an agent or required for design review. Design remains a complete workflow without sp-designer.
 - **Operations manual**: the single source of truth for command syntax. pi users read `integrations/shared/manual.md` at the repo root; plugin users read `manual.md` inside the plugin package (a build-time-synced copy).
 
 ### Solo mode (single person, single session)

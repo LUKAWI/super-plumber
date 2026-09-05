@@ -29,7 +29,7 @@
 
 ### 工作类（work class）
 
-一张图在创建时归属的流程档位（quick / standard / program），决定设计审核、质检与执行协议的繁简。
+一张图的流程档位（quick / standard / program），决定设计审核、质检与执行协议。关键未知阻止形成可信交付计划时选 program；否则，一个会话能完成并验收选 quick，其余选 standard。跨会话、跨图或跨仓库不单独触发 program。
 
 ### 审批凭据（review receipt）
 

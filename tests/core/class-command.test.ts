@@ -93,7 +93,7 @@ describe("v091 class_changed 事件两态（凭据血统，adr_0016）", () => {
 });
 
 describe("v091 雾/档矛盾 nudge（fogClassNudge 单源派生，零门禁）", () => {
-  it("条件矩阵：雾+非 program 档+无凭据 → 文案；雾中绘图对应 program 档三信息齐备", () => {
+  it("条件矩阵：雾+非 program 档+无凭据 → 文案；核对关键未知对可信交付计划的影响三信息齐备", () => {
     const nudge = fogClassNudge(
       { fog: FOG, class: "quick" },
       [],
@@ -101,7 +101,10 @@ describe("v091 雾/档矛盾 nudge（fogClassNudge 单源派生，零门禁）",
     expect(nudge).toBeDefined();
     expect(nudge).toContain("release-automation"); // 雾未毕业
     expect(nudge).toContain("quick"); // 当前档位
-    expect(nudge).toContain("program"); // 建议方向（雾中绘图对应 program 档）
+    expect(nudge).toContain("program"); // 建议方向（核对关键未知对可信交付计划的影响）
+    expect(nudge).toContain("请核对关键未知是否阻止形成可信交付计划");
+    expect(nudge).toContain("若仅为节点内可解决的问题，沿用当前档位");
+    expect(nudge).toContain("跨会话或跨图不单独触发 program");
     expect(nudge).toContain("update-graph --class program"); // 修法命令
   });
 

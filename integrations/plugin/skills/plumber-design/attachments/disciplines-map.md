@@ -24,7 +24,7 @@
 - **plumber-tdd** — 节点内的测试先行：先约定 seam、三大反模式安检（实现耦合/同义反复/水平切片）、垂直切片红绿循环。
 - **plumber-review** — 节点产物的双轴交叉复核：规格轴 + 惯例轴并行（或隔离两遍）跑，结论不合并、分开呈现，裁决归裁决方。
 
-分期后续（→ roadmap S11）：grilling-lite / diagnosing / prototype。**每个纪律技能必须服务图中节点**（防蔓延）；WF07 的指针只指本族。
+**sp-grilling** 已独立提供需求对齐与设计调整，仅用户主动调用，不纳入执行软路由。后续探索为 diagnosing / prototype；WF07 节点指针用于 plumber-tdd / plumber-review，不自动触发 grilling。
 
 ## plan 纪律指针惯例（WF07，条件式）
 

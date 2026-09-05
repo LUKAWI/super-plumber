@@ -1,6 +1,6 @@
 ---
 name: sp-grilling
-description: Use when 需求或方向要与用户对齐、serve 人审时对已画好的图做质检、开发中决策拿不准要拷问、要改已有决定（ADR/任务节点/图结构）、成品要审核，或用户说出 grill/拷问/拷问我/追问/深挖/对齐/压力测试 等触发语。Also use when asked to 拷问这个方案、深挖这个决策、帮我确认想法、审这个成品、对齐一下需求。Do NOT use for 从零建图（用 plumber-design，建图过程可回本技能做对齐）或执行拓扑节点（用 plumber-execute）。纪律族技能：model-invoked 自动触发，不发 command（DEC-6）。多工具通用（pi/claude/zcode）。
+description: 仅在用户主动点名 sp-grilling，或明确要求 grill、拷问、深挖对齐需求和调整设计时使用。Agent 不主动调用；发现决策不明、进入 serve 人审或成品审核都不自动触发。不是 plumber-design 或 plumber-execute 的必经步骤。多工具通用（pi/claude/zcode）。
 ---
 
 # SP Grilling — 纪律技能：一次一问的意图对齐与决策拷问
@@ -8,7 +8,7 @@ description: Use when 需求或方向要与用户对齐、serve 人审时对已�
 ## Overview
 
 - **定位**：SP 自带纪律技能族成员（DEC-6 ③，adr_0014 的 skill 面）——MP grilling 本体的忠实移植 + SP 落点附录。工作流全周期的统一对话核心：需求与方向对齐、serve 人审对图质检、开发中决策、改决定、成品审核。
-- 纪律族不发 command（DEC-6 ②）：触达靠触发语自动命中，无斜杠命令、无入口编排。
+- **仅用户主动调用**：不由 agent 或其它 skill 自动接入。普通需求澄清、设计审核不等于开启 grilling；本技能不是审核前置门禁。仍不单独分发 command。
 - 本页结构：本体协议（忠实移植，勿改）→ 强度分档 → SP 落点附录（共识后的结论如何落图）。
 
 ## 本体协议（一次一问，直到共识）
@@ -34,7 +34,7 @@ description: Use when 需求或方向要与用户对齐、serve 人审时对已�
 
 本体协议跑完、共识达成之后，把结论按性质路由到 SP 资产落位。路由只在共识后追加落图动作，不改变本体协议本身：
 
-1. **工作类定档**（这个活是什么量级）→ 回 plumber-design **Phase 0 路由表**两问定档 quick / standard / program（DEC-2）：`.pi/skills/plumber-design/SKILL.md`。
+1. **工作类定档**（这个活是什么量级）→ 回 plumber-design **Phase 0 路由表**顺序定档：关键未知阻止形成可信交付计划则 program；否则按一个会话能否完成并验收选 quick / standard，跨会话或跨图不单独触发 program（DEC-2）：`.pi/skills/plumber-design/SKILL.md`。
 2. **设计决策**（难逆转 + 脱离上下文令人费解 + 真实权衡，ADR 三判据全满足）→ `graph adr create` 落 ADR 顶点（状态 proposed，accept/supersede 裁决归 Super Mario/人类），再以 decides 边挂到管辖的节点/context。
 3. **改决定**（图已画好要改）→ 按 DEC-7 改图协议分流：
    - **小修**（不动结构：节点 plan/DoD 文案、checkpoint 增删）→ 归 plumber-execute 上报出口（WF16）：worker 提议、执行报告注明"计划已修订"；

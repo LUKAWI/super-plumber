@@ -31,6 +31,7 @@ export function fogWarnings(
 // core/index-service.ts 的 next 装配共同消费——CLI/MCP 渲染层不新写文案。
 // 条件：图有未毕业 fog 且 class 存在且 class !== "program" 且
 // （无 class_changed 事件 或 最近一次 class_changed.by !== "user"）——
+// 该条件仅选出待核对的图；fog 存在不证明关键未知阻止可信交付计划，语义判定由 skill 完成。
 // 用户直发凭据（/plumber-class 或对话批准，--by user）后此提示自然静默。
 // 红线同 fogWarnings：只提示不阻止，零新拒绝规则，不参与退出码。
 export function fogClassNudge(
@@ -44,13 +45,13 @@ export function fogClassNudge(
   if (last !== undefined && last.by === "user") return undefined;
   return [
     `图中有未毕业雾区 ${fog.id}（毕业条件：${fog.graduation}），当前档位 ${cls}`,
-    `——雾中绘图对应 program 档：雾想清楚前建议 graph update-graph --class program`,
+    `——请核对关键未知是否阻止形成可信交付计划；若是，建议经用户批准后 graph update-graph --class program；若仅为节点内可解决的问题，沿用当前档位；跨会话或跨图不单独触发 program`,
     `（用户直发凭据 /plumber-class 或对话批准 --by user 后此提示静默；依据 adr_0007 雾区与 DEC-2 档位，仅提示不阻止）`,
   ].join("");
 }
 
-// ── IL-025：雾可毕业 nudge（零门禁）──
-// 缺口：雾毕业（F05）靠人记得——已点火研究票全部 passed（毕业条件证据齐了）
+// ── IL-025：毕业证据核对 nudge（零门禁）──
+// 缺口：雾毕业（F05）靠人记得——已点火研究票全部 passed（仅表示可开始核对证据）
 // 时无人提醒，雾区滞留。派生函数与 fogClassNudge 同址（雾区语义一处可读），
 // core/validate.ts 警告编排与 core/scheduler.ts 的 next 装配共同消费——
 // CLI/MCP 渲染层不新写文案。
@@ -65,8 +66,8 @@ export function fogGraduationNudge(
   const allPassed = fog.ignited.every((id) => statusOf.get(id) === NodeStatus.Passed);
   if (!allPassed) return undefined;
   return [
-    `雾区 ${fog.id} 的已点火研究票已全部 passed（毕业条件：${fog.graduation}）——雾可毕业`,
-    `：建议执行 graph graduate-fog 毕业留痕（自动快照 + fog_graduated 事件；依据 IL-025，仅提示不阻止）`,
+    `雾区 ${fog.id} 的已点火研究票已全部 passed（毕业条件：${fog.graduation}）——请核对实际证据是否满足毕业条件`,
+    `：满足后执行 graph graduate-fog 毕业留痕；研究票全部 passed 不等于未知已解决，转 standard 还须可信交付计划成立并经增量人审（自动快照 + fog_graduated 事件；依据 IL-025，仅提示不阻止）`,
   ].join("");
 }
 
