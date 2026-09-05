@@ -44,6 +44,6 @@
 
 ## 5. 兼容投影与已知遗留
 
-- `integrations/shared/` 从「正本」降级为 **gen 兼容投影**（字节复制自正本）：`tests/sync-commands.test.ts`（正本清单/内容钉住 shared/commands）与 `tests/cli/sp-traverse-script.test.ts`（直接 spawn `integrations/shared/sp-scripts/sp-traverse.mjs`）钉住该路径，本节点边界不许改 tests/，故投影保留；tests 随后续节点迁移后可退役该投影，并把 .pi 寻址从 `integrations/shared/manual.md` 切到 `integrations/src/manual.md`。
+- `integrations/shared/` 从「正本」降级为 **gen 兼容投影**（字节复制自正本）：`tests/sync-commands.test.ts`（正本清单/内容钉住 shared/commands）与当时直接 spawn 旧 `integrations/shared/sp-scripts/sp-traverse.mjs` 的历史测试曾钉住该路径；该独立脚本已退役，现行测试统一运行 `integrations/src/sp-scripts/sp.mjs`。投影保留项与 tests 迁移说明按后续节点处理，并把 .pi 寻址从 `integrations/shared/manual.md` 切到 `integrations/src/manual.md`。
 - 因同一钉住，commands 正本头部的「正本唯一性…唯一权威源…禁止手改拷贝件」注释块按原文保留（对 integrations/src/ 正本为真，对 shared 投影为历史表述），待 tests 迁移一并修订。
 - docs/（README、integration-blueprint、CONTEXT 等）对旧布局的描述由后续节点更新（v094-gov / C7b 范围），本节点不越界。

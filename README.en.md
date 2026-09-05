@@ -43,7 +43,7 @@ The market doesn't lack task trackers; it lacks a **workflow foundation built fo
 Todo tools feed agents text that must be guessed at. Here agents get a schema-constrained graph — dependencies feed the topological sort, the `ready` gate blocks skipped steps, and the `passed` hard gate rejects "done" without a handoff report. Want to bluff completion? The state machine says no.
 
 **② Agents are first-class users; humans supervise**
-24 MCP tools cover the whole design→execute→adjudicate loop: atomic claims (exactly one concurrent winner), step-by-step checkpoint reporting, handoff reports (summary + artifacts) persisted to disk, dead-claim reclamation, and an append-only audit log. Read endpoints paginate everywhere — large graphs never blow the agent's context window.
+26 MCP tools cover the whole design→execute→adjudicate loop: atomic claims (exactly one concurrent winner), step-by-step checkpoint reporting, handoff reports (summary + artifacts) persisted to disk, dead-claim reclamation, and an append-only audit log. Read endpoints paginate everywhere — large graphs never blow the agent's context window.
 
 **③ A starfield observatory you won't find anywhere else**
 `graph serve` opens not another dashboard grid but a **starfield you can leave on a wall-mounted screen all afternoon**: every task is an eight-point star, status colors breathe along the rays, energy flows along edges from `running` nodes, domains glow as nebulae, a galaxy band stretches across the background. Focus mode removes every piece of chrome — one glance tells you what's running and what's stuck.
@@ -108,7 +108,7 @@ npm install -g @lukawi/super-plumber
 
 ```bash
 graph --version     # prints the version → success
-graph --help        # lists all 27 commands
+graph --help        # lists all 29 commands
 which graph         # confirm location (Windows: where graph)
 ```
 
@@ -287,7 +287,7 @@ graph serve                           # open http://localhost:8934 to see the st
 
 ---
 
-## CLI reference (27 commands)
+## CLI reference (29 commands)
 
 | Command | Purpose | Common flags |
 |---------|---------|--------------|
@@ -435,7 +435,7 @@ npm install -g @lukawi/super-plumber
 >
 > Only a pinned single-graph setup needs explicit config: `"command": "graph-mcp", "args": ["--root", "/path/to/graph"]`.
 
-### The 24 tools
+### The 26 tools
 
 **Scheduling**: `graph_get_next_actions` — claimable (ready) / **ready-eligible (pending|failed whose gates are satisfied — cold-start entry)** / blocked (with unmet predecessors) / running (with elapsed) / stale_running, per-bucket pagination (`limit` + `truncated`), entries may carry `adr_flags` (stale decision basis ⚠️). The agent planning loop's first call.
 
@@ -557,10 +557,10 @@ Claude/Codex compatibility notes:
   ```toml
   [mcp_servers.super-plumber]
   command = "cmd"
-  args = ["/c", "npx", "-y", "@lukawi/super-plumber", "graph-mcp"]
+  args = ["/c", "npx", "-y", "@lukawi/super-plumber@0.9.7", "graph-mcp"]
   ```
 
-  The plugin manifest uses the same `npx -y @lukawi/super-plumber graph-mcp` command as Claude's `.mcp.json`; the wrapper is only a Windows fallback.
+  The plugin manifest uses the same `npx -y @lukawi/super-plumber@0.9.7 graph-mcp` command as Claude's `.mcp.json`; the wrapper is only a Windows fallback.
 
 After installing you get:
 
@@ -593,7 +593,7 @@ cd super-plumber
 npm install
 npm run build && npm --prefix web-ui run build
 
-# Tests (858 backend + 117 frontend: state machine/topology/CLI/MCP protocol/multi-graph migration & perf/concurrency hardening/escaping/render smoke)
+# Tests (874 backend + 121 frontend: state machine/topology/CLI/MCP protocol/multi-graph migration & perf/concurrency hardening/escaping/render smoke)
 npm test
 
 # Link globally for development
@@ -632,7 +632,7 @@ graph --version
 ## Project status
 
 ```text
-Tests: 858 (backend) + 117 (frontend) ✅ | CLI: 29 commands | MCP: 26 tools | Slash commands: 4 | State machine: 7 states + ready gate + max_attempts + passed hard gate + audit event log + ADR 3-state machine (knowledge vertices exempt) + design review credentials (v0.8.0) + delete-refusal reason credentials & DECISIONS.md decision index (v0.8.1) + human-machine division in scheduling: requires_human derivation / waiting-for-human flag / human stale 4h + class credentials /plumber-class & class_changed events (v0.9.1) | Edge types: 9 | Versioning: snapshot/diff/rollback (incl. design-only) | Web UI: Svelte 5 + D3.js starfield observatory (v0.7.0 Deep-Space Instrument Bay + v0.8.1 frontier one-click views / phase legend / Avoid annotations)
+Tests: 874 (backend) + 121 (frontend) ✅ | CLI: 29 commands | MCP: 26 tools | Slash commands: 4 | State machine: 7 states + ready gate + max_attempts + passed hard gate + audit event log + ADR 3-state machine (knowledge vertices exempt) + design review credentials (v0.8.0) + delete-refusal reason credentials & DECISIONS.md decision index (v0.8.1) + human-machine division in scheduling: requires_human derivation / waiting-for-human flag / human stale 4h + class credentials /plumber-class & class_changed events (v0.9.1) | Edge types: 9 | Versioning: snapshot/diff/rollback (incl. design-only) | Web UI: Svelte 5 + D3.js starfield observatory (v0.7.0 Deep-Space Instrument Bay + v0.8.1 frontier one-click views / phase legend / Avoid annotations + v0.9.7 middle-button viewport pan)
 ```
 
 - **npm**: [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)

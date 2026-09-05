@@ -1,6 +1,6 @@
 {
   "name": "super-plumber",
-  "version": "0.9.6",
+  "version": "0.9.7",
   "description": "Super Plumber workflow orchestration: design task graphs as agent-native topologies, then execute them node by node.",
   "author": {
     "name": "lukawi",
@@ -20,7 +20,7 @@
   "mcpServers": {
     "graph-mcp": {
       "command": "npx",
-      "args": ["-y", "@lukawi/super-plumber", "graph-mcp"],
+      "args": ["-y", "@lukawi/super-plumber@0.9.7", "graph-mcp"],
       "enabled": true
     }
   },

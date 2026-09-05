@@ -174,10 +174,13 @@ describe("F16 lintNodeWording：节点级包装", () => {
 
 // ── lint 警告不改变 validate 退出码（CLI 实测，走构建产物与 tests/cli 同款 spawn 模式）──
 const CLI_PATH = path.resolve("dist/cli/index.js");
-describe.skipIf(!fs.existsSync(CLI_PATH))("F16 CLI validate 接线：lint 走 warning、退出码不动", () => {
+describe("F16 CLI validate 接线：lint 走 warning、退出码不动", () => {
   let tmpDir: string;
 
   beforeEach(() => {
+    if (!fs.existsSync(CLI_PATH)) {
+      throw new Error("F16 CLI validate release gate requires dist/cli/index.js; run npm run build first");
+    }
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "topo-stylelint-"));
   });
 

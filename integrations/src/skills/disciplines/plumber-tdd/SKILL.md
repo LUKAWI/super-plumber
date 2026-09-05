@@ -33,7 +33,7 @@ description: Use when 节点 plan 点名 tdd/测试先行/test-driven 或引用�
 - **先红后绿**：先看到新测试失败（且确认因预期原因失败），再写刚好让它通过的实现；不为未来的测试预写代码、不加投机功能。
 - **一次一片**：一个 seam、一个测试、一次最小实现为一个循环。
 - **重构不在循环里**：红 → 绿只管让测试通过。结构整理归复核阶段——若本环境存在 plumber-review 技能，按其约定交交叉复核；缺失则静默降级，把重构点记进执行报告 notes 即可。
-- **随做随报**：一个垂直切片约等于一个 checkpoint 粒度，每完成一个立即 `graph_update_checkpoint`（无 MCP 用 `sp-checkpoint.mjs`），绝不攒批。
+- **随做随报**：一个垂直切片约等于一个 checkpoint 粒度，每完成一个立即 `graph_update_checkpoint`（无 MCP 用 `node {{scripts}}/sp.mjs checkpoint <node_id> <cp_id> <status> [--graph <name>]`），绝不攒批；旧 `sp-checkpoint.mjs` 已退役，不得作为主路径引用。
 - **产物不越界**：测试与实现只落在节点 plan 的文件边界内；测试是节点 artifact，路径如实写进 `graph_update_execution_report`。
 - **测试名说领域语言**：命名与仓库 CONTEXT.md 及节点所属 context 顶点的 glossary（`graph_get_node` 可读）对齐，让测试读起来像 DoD 的规格化复述。
 

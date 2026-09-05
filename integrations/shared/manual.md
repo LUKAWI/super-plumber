@@ -1,7 +1,7 @@
 # Super Plumber Operations 手册（唯一正本）
 
 > **定位**：三访问层（CLI / MCP / 脚本）操作语法、状态机、错误处理、solo 裁决边界的**唯一权威正本**。角色提示词与 skill 中的一切语法引用指向本文对应章节；本文不复述任何角色的判断力内容（边类型选型、设计甄别、DoD 质量裁量等归各自角色提示词，见 §10/§11）。
-> **版本锚点**：super-plumber **0.9.6**（全部 CLI 参数经 `graph --help` 实测：0.6.1 重构期全量校，其后增量（0.7.x 多图/导出、0.8.0 approve 与写作规范、0.8.1 拒绝理由凭据与分期导出、0.9.x 雾区/档位/分层审批、0.9.3 fallback 拍板、0.9.4 单真相源重组后 gen 门禁/锚点断言）随交付核对；与旧文档不符处以实测为准，表中以〔已校〕标注）。
+> **版本锚点**：super-plumber **0.9.7**（全部 CLI 参数经 `graph --help` 实测：0.6.1 重构期全量校，其后增量（0.7.x 多图/导出、0.8.0 approve 与写作规范、0.8.1 拒绝理由凭据与分期导出、0.9.x 雾区/档位/分层审批、0.9.3 fallback 拍板、0.9.4 单真相源重组后 gen 门禁/锚点断言）随交付核对；与旧文档不符处以实测为准，表中以〔已校〕标注）。
 > **分发**：唯一正本住 `integrations/src/manual.md`（0.9.4 S01 单真相源重组起），由 `scripts/sync-integrations.mjs` gen 构建期生成 `integrations/shared/manual.md`（pi 寻址位）与 `integrations/plugin/manual.md`（插件包）两份产物，`--check` 比对手改即拦（原 sha256 三方同步断言退役）。寻址写法见 §11。（该脚本仍作为 prepublishOnly 发布门禁）
 
 目录：§1 访问层总览｜§2 design-ops｜§3 边类型判据式速查｜§4 execute-ops｜§5 状态机｜§6 工具总表（CLI+MCP）｜§7 脚本章｜§8 三层验收实操｜§9 错误处理大表｜§10 solo 自裁边界｜§11 寻址约定｜§12 漂移修正常记
@@ -296,6 +296,8 @@ graph_get_next_actions { }                       # MCP；可选 stale_ms（缺�
 graph next [--stale-ms <ms>] [--json]            # CLI
 ```
 
+脚本目标图协议：`sp.mjs` 全部子命令接受 `--graph <名>`，可放在入口前或子命令参数后；未指定时按 `SUPER_PLUMBER_GRAPH > .graph/active > default` 解析。显式目标或环境目标非法/不存在时立即报错并列出可用图，不静默回退到另一张图。
+
 一次返回五个桶：`ready`（可直接认领）/ `ready_eligible`（门禁已满足的 pending/failed，转 ready 即执行——**冷启动第一步从这里拿入口节点**）/ `blocked`（附 unmet 未满足前驱清单）/ `running`（附时长与执行者）/ `stale_running`（超阈值无更新的疑似卡死）。桶截断时 `truncated: true` → 加大 limit 翻页。条目可能带 `adr_flags`（⚠️ 所依据 ADR 已 superseded → 停下重审后再动工）。0.9.1 起读面另带（零门禁，条件缺省）：`requires_human`（含未完成 verifier:human checkpoint 的节点）与桶条目 `waiting_human`（等真人，未认领时）、`class_nudge`（提示核对关键未知是否阻止可信交付计划，不凭 fog 存在自动判 program；用户直发 `--by user` 凭据后静默）、`fog_graduation_nudge`（研究票全部 passed 后提示核对毕业证据，不代表已满足毕业或转档条件）；人读面同样渲染。0.9.3 起（adr_0017）：死节点条目（failed 且 max_attempts>0 且 attempts≥max_attempts）在 ready_eligible/blocked 两桶就地附 `attempts_exhausted: true` 与 `fallback_routes`（出向 fallback 边的目标 {id,label}，仅非空时出现；max_attempts=0 不限者永不判死），人读面渲染 `⚠️ 重试预算耗尽 | fallback 路线: <id>(<label>)`。
 
 **② CLAIM — 原子认领**
@@ -303,7 +305,7 @@ graph next [--stale-ms <ms>] [--json]            # CLI
 ```bash
 graph_update_node_status {id, status:"running", claim_by:"<你的agent名>"}   # 同一调用原子写入 assigned_to+started_at
 graph update-status -i <id> -s running --claim-by <agent>                   # CLI 等价
-node sp.mjs claim <node_id> <claim_by>                                      # 脚本等价
+node sp.mjs claim <node_id> <claim_by> [--graph <name>]                      # 脚本等价
 ```
 
 - ready_eligible 节点先 `{status:"ready"}`（核心层再次校验门禁）再 claim；**绝不 claim 非 ready 节点**，`pending→running` 一步到位会被状态机拒绝
@@ -317,7 +319,7 @@ node sp.mjs claim <node_id> <claim_by>                                      # �
 
 ```bash
 graph_update_checkpoint {node_id, checkpoint_id, status}     # status ∈ pending|running|passed|failed|skipped
-node sp.mjs checkpoint <node_id> <cp_id> <status>            # CLI 无子命令，脚本等价
+node sp.mjs checkpoint <node_id> <cp_id> <status> [--graph <name>] # CLI 无子命令，脚本等价
 ```
 
 每完成一个立即上报（绝不攒批）；同状态重复上报幂等成功；checkpoint 小状态机见 §5 尾。
@@ -326,7 +328,7 @@ node sp.mjs checkpoint <node_id> <cp_id> <status>            # CLI 无子命令�
 
 ```bash
 graph_update_execution_report {node_id, summary, artifacts:["真实路径",...], blockers:[...], notes}
-node sp.mjs report <node_id> "<summary>" [artifacts.csv] [blockers.csv] [notes]
+node sp.mjs report <node_id> "<summary>" [artifacts.csv] [blockers.csv] [notes] [--graph <name>]
 ```
 
 `artifacts` 填真实文件路径——主控会核验存在性并回报 `exists:false` 明示缺失，绝不填编造路径。
@@ -487,29 +489,30 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 
 ---
 
-## §7 脚本章：sp.mjs 单入口（0.9.4 S03 七脚本收敛）
+## §7 脚本章：sp.mjs 单入口（0.9.4 S03 七脚本收敛，0.9.7 目标图统一）
 
 何时查这章：所在环境没有 MCP 客户端（纯 bash agent），需要 claim/report/流转时。
 
 **路径布局（两处都要知道）**：
 
 - **唯一正本位**：`integrations/src/sp-scripts/sp.mjs` —— gen 构建期随两渠道分发（adr_0008 单真相源；产物手改会被 `scripts/sync-integrations.mjs --check` 拦截）
-- **运行地**：`.pi/skills/plumber-execute/scripts/sp.mjs`（插件包为 `scripts/sp.mjs`；全局安装 pi 版 `~/.pi/agent/skills/plumber-execute/scripts/sp.mjs`）——从含 `.graph/` 的项目目录运行
+- **运行地**：`.pi/skills/plumber-execute/scripts/sp.mjs`（插件包为 `scripts/sp.mjs`；全局安装 pi 版 `~/.pi/agent/skills/plumber-execute/scripts/sp.mjs`）——从含 `.graph/` 的工作区根目录运行
 - 单入口薄封装，零依赖（仅 node 内置；先项目本地解析 `@lukawi/super-plumber`，回退 npm root -g，同 §6.1 定位约定）：CLI 面子命令（claim / update-status / get-node）只做参数组装 → 调 CLI，语义 ≡ CLI；CLI 尚无对应子命令的（checkpoint / report / traverse）单点调用核心公开 API。状态机/门禁/次数上限都在核心层强制，脚本不能绕过
+- **目标图协议**：全部子命令接受 `--graph <名>`，可放在 `sp.mjs` 前或子命令参数后；未指定时按 `SUPER_PLUMBER_GRAPH > .graph/active > default` 解析，与 CLI 的数据命令一致。`--graph` 或环境变量命中非法/不存在的图会立即报错并列出可用图，不会静默回退到另一张图。`check-design` 的位置参数仍是工作区根目录，目标图另由该协议解析。
 
 **子命令表**（`node sp.mjs <subcommand> [args...]`；不带参数打印用法）：
 
 | 子命令 | 用法 | 说明 |
 |--------|------|------|
-| `claim` | `node sp.mjs claim <node_id> <claim_by>` | ready→running 原子认领；非 ready 被核心拦截 |
-| `update-status` | `node sp.mjs update-status <node_id> <status> [--force]` | 一般流转（含门禁校验；`--force` 仅人类运维通道） |
-| `checkpoint` | `node sp.mjs checkpoint <node_id> <cp_id> <status>` | 上报一个 checkpoint（幂等） |
-| `report` | `node sp.mjs report <node_id> <summary> [artifacts.csv] [blockers.csv] [notes]` | 提交 execution_report |
-| `get-node` | `node sp.mjs get-node <node_id>` | 输出节点完整 JSON |
-| `traverse` | `node sp.mjs traverse <node_id> [downstream|upstream|both] [max_depth=3]` | 从指定节点遍历邻居（IL-17 输出形状） |
-| `check-design` | `node sp.mjs check-design [--json] [root]` | 设计质量体检 doctor（判据见 §2.6；转发同目录 `sp-check-design.mjs`） |
+| `claim` | `node sp.mjs claim <node_id> <claim_by> [--graph <name>]` | ready→running 原子认领；非 ready 被核心拦截 |
+| `update-status` | `node sp.mjs update-status <node_id> <status> [--force] [--graph <name>]` | 一般流转（含门禁校验；`--force` 仅人类运维通道） |
+| `checkpoint` | `node sp.mjs checkpoint <node_id> <cp_id> <status> [--graph <name>]` | 上报一个 checkpoint（幂等） |
+| `report` | `node sp.mjs report <node_id> <summary> [artifacts.csv] [blockers.csv] [notes] [--graph <name>]` | 提交 execution_report |
+| `get-node` | `node sp.mjs get-node <node_id> [--graph <name>]` | 输出节点完整 JSON |
+| `traverse` | `node sp.mjs traverse <node_id> [downstream|upstream|both] [max_depth=3] [--graph <name>]` | 从指定节点遍历邻居（IL-17 输出形状） |
+| `check-design` | `node sp.mjs check-design [--json] [root] [--graph <name>]` | 设计质量体检 doctor（判据见 §2.6；转发同目录 `sp-check-design.mjs`） |
 
-历史注记：旧 `sp-{core,claim,update-status,checkpoint,report,get-node,traverse}.mjs` 七件连同各自的入口语义层已随 0.9.4 S03 收敛退役，旧脚本名不再有入口。装不上核心时先 `npm install -g @lukawi/super-plumber`。
+历史注记：旧 `sp-{core,claim,update-status,checkpoint,report,get-node,traverse}.mjs` 七件连同各自的入口语义层已随 0.9.4 S03 收敛退役，旧脚本名仅作历史标记、不再是可执行主路径；统一使用本节 `sp.mjs`。装不上核心时先 `npm install -g @lukawi/super-plumber`。
 
 ---
 

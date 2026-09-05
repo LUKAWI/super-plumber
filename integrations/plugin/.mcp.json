@@ -5,7 +5,7 @@
       "command": "npx",
       "args": [
         "-y",
-        "@lukawi/super-plumber",
+        "@lukawi/super-plumber@0.9.7",
         "graph-mcp"
       ],
       "enabled": true,

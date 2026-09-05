@@ -77,7 +77,7 @@ Super-plumber 的 hook 适配层：两个**可选** harness（Claude Code / ZCod
 roadmap-to-1-0-0 65/85 passed (76%)｜ready 0｜running 3｜failed 0｜blocked 0
 ```
 
-CLI 解析顺序（命中即停）：`SP_GRAPH_BIN` 环境变量（显式指定 CLI 脚本路径）→ `<cwd>/node_modules/@lukawi/super-plumber/dist/cli/index.js`（项目本地依赖）→ cwd 本身是 super-plumber 仓库检出（package.json name 匹配且 dist 已构建，覆盖开发/自举场景）→ PATH 上的 `graph`（全局安装）→ `npm root -g` 回推全局包（与 `sp-scripts/sp-core.mjs` 同一回退约定）。超时 4 秒；未初始化目录 / CLI 缺失 / 超时一律零输出 exit 0。
+CLI 解析顺序（命中即停）：`SP_GRAPH_BIN` 环境变量（显式指定 CLI 脚本路径）→ `<cwd>/node_modules/@lukawi/super-plumber/dist/cli/index.js`（项目本地依赖）→ cwd 本身是 super-plumber 仓库检出（package.json name 匹配且 dist 已构建，覆盖开发/自举场景）→ PATH 上的 `graph`（全局安装）→ `npm root -g` 回推全局包（与当前 `sp.mjs` 的包定位回退约定一致；旧 `sp-core.mjs` 已退役）。超时 4 秒；未初始化目录 / CLI 缺失 / 超时一律零输出 exit 0。
 
 ## 与 gen 管线的关系（维护者须知）
 

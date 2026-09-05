@@ -216,10 +216,11 @@ export function resolveGraphDir(
     if (name !== undefined && name !== "") assertValidGraphName(name);
     const hit = tryCandidate(name, source);
     if (hit) return hit;
-    if (name !== undefined && name !== "" && names.length > 0) {
+    if (name !== undefined && name !== "") {
       const hint = didYouMean(name, names);
+      const available = names.length > 0 ? names.join(", ") : "<无>";
       throw new Error(
-        `图 "${name}" 不存在。可用: ${names.join(", ")}` +
+        `图 "${name}" 不存在。可用: ${available}` +
           (hint.length > 0 ? `（你是想切 ${hint.join(" / ")} 吗？）` : ""),
       );
     }

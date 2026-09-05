@@ -577,10 +577,10 @@ Codex 与 Claude 的兼容边界：
   ```toml
   [mcp_servers.super-plumber]
   command = "cmd"
-  args = ["/c", "npx", "-y", "@lukawi/super-plumber", "graph-mcp"]
+  args = ["/c", "npx", "-y", "@lukawi/super-plumber@0.9.7", "graph-mcp"]
   ```
 
-  当前插件清单使用与 Claude `.mcp.json` 相同的 `npx -y @lukawi/super-plumber graph-mcp` 命令；包装写法仅作 Windows 兜底。
+  当前插件清单使用与 Claude `.mcp.json` 相同的 `npx -y @lukawi/super-plumber@0.9.7 graph-mcp` 命令；包装写法仅作 Windows 兜底。
 
 装好后你会得到：
 
@@ -627,7 +627,7 @@ cd super-plumber
 npm install
 npm run build && npm --prefix web-ui run build
 
-# 测试（后端 858 例 + 前端 117 例：状态机/拓扑/CLI/MCP 协议/多图迁移与性能/并发加固/转义/渲染冒烟）
+# 测试（后端 874 例 + 前端 121 例：状态机/拓扑/CLI/MCP 协议/多图迁移与性能/并发加固/转义/渲染冒烟）
 npm test
 
 # 本地链接全局（开发调试用）
@@ -642,7 +642,7 @@ graph --version
 每次发版按序过一遍（IL-016 教训：版本面只改 package.json 一处、漏同步 manifest 会被审出）：
 
 1. **版本面同步**：把 version 逐个改齐、一处不漏——`package.json`、`.claude-plugin/marketplace.json`（`plugins[].version`）、`integrations/plugin/.claude-plugin/plugin.json`、`integrations/plugin/.codex-plugin/plugin.json` 与 `.agents/plugins/marketplace.json`；
-2. 跑 `node scripts/sync-integrations.mjs --check`：版本面一致性断言 + gen 渲染比对（正本 integrations/src/ vs 两渠道产物，手改即拦）+ 散文锚点断言（manual 版本锚点==version、README 计数行==实测）必须全绿（exit 0）——它也是 `prepublishOnly` 的第一道门禁，版本面/正本漂移会在这里被拦下；
+2. 跑 `node scripts/release-gates.mjs`：从版本单一来源、插件依赖 pin、root/UI typecheck/build/全量测试与关键测试文件收集开始，并对本次变更源码执行真实 v8 行覆盖率门禁（root ≥40%、UI GraphCanvas ≥60%），再依次执行 `sync --check` 与 graph docs export check；任何步骤非 0 均阻断发布。该脚本就是 `prepublishOnly` 的唯一入口；
 3. 更新 `CHANGELOG.md`：新增版本条目（含「发布动作」行）；
 4. `npm test && npm run build && npm --prefix web-ui run build`（`prepublishOnly` 发布时还会自动再跑一遍）；
 5. `npm publish` + 打 GitHub tag。
@@ -682,7 +682,7 @@ graph --version
      manual 版本锚点同受门禁（见 integrations/src/manual.md 首行）。改数字请连同实测一起刷新。 -->
 
 ```text
-Tests: 858（后端）+ 117（前端）✅ | CLI: 29 命令 | MCP: 26 工具 | 斜杠命令: 4 | 状态机: 7 态 + ready 门禁 + max_attempts + passed 硬门禁 + 事件日志审计 + ADR 三态机（知识顶点豁免）+ 设计审批凭据（v0.8.0）+ 删除拒绝理由凭据与 DECISIONS.md 决议索引（v0.8.1）+ 人机分工进调度：requires_human 派生/等真人标记/human stale 4h + 档位凭据 /plumber-class 与 class_changed 事件（v0.9.1） | 边类型: 9 种 | 版本控制: snapshot/diff/rollback（含 design-only）| Web UI: Svelte 5 + D3.js 星空观测台（v0.7.0 深空仪器舱 + v0.8.1 前沿一键视图/分期图例/Avoid 呈现）
+Tests: 874（后端）+ 121（前端）✅ | CLI: 29 命令 | MCP: 26 工具 | 斜杠命令: 4 | 状态机: 7 态 + ready 门禁 + max_attempts + passed 硬门禁 + 事件日志审计 + ADR 三态机（知识顶点豁免）+ 设计审批凭据（v0.8.0）+ 删除拒绝理由凭据与 DECISIONS.md 决议索引（v0.8.1）+ 人机分工进调度：requires_human 派生/等真人标记/human stale 4h + 档位凭据 /plumber-class 与 class_changed 事件（v0.9.1） | 边类型: 9 种 | 版本控制: snapshot/diff/rollback（含 design-only）| Web UI: Svelte 5 + D3.js 星空观测台（v0.7.0 深空仪器舱 + v0.8.1 前沿一键视图/分期图例/Avoid 呈现 + v0.9.7 中键视图平移）
 ```
 
 - **npm**: [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)

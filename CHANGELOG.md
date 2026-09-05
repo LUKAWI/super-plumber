@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.7] — 2026-09-05（patch：多图脚本寻址、发布门禁与 WebUI 中键平移）
+
+> 主题：把脚本通道的目标图选择、发布前质量证据和 CAD 式视图平移收口为可复验的发布能力；未完成的后续业务重构不随本版发布。
+
+- **脚本目标图统一**：`sp.mjs` 与 `sp-check-design.mjs` 支持显式 `--graph`，统一遵循 `--graph > SUPER_PLUMBER_GRAPH > .graph/active > default`，非法或不存在的图名明确失败并列出可用图；补齐多图、空默认、Windows 空格路径和 checkpoint/report/traverse 回归。
+- **发布门禁可执行化**：版本单一来源检查覆盖 package-lock、marketplace 和插件 manifest；prepublish 纳入 root/UI typecheck、build、全量测试、关键测试收集、sync 与 docs export；插件 `npx` 启动器精确 pin 到发布版本，跳过、todo、空报告和关键测试缺失均阻断发布。
+- **WebUI 中键平移**：GraphCanvas 仅用非触控 `button=1` 启动连续视图平移，覆盖 pointer capture/release/cancel/leave 与窗口级清理，保留滚轮、双击、触控、左键节点交互和右键菜单语义。
+- **验证**：发布前记录 root/UI 全量测试、双端类型检查与构建、生成同步、docs export、pack 和真实浏览器交互证据；详细 issue matrix 由 0.9.7 验证节点归档。
+
 ## [0.9.6] — 2026-09-05（patch：并发、索引、快照与 Web/UI 边界加固）
 
 > 主题：在不改变既有拓扑语义的前提下，收口跨实体并发一致性、缓存代际、输入契约、快照回滚和 Web/UI 边界，形成可复验的 0.9.6 修复版候选。
