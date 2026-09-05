@@ -1,7 +1,7 @@
 {
   "name": "super-plumber",
   "description": "Super Plumber workflow orchestration plugin: design task graphs as agent-native topologies, then execute them node by node.",
-  "version": "0.9.6",
+  "version": "0.9.7",
   "author": {
     "name": "lukawi",
     "url": "https://www.npmjs.com/package/@lukawi/super-plumber"

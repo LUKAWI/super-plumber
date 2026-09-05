@@ -1,6 +1,6 @@
 {
   "name": "@lukawi/super-plumber",
-  "version": "0.9.6",
+  "version": "0.9.7",
   "description": "工作流拓扑图管理工具（Super Plumber）— 将任务文档重构为 agent 可原生理解的拓扑结构",
   "type": "module",
   "engines": {
@@ -42,7 +42,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "dev": "tsc --watch",
-    "prepublishOnly": "node scripts/sync-integrations.mjs --check && npm test && npm run build && npm --prefix web-ui run build && node dist/cli/index.js export --docs --check"
+    "prepublishOnly": "node scripts/release-gates.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
@@ -56,6 +56,7 @@
     "@types/js-yaml": "^4.0.0",
     "@types/node": "^22.0.0",
     "@types/ws": "^8.0.0",
+    "@vitest/coverage-v8": "^2.1.9",
     "typescript": "^5.6.0",
     "vitest": "^2.0.0"
   }

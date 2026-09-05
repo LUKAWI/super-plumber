@@ -36,6 +36,65 @@
   let simulation: d3.Simulation<SimNode, undefined> | null = null;
   let zoomBehavior: d3.ZoomBehavior<SVGSVGElement, unknown> | null = null;
   let zoomGroup: d3.Selection<SVGGElement, unknown, null, undefined> | null = null;
+  let middlePanPointerId: number | null = null;
+  let middlePanPoint: { x: number; y: number } | null = null;
+
+  function isMiddleMousePointer(event: PointerEvent): boolean {
+    // button 是手势契约；空 pointerType 可能出现在兼容事件/测试桩中，
+    // 仅排除明确的 touch，避免把触控误当成中键。
+    return event.button === 1 && event.pointerType !== "touch";
+  }
+
+  function endMiddlePan(pointerId: number | null = null) {
+    if (middlePanPointerId === null) return;
+    if (pointerId !== null && pointerId !== middlePanPointerId) return;
+    const activePointerId = middlePanPointerId;
+    middlePanPointerId = null;
+    middlePanPoint = null;
+    if (svgEl && typeof svgEl.releasePointerCapture === "function") {
+      try {
+        svgEl.releasePointerCapture(activePointerId);
+      } catch {
+        // capture 可能已由浏览器自动释放；状态仍必须清空，避免下一次手势被卡住。
+      }
+    }
+    if (svgEl) svgEl.style.cursor = "grab";
+  }
+
+  function startMiddlePan(event: PointerEvent) {
+    if (!svgEl || !zoomBehavior || !isMiddleMousePointer(event)) return;
+    if (middlePanPointerId !== null) return;
+    // 中键开始时取消仍在进行的自动取景，避免 fit transition 覆盖用户手势。
+    d3.select(svgEl).interrupt();
+    middlePanPointerId = event.pointerId;
+    middlePanPoint = { x: event.clientX, y: event.clientY };
+    if (typeof svgEl.setPointerCapture === "function") {
+      try {
+        svgEl.setPointerCapture(event.pointerId);
+      } catch {
+        // 某些浏览器在指针已失活时拒绝 capture；window 级结束监听仍会兜底。
+      }
+    }
+    svgEl.style.cursor = "grabbing";
+    event.preventDefault();
+  }
+
+  function moveMiddlePan(event: PointerEvent) {
+    if (middlePanPointerId !== event.pointerId || !middlePanPoint || !svgEl || !zoomBehavior) return;
+    const dx = event.clientX - middlePanPoint.x;
+    const dy = event.clientY - middlePanPoint.y;
+    middlePanPoint = { x: event.clientX, y: event.clientY };
+    if (dx === 0 && dy === 0) return;
+    // d3.zoom 的程序化 transform 没有 sourceEvent；显式记录用户已经接管视角，
+    // 这样模拟结算/兜底 fit 不会把中键平移拉回自动取景位置。
+    userMovedView = true;
+    const current = d3.zoomTransform(svgEl);
+    const next = d3.zoomIdentity
+      .translate(current.x + dx, current.y + dy)
+      .scale(current.k);
+    d3.select(svgEl).call(zoomBehavior.transform, next);
+    event.preventDefault();
+  }
 
   // 布局持久化：按图名分桶缓存节点坐标（v0.7：修复跨图同名 id 互继承坐标；
   // P4-2：加一条边不再全图重抖）
@@ -1104,6 +1163,7 @@
     stopFlowDots();
     const svg = d3.select(svgEl);
     const previousTransform = (svgEl as SVGSVGElement & { __zoom?: d3.ZoomTransform }).__zoom;
+    const previousUserMovedView = userMovedView;
     const positions = positionsFor(graphName);
     currentPositions = positions;
 
@@ -1174,6 +1234,9 @@
       let declutterTimer: ReturnType<typeof setTimeout> | null = null;
       zoomBehavior = d3.zoom<SVGSVGElement, unknown>()
         .scaleExtent([0.15, 4])
+        // 视图平移由中键 pointer seam 接管；d3-zoom 继续负责滚轮、双击和触控。
+        .filter((event: Event) =>
+          event.type === "wheel" || event.type === "dblclick" || event.type === "touchstart")
         .on("zoom", (event) => {
           if (zoomGroup) zoomGroup.attr("transform", event.transform);
           // 程序化取景（fit/定位）不带 sourceEvent——只有真实滚轮/拖拽才算用户操作
@@ -1188,17 +1251,21 @@
           if (declutterTimer) clearTimeout(declutterTimer);
           declutterTimer = setTimeout(() => declutterLabels(), 150);
         });
-      svg.call(zoomBehavior)
-        .on("dblclick.zoom", () => {
-          svg.transition().duration(prefersReducedMotion ? 0 : 500)
-            .call(zoomBehavior!.transform, d3.zoomIdentity);
-        })
-        .style("cursor", "grab");
-      svg.on("mousedown.zoom", () => svg.style("cursor", "grabbing"));
-      svg.on("mouseup.zoom", () => svg.style("cursor", "grab"));
-    } else {
-      svg.call(zoomBehavior);
     }
+    // 每次重建 DOM 后都重新挂回双击重置；svg.call(zoomBehavior) 会覆盖同名 d3 listener。
+    svg.call(zoomBehavior)
+      .on("dblclick.zoom", () => {
+        svg.transition().duration(prefersReducedMotion ? 0 : 500)
+          .call(zoomBehavior!.transform, d3.zoomIdentity);
+      })
+      .style("cursor", "grab");
+    svg
+      .on("pointerdown.middle-pan", startMiddlePan)
+      .on("pointermove.middle-pan", moveMiddlePan)
+      .on("pointerup.middle-pan", (event: PointerEvent) => endMiddlePan(event.pointerId))
+      .on("pointercancel.middle-pan", (event: PointerEvent) => endMiddlePan(event.pointerId))
+      .on("pointerleave.middle-pan", (event: PointerEvent) => endMiddlePan(event.pointerId))
+      .on("lostpointercapture.middle-pan", (event: PointerEvent) => endMiddlePan(event.pointerId));
     if (previousTransform && !isGraphSwitch) {
       // 同图重渲染（透镜切换/数据刷新）保持用户视角；切图则由 fit 管线重新取景
       zoomGroup.attr("transform", previousTransform as unknown as string);
@@ -1274,7 +1341,7 @@
       updateFogCloud();
 
       // fit 挂接模拟收敛（alpha ≤ 0.3 ≈ 布局可用），每次渲染只取景一次
-      if (!fitDone && !pinned && simulation && simulation.alpha() <= 0.3) {
+      if (!fitDone && !userMovedView && !pinned && simulation && simulation.alpha() <= 0.3) {
         fitDone = true;
         autoFit();
       }
@@ -1294,9 +1361,9 @@
     // fit 兜底：若 4s 内 alpha 阈值未触发（如 pinned/极小图），强制取景一次
     if (fitFallbackTimer) clearTimeout(fitFallbackTimer);
     fitDone = false;
-    userMovedView = false;
+    userMovedView = isGraphSwitch ? false : previousUserMovedView;
     fitFallbackTimer = setTimeout(() => {
-      if (!fitDone && !pinned) {
+      if (!fitDone && !userMovedView && !pinned) {
         fitDone = true;
         autoFit();
       }
@@ -1656,12 +1723,18 @@
       }
     };
     window.addEventListener("keydown", handleKeydown);
+    const handlePointerEnd = (e: PointerEvent) => endMiddlePan(e.pointerId);
+    window.addEventListener("pointerup", handlePointerEnd);
+    window.addEventListener("pointercancel", handlePointerEnd);
     return () => {
       window.removeEventListener("keydown", handleKeydown);
+      window.removeEventListener("pointerup", handlePointerEnd);
+      window.removeEventListener("pointercancel", handlePointerEnd);
     };
   });
 
   onDestroy(() => {
+    endMiddlePan();
     simulation?.stop();
     resizeObs?.disconnect();
     if (fitFallbackTimer) clearTimeout(fitFallbackTimer);
@@ -1856,7 +1929,7 @@
   <div class="zoom-hint">
     <span class="hint-key">scroll</span> 缩放
     <span class="hint-sep">·</span>
-    <span class="hint-key">drag</span> 平移
+    <span class="hint-key">中键拖动</span> 平移
     <span class="hint-sep">·</span>
     <span class="hint-key">双击</span> 重置
     <span class="hint-sep">·</span>

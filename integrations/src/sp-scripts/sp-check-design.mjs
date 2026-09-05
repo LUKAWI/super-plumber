@@ -6,43 +6,51 @@
 // 可达性以「无入边根/无出边汇」锚定，不需要 entry/exit 虚拟边文件。
 // 正本位：integrations/src/sp-scripts/（0.9.4 S03 八脚本收敛起，adr_0008）；运行位由
 // gen 分发到 .pi/skills/plumber-execute/scripts/ 与 integrations/plugin/scripts/。
-// Usage: node sp-check-design.mjs [--json] [root]   （从含 .graph/ 的目录运行）
-//        等价入口：node sp.mjs check-design [--json] [root]
+// Usage: node sp-check-design.mjs [--json] [root] [--graph <name>]   （从含 .graph/ 的工作区根目录运行）
+//        等价入口：node sp.mjs check-design [--json] [root] [--graph <name>]
 // 退出码：0 = 无 error；1 = 有 error（warning 不影响退出码）
-import { execSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
 import path from "node:path";
 import * as fs from "node:fs";
+import { loadCore } from "./sp.mjs";
 
-// 位置参数 = 可选的图根目录（缺省 cwd）；过滤掉 --json 等旗标，避免 "--json" 被误当路径
-// （修复既有缺陷：手册 §2.6 文档化的 `sp-check-design.mjs [--json]` 此前会解析成 ROOT="--json"）
+// 位置参数 = 可选的工作区根目录（缺省 cwd）；--graph 指定工作区内目标图。
+// 过滤掉 --json/--graph 等旗标，避免旗标被误当路径。
 const _args = process.argv.slice(2);
-const _positional = _args.find((a) => !a.startsWith("--"));
-const ROOT = path.resolve(_positional ?? process.cwd());
-const JSON_OUT = _args.includes("--json");
 
-// 与 sp.mjs 同款加载：优先项目本地安装/包自引用，回退全局安装的公开桶
-// （sp-core.mjs 独立加载器已随 S03 八脚本收敛退役）
-async function loadCore() {
-  try {
-    return await import("@lukawi/super-plumber/core");
-  } catch {
-    try {
-      const globalRoot = execSync("npm root -g").toString().trim();
-      return await import(
-        pathToFileURL(
-          path.join(globalRoot, "@lukawi/super-plumber/dist/core/index.js"),
-        ).href,
-      );
-    } catch {
-      console.error(
-        "❌ 无法定位 super-plumber 核心。请先安装: npm install -g @lukawi/super-plumber",
-      );
-      process.exit(1);
+function parseTargetArgs(args) {
+  const positional = [];
+  let graph;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--graph" || arg.startsWith("--graph=")) {
+      const value = arg === "--graph" ? args[++i] : arg.slice("--graph=".length);
+      if (!value || value.startsWith("--")) {
+        console.error("❌ --graph 需要图名");
+        process.exit(1);
+      }
+      if (graph !== undefined) {
+        console.error("❌ --graph 只能指定一次");
+        process.exit(1);
+      }
+      graph = value;
+      continue;
     }
+    if (arg === "--json") continue;
+    positional.push(arg);
   }
+  if (positional.length > 1) {
+    console.error("Usage: node sp-check-design.mjs [--json] [root] [--graph <name>]");
+    process.exit(1);
+  }
+  return { graph, root: path.resolve(positional[0] ?? process.cwd()), json: args.includes("--json") };
 }
-const { readGraph, readNode, readEdge, lintNodeWording } = await loadCore();
+
+const _targetArgs = parseTargetArgs(_args);
+const ROOT = _targetArgs.root;
+const GRAPH_NAME = _targetArgs.graph;
+const JSON_OUT = _targetArgs.json;
+
+const { readGraph, readNode, readEdge, lintNodeWording, resolveGraphDir } = await loadCore();
 
 const TOPO_TYPES = new Set(["depends_on", "validates"]);
 const EDGE_TYPES = new Set([
@@ -104,16 +112,21 @@ function main() {
 
   // --- 读取 ---
   let graph;
+  let target;
   try {
-    graph = readGraph(ROOT);
+    target = resolveGraphDir(ROOT, {
+      name: GRAPH_NAME,
+      env: process.env.SUPER_PLUMBER_GRAPH,
+    });
+    graph = readGraph(target.dir);
   } catch (err) {
-    console.error(`❌ 无法读取 ${ROOT}/.graph/graph.yaml: ${err.message}`);
+    console.error(`❌ 无法读取目标图（工作区 ${ROOT}）: ${err.message}`);
     process.exit(1);
   }
   const nodes = graph.nodes
     .map((f) => {
       try {
-        return readNode(ROOT, path.basename(f.file, ".yaml"));
+        return readNode(target.dir, path.basename(f.file, ".yaml"));
       } catch {
         return null;
       }
@@ -122,7 +135,7 @@ function main() {
   const edges = graph.edges
     .map((f) => {
       try {
-        return readEdge(ROOT, path.basename(f.file, ".yaml"));
+        return readEdge(target.dir, path.basename(f.file, ".yaml"));
       } catch {
         return null;
       }
@@ -279,7 +292,7 @@ function main() {
 
   // --- W5: 磁盘文件 vs graph.yaml 引用列表不一致（孤儿文件/幽灵边）---
   for (const dir of ["nodes", "edges"]) {
-    const diskDir = path.join(ROOT, ".graph", dir);
+    const diskDir = path.join(target.dir, dir);
     if (!fs.existsSync(diskDir)) continue;
     const disk = fs.readdirSync(diskDir).filter((f) => f.endsWith(".yaml"));
     const refs = new Set(
@@ -333,6 +346,8 @@ function main() {
       JSON.stringify(
         {
           root: ROOT,
+          graph: target.name,
+          graph_dir: target.dir,
           nodes: nodes.length,
           edges: edges.length,
           errors: errors.map((i) => ({ code: i.code, message: i.msg })),
@@ -344,7 +359,7 @@ function main() {
       ),
     );
   } else {
-    console.log(`📋 设计体检: ${ROOT}（${nodes.length} 节点 / ${edges.length} 边）`);
+    console.log(`📋 设计体检: ${ROOT} / 图 ${target.name}（${nodes.length} 节点 / ${edges.length} 边）`);
     for (const i of issues) console.log(`  ${i.level === "error" ? "❌" : "⚠️"} [${i.code}] ${i.msg}`);
     if (errors.length === 0 && warnings.length === 0) console.log("✅ 全部通过：设计质量达标");
     else if (errors.length === 0) console.log(`⚠️ ${warnings.length} 个 warning（建议修）`);

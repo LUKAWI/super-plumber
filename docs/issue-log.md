@@ -51,6 +51,13 @@
 | IL-037 | 2026-09-03 | Windows EBUSY 文件锁抖动（环境性 flaky 首例）：F09 全量测试两轮各挂一次、两轮不同用例（S1-4 并发 create-node 挂 graph.yaml 锁 / S1-11 快照互斥挂 hot.yaml 锁），报 `ERR EBUSY: resource busy or locked`；单文件重跑两次均全过，第三次全量全绿——高并行负载下的 OS 级文件锁竞争（与 perf 墙钟 flaky 不同源，与 0.9.2 IL-031 lock 目录观察同族） | 低（重跑即过；F09 改动不涉锁与写路径，非代码回归） | 记录观察 + 监控频率：偶发不处理；若频发再评估用例级重试或锁等待容忍（lock.ts 语义未涉） | 📝 记录即可（观察中） |
 | IL-038 | 2026-09-03 | 主控派单措辞两连击（v093-verify 实测纠正）：①派单称「fail 一次即 attempts=1/1」——引擎 attempts 在 failed→pending 重试时才 +1（手册 §4.3/§5 自洽，打满一轮需 失败→重试→再失败）；②派单节点示例用大写 ID（DEAD1/ALT）被 CLI 拒（ID 规则 ^[a-z0-9] 开头），首建 7/7 全失败后改小写通过——两条均派单措辞问题非交付缺陷 | 低（验证方按手册实测自纠，零代码影响；但派单即契约，措辞失准直接消耗执行方试错轮次） | 执行纪律（主控侧）：派单描述引擎语义一律引用手册原文口径，不自创简化说法；ID 等硬约束引用 §规则或直接给合法示例——与 IL-033 同族（「派单即契约」模式） | 📝 记录即可（模式在案） |
 
+| IL-039 | 2026-09-05 | 0.9.7 首轮 release review 发现“关键 coverage”只有关键测试文件收集，没有真实覆盖率报告或数值门禁，容易把测试面存在误当成源码被执行 | 中（发布质量门禁） | 已补 `run-release-tests.mjs` 的 v8 `coverage-summary.json` 解析与行覆盖率阈值；root 变更源码集合阈值 40%，UI `GraphCanvas.svelte` 阈值 60%；纳入 `release-gates.mjs` 与回归测试 | ✅ 已解决（`v097-issue-log-closure` passed） |
+| IL-040 | 2026-09-05 | 0.9.7 首轮 review 发现 `sp.mjs` 在源码树测试中 self-reference 解析失败时会直接落到全局包，测试可能没有执行当前候选实现 | 中（渠道验证可信度） | `integrations/src/sp-scripts/sp.mjs` 解析顺序改为候选包自带 `dist/core/index.js` → 本地安装 → 全局包，并同步 `.pi`/plugin 产物；targeting 回归覆盖实际源码树解析 | ✅ 已解决（`v097-issue-log-closure` passed） |
+| IL-041 | 2026-09-05 | 无图工作区显式传入不存在的 `--graph` 名称时曾回退到 `default`，错误输入可能被静默导向错误图 | 高（目标图隔离） | `src/core/graph-dir.ts` 对显式图名统一报“不存在/可用图”错误；新增空工作区回归，避免默认图回退 | ✅ 已解决（`v097-issue-log-closure` passed） |
+| IL-042 | 2026-09-05 | 0.9.7 首轮 review 发现 GraphCanvas 中键平移与自动 fit 可能竞态，且节点中键拖动/丢失 pointer capture 缺测试 | 中（UI 交互稳定性） | 中键开始时中断自动 fit，手动 transform 置用户视图标记并保留同图视口；补节点中键拖动、`lostpointercapture` 与未 pinned auto-fit 回归；真人 cp3 已确认通过 | ✅ 已解决（`v097-webui-middle-pan` passed） |
+| IL-043 | 2026-09-05 | 无 `.graph/` 的干净发布工作区执行 graph docs export check 会因没有图而失败，导致发布门禁无法在干净克隆自洽运行 | 中（发布可复验性） | 新增 `scripts/release-docs-check.mjs`：无图时创建临时最小 fixture 走真实 CLI init/export/export-check，有图时仍检查当前图；release gate 不再跳过 docs 检查 | ✅ 已解决（`v097-issue-log-closure` passed） |
+| IL-044 | 2026-09-06 | 同一候选第二次带 coverage 的 root release-gates 运行 exit 1，wrapper 只报告测试进程非零；随后不带 coverage 的完整诊断 exit 0（874/874、101/101），5k index 冷读 28.55s < 30s，未复现具体断言失败 | 低（Windows/coverage 并发环境抖动，发布前需有一次完整 gate 绿证据） | 记录观察：不把一次未定位的 gate 抖动误报为代码修复；保留完整诊断结果，发布前重新执行 gate 并观察是否复现 | 观察 |
+
 ### 0.9.6 交叉验证矩阵（2026-09-05，super-mario-v096-verify-final）
 
 | 板块 | 当前证据与复现路径 | 状态 |
@@ -61,5 +68,25 @@
 | index / cache | `npx vitest run tests/core/index-consistency.test.ts tests/core/index-staleness.test.ts tests/core/cache.test.ts tests/web/api-cache.test.ts tests/core/graph-perf.test.ts tests/perf/multigraph-perf.test.ts`：6 files / 28 tests，exit 0；WC-01 通过，5k 冷读 3070.8 ms、热读 64.2 ms，均低于 30 s/1 s 门槛，代际/并发发布与 10k 拓扑性能通过。 | fixed |
 | web / UI boundary | full 组合 `npx vitest run tests/web/server-hardening.test.ts tests/web/server.test.ts tests/web/ws-boundary.test.ts tests/web/ws-storm.test.ts`：4 files / 23 tests，exit 0；ws-storm 日志实测 `nodes=300 edges=299 sourceFiles=600 max=600 initialAmendSnapshots=0`，三项 full 压力断言通过。UI 全量 12 files / 117 tests、UI typecheck 0 errors/0 warnings、UI build 均 exit 0。 | fixed |
 | full gates | `npm test` 自然最终 exit 0：99 files / 858 tests 全通过；当前树的 `tests/core/next-actions.test.ts` 19/19 通过，full perf 5k 链通过。`npm run typecheck`、`npm run build`、`npm --prefix web-ui test -- --run`（12 files / 117 tests）、UI typecheck/build、`node scripts/sync-integrations.mjs --check`、构建后 `node dist/cli/index.js export --docs --check` 均 exit 0。真实 MCP SDK StdioClientTransport handshake：`client.connect` 成功，`connected=true`、`toolCount=26`、`callIsError=false`；`graph_list_graphs` 返回当前 `roadmap-to-1-0-0`。 | fixed |
+
+### 0.9.7 Issue closure matrix（2026-09-05，release candidate `codex/0.9.7-release`）
+
+| ID | 当前复验命令与证据 | 结论 |
+|----|--------------------|------|
+| IL-005 | `rg -n "IL-005|fix-v080-a1" docs/issue-log.md docs/v0.8.0-issue-log.md`：账本行、归属节点与历史修复链接仍在位；该问题属于 0.8.0 上游修复，0.9.7 未重开自动导出路径。 | 已修复 |
+| IL-019 | `npm --prefix web-ui test -- --run`：13 files / 121 tests，exit 0；UI typecheck/build 通过。空 knowledge graph 的空态呈现仍不是本版本改动面，保留为低优先级 web backlog。 | 延期 |
+| IL-021 | `node scripts/sync-integrations.mjs --check`：25 个正本 × 50 个产物一致；本机 `pi --version`=0.84.3、`claude --version`=2.1.226、`codex --version`=0.153.4，`zcode` 未安装。`.pi`、Claude/Codex 集成产物与 launcher 静态检查通过，但当前未切换已发布插件版本，故不把静态产物检查冒充四渠道 runtime 实测。 | 延期 |
+| IL-022 | `npx vitest run tests/core/v096-concurrency-identity.test.ts`：7/7 通过；多图隔离、active 切换与锁目标固定回归通过。 | 已修复 |
+| IL-023 | `npx vitest run tests/cli/sp-script.test.ts tests/cli/sp-targeting.test.ts tests/cli/sp-traverse-script.test.ts`：25/25 通过；显式 `--graph`、环境变量优先级、非法/无图图名、Windows 空格路径和 traverse 语义均通过，且测试优先解析当前候选构建。 | 已修复 |
+| IL-028 | `node scripts/sync-integrations.mjs --check`：版本/生成产物/散文锚点均通过，新增 release gate 会阻断同步漂移。 | 已修复 |
+| IL-037 | `npx vitest run tests/web/ws-storm.test.ts`：3/3 通过；本次 root 全量未出现 EBUSY，独立重跑的 5k index 冷读为 3.08s、热读 78.5ms，性能失败未复现。 | 观察 |
+| IL-039 | root 关键源码 coverage probe：4 files / 50 tests，coverage summary 行覆盖率 73.19%；干净安装后的最终完整 release gate：root 874 tests / 101 files，行覆盖率 74.32%；UI wrapper：13 files / 121 tests，`GraphCanvas.svelte` 行覆盖率 67.68%；均达到 release gate 的 40%/60% 阈值。 | 已修复 |
+| IL-040 | `sp.mjs`、`.pi`、plugin 三份 launcher 均执行候选工作区 `get-node` 回归；`sp-check-design` 三渠道也执行候选 core 回归，targeting 7 tests 通过。 | 已修复 |
+| IL-041 | `npx vitest run tests/cli/sp-targeting.test.ts tests/core/graph-dir.test.ts`：25 tests 通过；空工作区显式 `--graph ghost` 返回 JSON 错误并列出可用图，不再回退 default。 | 已修复 |
+| IL-042 | UI 全量 13 files / 121 tests、typecheck 0 errors/0 warnings、build 699 modules；GraphCanvas 中键节点拖动、pointerup/lostpointercapture、未 pinned auto-fit 接管回归已覆盖；真人浏览器 cp3 已由用户确认通过。 | 已修复 |
+| IL-043 | `node scripts/release-docs-check.mjs` 在无 `.graph/` 的 clean release worktree 中 exit 0；该脚本通过临时 fixture 走真实 `init → export → export --docs --check`。 | 已修复 |
+| IL-044 | 第二次带 coverage 的 root release-gates 曾 exit 1；随后不带 coverage 的 root verbose 诊断完整 exit 0（874/874、101/101），5k index 冷读 28.55s < 30s；干净安装后的最终带 coverage 完整 release-gates exit 0（root 874/101、74.32%，UI 121/13、`GraphCanvas.svelte` 67.68%）。具体断言失败未定位，保留为 Windows/coverage 并发环境观察项。 | 观察 |
+
+**0.9.7 矩阵汇总**：已修复 9 条，延期 2 条，流程观察 2 条，修复失败 0 条；延期项为 IL-019/021，观察项为 IL-037/044，均保留后续入口。
 
 **销账纪律**：节点 passed 后把对应行状态改为 ✅ 并注明节点 id；新增问题从下一行追加，ID 递增（IL-009…）。

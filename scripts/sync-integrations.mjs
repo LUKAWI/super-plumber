@@ -53,6 +53,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { checkReleaseVersions, RELEASE_VERSION_FILES } from './release-version-check.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC_ROOT = path.join(REPO_ROOT, 'integrations', 'src');
@@ -340,60 +341,32 @@ function statIsDir(p) {
   }
 }
 
-/** IL-016 版本面断言的被查 manifest 清单（相对仓库根，显示用 POSIX 风格）。 */
-const VERSION_MANIFESTS = [
-  '.claude-plugin/marketplace.json',
-  'integrations/plugin/.claude-plugin/plugin.json',
-  'integrations/plugin/.codex-plugin/plugin.json',
-  '.agents/plugins/marketplace.json',
-];
-
-/** 从 manifest JSON 取 version：plugin.json 在顶层；marketplace.json 在 plugins[0].version。 */
-function readManifestVersion(json) {
-  if (typeof json?.version === 'string') return json.version;
-  if (Array.isArray(json?.plugins) && typeof json.plugins[0]?.version === 'string') {
-    return json.plugins[0].version;
-  }
-  return undefined;
-}
-
 /** 读 package.json 的 version（版本面门禁 IL-016 与散文锚点门禁 C7b 共用）。 */
 function readPkgVersion() {
   return JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')).version;
 }
 
-/** 版本面一致性断言（IL-016）：manifest 存在才校验，不存在跳过（前向兼容）。
- *  返回 { pkgVersion, checked, mismatches }；mismatches 元素形如 { file, manifestVersion }，
- *  manifestVersion 为 undefined 表示文件在位但没有可读的 version 字段。 */
+/** 版本面一致性断言（IL-016）：复用发布门禁的单一来源检查，并把 package-lock 根字段纳入同一结果。 */
 function checkVersions() {
-  const pkgVersion = readPkgVersion();
-  const mismatches = [];
-  let checked = 0;
-  for (const relFile of VERSION_MANIFESTS) {
-    const abs = path.join(REPO_ROOT, relFile);
-    if (!fs.existsSync(abs)) continue;
-    checked += 1;
-    let manifestVersion;
-    try {
-      manifestVersion = readManifestVersion(JSON.parse(fs.readFileSync(abs, 'utf8')));
-    } catch (e) {
-      mismatches.push({ file: relFile, manifestVersion: `<解析失败：${e.message}>` });
-      continue;
-    }
-    if (manifestVersion !== pkgVersion) {
-      mismatches.push({ file: relFile, manifestVersion });
-    }
-  }
-  return { pkgVersion, checked, mismatches };
+  const result = checkReleaseVersions(REPO_ROOT);
+  const pkgVersion = result.sourceVersion;
+  const manifestSpecs = RELEASE_VERSION_FILES.filter((spec) => spec.kind !== 'lockfile');
+  const manifestChecked = manifestSpecs.filter((spec) => fs.existsSync(path.join(REPO_ROOT, spec.file))).length;
+  const mismatches = result.issues.map((issue) => ({
+    file: `${issue.file}#${issue.location}`,
+    manifestVersion: issue.value,
+    reason: issue.reason,
+  }));
+  return { pkgVersion, manifestChecked, manifestTotal: manifestSpecs.length, mismatches };
 }
 
 function printVersionMismatches({ pkgVersion, mismatches }) {
   console.error(
-    `\n版本面一致性断言失败（IL-016）：以下 manifest 的 version 与 package.json（${pkgVersion}）不一致：`
+    `\n版本面一致性断言失败（IL-016）：以下发布版本字段与 package.json（${pkgVersion}）不一致或缺失：`
   );
   for (const m of mismatches) {
     const shown = m.manifestVersion ?? '<文件在位但未找到 version 字段>';
-    console.error(`- ${m.file}: ${shown} ≠ package.json ${pkgVersion}`);
+    console.error(`- ${m.file}: ${shown} ≠ package.json ${pkgVersion}${m.reason ? `（${m.reason}）` : ''}`);
   }
   console.error(
     `修复方式：发版时把上述文件的 version 与 package.json 改为同一值（步骤见 README「发版清单」）。`
@@ -667,7 +640,7 @@ function main() {
 
   if (versionFace) {
     console.log(
-      `版本面一致：package.json ${versionFace.pkgVersion} 与在位 ${versionFace.checked}/${VERSION_MANIFESTS.length} 份 manifest 全部一致`
+      `版本面一致：package.json ${versionFace.pkgVersion} 与 package-lock 及在位 ${versionFace.manifestChecked}/${versionFace.manifestTotal} 份 manifest 全部一致`
     );
   }
 
