@@ -105,7 +105,7 @@ describe("graph approve（CLI 通道）", () => {
     expect(r.stderr).not.toContain("at Module");
   });
 
-  it("next --json 免费受益：approve 前 ready_eligible 带 review_flag，approve 后消失", () => {
+  it("next --json 免费受益：仅明确 approved 才消除 review_flag", () => {
     init();
     run(["create-node", "--id", "a", "--label", "A"]);
     const before = JSON.parse(
@@ -115,11 +115,16 @@ describe("graph approve（CLI 通道）", () => {
     expect(aBefore?.review_flag).toBe(REVIEW_FLAG_UNREVIEWED);
 
     run(["approve", "--by", "alice", "--status", "self"]);
-    const after = JSON.parse(run(["next", "--json"]).stdout);
-    const aAfter = after.ready_eligible.find((n: any) => n.id === "a");
-    expect(aAfter?.review_flag).toBeUndefined();
+    const afterSelf = JSON.parse(run(["next", "--json"]).stdout);
+    const aAfterSelf = afterSelf.ready_eligible.find((n: any) => n.id === "a");
+    expect(aAfterSelf?.review_flag).toBe(REVIEW_FLAG_UNREVIEWED);
+
+    run(["approve", "--by", "alice", "--status", "approved"]);
+    const afterApproved = JSON.parse(run(["next", "--json"]).stdout);
+    const aAfterApproved = afterApproved.ready_eligible.find((n: any) => n.id === "a");
+    expect(aAfterApproved?.review_flag).toBeUndefined();
     // ready 桶始终不注入
-    expect(JSON.stringify(after.ready)).not.toContain("review_flag");
+    expect(JSON.stringify(afterApproved.ready)).not.toContain("review_flag");
   });
 });
 

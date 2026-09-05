@@ -40,11 +40,20 @@ export function createWatcher(
   });
 
   watcher.on("all", (event, filePath) => {
-    onChange({
-      type: event as FileChangeEvent["type"],
-      file: path.relative(wsRoot, filePath),
-      timestamp: Date.now(),
-    });
+    try {
+      onChange({
+        type: event as FileChangeEvent["type"],
+        file: path.relative(wsRoot, filePath),
+        timestamp: Date.now(),
+      });
+    } catch (err) {
+      // 单个事件的消费异常不能升级为未处理异常击穿 serve 进程；后续事件仍继续。
+      console.error("[serve] watcher event handling failed:", err);
+    }
+  });
+  watcher.on("error", (err) => {
+    // watcher 错误不应成为未处理的 EventEmitter error 进而终止 serve 进程。
+    console.error("[serve] watcher failed:", err);
   });
 
   return watcher;

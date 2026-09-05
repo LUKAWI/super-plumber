@@ -213,7 +213,7 @@ describe("F21 (a) 结构修订落图前自动 snapshot", () => {
 describe("F21 (b) graph_amended 事件 + review 回置 unreviewed", () => {
   it("已审核图：结构修订后 review 回置 unreviewed（by/at 凭据形状与 approve 一致），nudge 重新亮起", () => {
     batchSetup(["n1"]);
-    approveGraph(tmpDir, { by: "alice", status: "self" });
+    approveGraph(tmpDir, { by: "alice", status: "approved" });
     expect(reviewFlagFor(tmpDir)).toBeUndefined(); // 已审核：nudge 熄灭
 
     createNode(tmpDir, { id: "n2", type: NodeType.Task, label: "N2" }, { actor: "cli" });

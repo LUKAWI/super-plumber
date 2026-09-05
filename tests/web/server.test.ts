@@ -110,6 +110,25 @@ describe("web server static serving", () => {
     });
   });
 
+  it("GET /api/graph 损坏节点 YAML 返回 500，服务进程保持可用", async () => {
+    const nodeFile = path.join(tmpDir, ".graph", "nodes", "a.yaml");
+    const original = fs.readFileSync(nodeFile, "utf-8");
+    try {
+      fs.writeFileSync(nodeFile, "id: [unclosed", "utf-8");
+      const failed = await fetch(`http://127.0.0.1:${port}/api/graph`);
+      expect(failed.status).toBe(500);
+      const body = (await failed.json()) as { error: string };
+      expect(body.error).toContain("内部错误");
+      expect(body.error).not.toContain("unclosed");
+
+      fs.writeFileSync(nodeFile, original, "utf-8");
+      const recovered = await fetch(`http://127.0.0.1:${port}/api/graph`);
+      expect(recovered.status).toBe(200);
+    } finally {
+      fs.writeFileSync(nodeFile, original, "utf-8");
+    }
+  });
+
   it("路径穿越 /../package.json 被拒绝（403）", async () => {
     const { status } = await rawRequest("/../package.json");
     expect(status).toBe(403);

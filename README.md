@@ -544,11 +544,11 @@ graph serve
 | **pi**（仓库直用） | 仓库内直接使用根目录 `.pi/`；带到其他项目：把 `.pi/` 整个目录拷贝到项目根 |
 | **Claude Code**（插件 `super-plumber`） | `/plugin marketplace add lukawi/super-plumber` 添加市场，然后安装 `super-plumber`；本地路径预览在仓库根执行 `claude plugin marketplace add ./` |
 | **ZCode**（同一插件） | 设置 → 插件管理 → 发现 → 添加市场源 `lukawi/super-plumber`（或本地目录），然后安装 `super-plumber` |
-| **Codex**（官方插件，v0.9.5） | `codex plugin marketplace add lukawi/super-plumber` 添加市场，然后安装 `super-plumber`；本地路径在仓库根执行 `codex plugin marketplace add .` |
+| **Codex**（官方插件，v0.9.6） | `codex plugin marketplace add lukawi/super-plumber` 添加市场，然后安装 `super-plumber`；本地路径在仓库根执行 `codex plugin marketplace add .` |
 
 > Claude Code、ZCode 与 Codex 复用**同一个插件包**（`integrations/plugin/`）。Claude/ZCode 以 `.claude-plugin` 清单承载，Codex 以包内 `.codex-plugin/plugin.json` 清单承载；三者共享 skills、scripts 与手册，但注册入口和 MCP 配置格式按宿主分别适配。
 
-### Codex 插件（v0.9.5）
+### Codex 插件（v0.9.6）
 
 Codex 的官方插件市场清单位于仓库 `.agents/plugins/marketplace.json`。远程仓库安装：
 
@@ -620,7 +620,7 @@ cd super-plumber
 npm install
 npm run build && npm --prefix web-ui run build
 
-# 测试（后端 822 例 + 前端 109 例：状态机/拓扑/CLI/MCP 协议/多图迁移与性能/并发加固/转义/渲染冒烟）
+# 测试（后端 858 例 + 前端 117 例：状态机/拓扑/CLI/MCP 协议/多图迁移与性能/并发加固/转义/渲染冒烟）
 npm test
 
 # 本地链接全局（开发调试用）
@@ -675,7 +675,7 @@ graph --version
      manual 版本锚点同受门禁（见 integrations/src/manual.md 首行）。改数字请连同实测一起刷新。 -->
 
 ```text
-Tests: 822（后端）+ 109（前端）✅ | CLI: 29 命令 | MCP: 26 工具 | 斜杠命令: 4 | 状态机: 7 态 + ready 门禁 + max_attempts + passed 硬门禁 + 事件日志审计 + ADR 三态机（知识顶点豁免）+ 设计审批凭据（v0.8.0）+ 删除拒绝理由凭据与 DECISIONS.md 决议索引（v0.8.1）+ 人机分工进调度：requires_human 派生/等真人标记/human stale 4h + 档位凭据 /plumber-class 与 class_changed 事件（v0.9.1） | 边类型: 9 种 | 版本控制: snapshot/diff/rollback（含 design-only）| Web UI: Svelte 5 + D3.js 星空观测台（v0.7.0 深空仪器舱 + v0.8.1 前沿一键视图/分期图例/Avoid 呈现）
+Tests: 858（后端）+ 117（前端）✅ | CLI: 29 命令 | MCP: 26 工具 | 斜杠命令: 4 | 状态机: 7 态 + ready 门禁 + max_attempts + passed 硬门禁 + 事件日志审计 + ADR 三态机（知识顶点豁免）+ 设计审批凭据（v0.8.0）+ 删除拒绝理由凭据与 DECISIONS.md 决议索引（v0.8.1）+ 人机分工进调度：requires_human 派生/等真人标记/human stale 4h + 档位凭据 /plumber-class 与 class_changed 事件（v0.9.1） | 边类型: 9 种 | 版本控制: snapshot/diff/rollback（含 design-only）| Web UI: Svelte 5 + D3.js 星空观测台（v0.7.0 深空仪器舱 + v0.8.1 前沿一键视图/分期图例/Avoid 呈现）
 ```
 
 - **npm**: [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)

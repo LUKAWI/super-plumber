@@ -1,13 +1,13 @@
 {
   "name": "lukawi-super-plumber",
-  "version": "0.9.5",
+  "version": "0.9.6",
   "interface": {
     "displayName": "Lukawi Super Plumber"
   },
   "plugins": [
     {
       "name": "super-plumber",
-      "version": "0.9.5",
+      "version": "0.9.6",
       "source": {
         "source": "local",
         "path": "./integrations/plugin"

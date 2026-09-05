@@ -85,4 +85,18 @@ describe("snapshot --git（S0-1 注入 / S0-2 路径）", () => {
     // 快照目录真实存在（主操作不受 git 失败影响）
     expect(fs.existsSync(path.join(tmpDir, ".graph", "g1", "snapshots"))).toBe(true);
   });
+
+  it("GIT-04 rollback 的 snapshot id traversal 被拒绝且不写图外文件", () => {
+    initRepoAndGraph();
+    const outside = path.join(tmpDir, "..", `${path.basename(tmpDir)}-cli-outside.txt`);
+    fs.writeFileSync(outside, "sentinel", "utf-8");
+    try {
+      const r = run(["rollback", "../cli-outside", "--confirm", "--graph", "g1"]);
+      expect(r.status).toBe(1);
+      expect(r.stderr).toMatch(/快照 ID/);
+      expect(fs.readFileSync(outside, "utf-8")).toBe("sentinel");
+    } finally {
+      fs.rmSync(outside, { force: true });
+    }
+  });
 });

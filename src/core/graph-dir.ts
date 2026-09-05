@@ -9,6 +9,7 @@
 // 这让既有调用方（CLI cwd、测试 tmpDir、旧脚本）零改动获得兼容，新调用方显式传图目录。
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { AsyncLocalStorage } from "node:async_hooks";
 import * as yaml from "js-yaml";
 import { GRAPH_DIR, GRAPH_FILE, NODES_DIR, EDGES_DIR, INDEX_DIR, type GraphSchema, type GraphClass } from "./types.js";
 // 循环依赖说明：lock → graph-dir（WORKSPACE_MIGRATE_LOCK 常量）与
@@ -19,6 +20,7 @@ export const GRAPH_NAME_RE = /^[a-z][a-z0-9-]{0,38}$/;
 const WS_EVENTS_FILE = "workspace-events.jsonl";
 const ACTIVE_FILE = "active";
 const TRASH_DIR = ".trash";
+let atomicWriteCounter = 0;
 /** 旧布局一次性迁移的图内项（6 项）。
  * .locks **故意不在迁移清单**（A4 并发缺陷）：它是工作区级互斥锁的家
  * （__ws_migrate__ 固定落 .graph/.locks/）——迁移时若连它一起搬走，
@@ -28,6 +30,26 @@ const LEGACY_ITEMS = [GRAPH_FILE, NODES_DIR, EDGES_DIR, "snapshots", INDEX_DIR, 
 
 function dotGraph(wsRoot: string): string {
   return path.join(wsRoot, GRAPH_DIR);
+}
+
+/** 同目录临时文件 + rename，保证 active/骨架发布不会暴露半截内容。 */
+function writeTextAtomic(file: string, content: string): void {
+  const dir = path.dirname(file);
+  fs.mkdirSync(dir, { recursive: true });
+  const temp = path.join(
+    dir,
+    `.${path.basename(file)}.${process.pid}.${++atomicWriteCounter}.tmp`,
+  );
+  try {
+    fs.writeFileSync(temp, content, "utf-8");
+    fs.renameSync(temp, file);
+  } finally {
+    try {
+      fs.unlinkSync(temp);
+    } catch {
+      /* rename 成功后临时路径已不存在 */
+    }
+  }
 }
 
 export function assertValidGraphName(name: string): void {
@@ -63,11 +85,18 @@ export function readWorkspaceDefault(wsRoot: string): string | null {
 
 export function writeWorkspaceDefault(wsRoot: string, name: string, actor = "unknown"): void {
   assertValidGraphName(name);
-  fs.mkdirSync(dotGraph(wsRoot), { recursive: true });
-  fs.writeFileSync(path.join(dotGraph(wsRoot), ACTIVE_FILE), name, "utf-8");
-  // 写路径显式失效（先于 appendWorkspaceEvent——其图级锁经 toGraphDir 解析）
-  clearGraphDirMemo();
-  appendWorkspaceEvent(wsRoot, "switch", `active -> ${name}`, actor);
+  const workspace = workspaceOf(wsRoot);
+  withLockSync(workspace, WORKSPACE_MIGRATE_LOCK, () => {
+    const names = listGraphNames(workspace);
+    if (!names.includes(name)) {
+      throw new Error(`图 "${name}" 不存在。可用: ${names.join(", ") || "（无）"}`);
+    }
+    fs.mkdirSync(dotGraph(workspace), { recursive: true });
+    writeTextAtomic(path.join(dotGraph(workspace), ACTIVE_FILE), name);
+    // 写路径显式失效（先于 appendWorkspaceEvent）
+    clearGraphDirMemo();
+    appendWorkspaceEvent(workspace, "switch", `active -> ${name}`, actor);
+  });
 }
 
 /** 工作区级审计（init/switch/migrate/rename/delete 五类；图内操作仍在各图 events.jsonl） */
@@ -79,14 +108,10 @@ export function appendWorkspaceEvent(
 ): void {
   try {
     fs.mkdirSync(dotGraph(wsRoot), { recursive: true });
-    // S3-6：与图内 eventlog（"__events__" 锁）对齐加锁，不再裸 append。
-    // 已知边界：锁文件经 toGraphDir 随 active 图走（图级），跨图并发追加
-    // 依赖单行 appendFileSync 的 O_APPEND 原子性（单次 write 原子追加）；
-    // 同图内（单图工作区/同 active——绝大多数场景）完全互斥。
-    // 备注：做工作区级锁需 lock.ts 扩展 ws 专属锁 id（f7 文件边界外，留 r1 裁决）。
-    withLockSync(wsRoot, "__ws_events__", () => {
+    // 工作区审计必须固定在 .graph 根，不能随着 active 图切换而改变锁目标。
+    withLockSync(workspaceOf(wsRoot), WORKSPACE_EVENTS_LOCK, () => {
       fs.appendFileSync(
-        path.join(dotGraph(wsRoot), WS_EVENTS_FILE),
+        path.join(dotGraph(workspaceOf(wsRoot)), WS_EVENTS_FILE),
         JSON.stringify({ ts: new Date().toISOString(), actor, kind, detail }) + "\n",
         "utf-8",
       );
@@ -100,7 +125,7 @@ export function readWorkspaceEvents(
   wsRoot: string,
   filter: { kind?: string } = {},
 ): { ts: string; actor: string; kind: string; detail: string }[] {
-  const f = path.join(dotGraph(wsRoot), WS_EVENTS_FILE);
+  const f = path.join(dotGraph(workspaceOf(wsRoot)), WS_EVENTS_FILE);
   let raw: string;
   try {
     raw = fs.readFileSync(f, "utf-8");
@@ -220,6 +245,18 @@ function resolveSingleGraph(wsRoot: string, name: string): ResolvedGraphDir {
   };
 }
 
+// 锁取得到的图目录在临界区内通过 async-local scope 固定。这样即使 active
+// 在等待锁期间被别的进程切换，rootDir 的后续读写仍然落在同一张图。
+const graphDirScope = new AsyncLocalStorage<Map<string, string>>();
+
+export function withGraphDirTarget<T>(rootDir: string, targetDir: string, fn: () => T): T {
+  const scoped = new Map<string, string>(graphDirScope.getStore() ?? []);
+  const target = path.resolve(targetDir);
+  scoped.set(path.resolve(rootDir), target);
+  scoped.set(path.resolve(workspaceOf(rootDir)), target);
+  return graphDirScope.run(scoped, fn);
+}
+
 /**
  * 全库路径归一化点：graph.yaml 在 p → p 已是图目录；p 含 .graph/ → 降入解析后的图目录
  * （旧布局 = .graph/ 原地，多图 = active/唯一图）；都没有 → 返回 p/.graph（未初始化，
@@ -228,6 +265,11 @@ function resolveSingleGraph(wsRoot: string, name: string): ResolvedGraphDir {
  * 探测与写路径显式失效保证语义不变（同 cwd 同结果，见上方 memo 说明）。
  */
 export function toGraphDir(rootDir: string): string {
+  const scoped = graphDirScope.getStore()?.get(path.resolve(rootDir));
+  if (scoped !== undefined) return scoped;
+  // 调用方已明确传入旧布局的 .graph 图目录时，即使 graph.yaml 尚未创建，
+  // 也不能再拼成 .graph/.graph（写入口会先建目录再发布 graph.yaml）。
+  if (path.basename(path.resolve(rootDir)) === GRAPH_DIR) return rootDir;
   if (fs.existsSync(path.join(rootDir, GRAPH_FILE))) return rootDir;
   const dg = path.join(rootDir, GRAPH_DIR);
   let dgStat: fs.Stats | null = null;
@@ -326,32 +368,66 @@ function probeActiveFile(dg: string): { mtimeMs: number; size: number } | null {
   }
 }
 
+/** 工作区级迁移互斥锁 id（与各图自身锁空间隔离，锁文件在 .graph/.locks/） */
+export const WORKSPACE_MIGRATE_LOCK = "__ws_migrate__";
+/** 工作区审计锁也固定落在 .graph/.locks/，不随 active 图切换。 */
+export const WORKSPACE_EVENTS_LOCK = "__ws_events__";
+
+function restoreLegacyItems(wsRoot: string, moved: string[]): void {
+  const dg = dotGraph(wsRoot);
+  const target = path.join(dg, "default");
+  for (const item of [...moved].reverse()) {
+    const from = path.join(target, item);
+    const to = path.join(dg, item);
+    if (!fs.existsSync(from) || fs.existsSync(to)) continue;
+    try {
+      fs.renameSync(from, to);
+    } catch {
+      // 补偿尽力而为；原始异常仍由调用方抛出，避免伪报成功。
+    }
+  }
+  clearGraphDirMemo();
+}
+
 /**
- * 旧布局一次性迁移：把 .graph/ 根上的 7 项 renameSync 进 .graph/default/。
- * 同卷 rename 原子（逐项）；调用方须持有工作区级锁（migrateWorkspaceLock）。
- * 幂等：无旧布局时返回空列表。
+ * 旧布局一次性迁移：把 .graph/ 根上的 6 项 renameSync 进 .graph/default/。
+ * 同卷 rename 原子（逐项）；调用方须持有工作区级锁。迁移中断时回滚已搬项。
  */
-export function migrateLegacyLayout(wsRoot: string, actor = "unknown"): string[] {
+function migrateLegacyLayoutCore(wsRoot: string, actor = "unknown"): string[] {
   const dg = dotGraph(wsRoot);
   if (!fs.existsSync(path.join(dg, GRAPH_FILE))) return [];
   const target = path.join(dg, "default");
   fs.mkdirSync(target, { recursive: true });
+  const pending = LEGACY_ITEMS.filter((item) => fs.existsSync(path.join(dg, item)));
+  for (const item of pending) {
+    const destination = path.join(target, item);
+    if (fs.existsSync(destination)) {
+      throw new Error(`旧布局迁移目标已存在: ${destination}`);
+    }
+  }
   const moved: string[] = [];
-  for (const item of LEGACY_ITEMS) {
-    const src = path.join(dg, item);
-    if (!fs.existsSync(src)) continue;
-    fs.renameSync(src, path.join(target, item));
-    moved.push(item);
+  try {
+    for (const item of pending) {
+      fs.renameSync(path.join(dg, item), path.join(target, item));
+      moved.push(item);
+    }
+  } catch (error) {
+    restoreLegacyItems(wsRoot, moved);
+    throw error;
   }
   if (moved.length > 0) clearGraphDirMemo(); // 布局变更：确定性失效路径 memo
   appendWorkspaceEvent(wsRoot, "migrate", `legacy -> default/（${moved.join(", ")}）`, actor);
   return moved;
 }
 
-/** 工作区级迁移互斥锁 id（与各图自身锁空间隔离，锁文件在 .graph/.locks/） */
-export const WORKSPACE_MIGRATE_LOCK = "__ws_migrate__";
+export function migrateLegacyLayout(wsRoot: string, actor = "unknown"): string[] {
+  const workspace = workspaceOf(wsRoot);
+  return withLockSync(workspace, WORKSPACE_MIGRATE_LOCK, () =>
+    migrateLegacyLayoutCore(workspace, actor),
+  );
+}
 
-/** 创建新图：校验图名 → 若存在其它图且仍为旧布局则先迁移 → 建骨架。返回图目录。 */
+/** 创建新图：在工作区锁内复查同名、迁移旧布局并原子发布完整骨架。 */
 export function createGraph(
   wsRoot: string,
   name: string,
@@ -361,62 +437,88 @@ export function createGraph(
   opts: { actor?: string; version?: string; class?: GraphClass } = {},
 ): string {
   assertValidGraphName(name);
-  const dg = dotGraph(wsRoot);
-  const names = listGraphNames(wsRoot);
-  if (names.includes(name)) throw new Error(`图 "${name}" 已存在。可用名不含它: ${names.join(", ")}`);
-  // 建第二图触发一次性迁移——工作区级互斥锁内（并发建图不交错半迁移）
-  withLockSync(wsRoot, WORKSPACE_MIGRATE_LOCK, () => {
-    if (names.length > 0 && fs.existsSync(path.join(dg, GRAPH_FILE))) {
-      migrateLegacyLayout(wsRoot, opts.actor);
+  const workspace = workspaceOf(wsRoot);
+  return withLockSync(workspace, WORKSPACE_MIGRATE_LOCK, () => {
+    const dg = dotGraph(workspace);
+    fs.mkdirSync(dg, { recursive: true });
+    const names = listGraphNames(workspace);
+    if (names.includes(name)) {
+      throw new Error(`图 "${name}" 已存在。可用名不含它: ${names.join(", ")}`);
+    }
+
+    let stage: string | undefined;
+    let moved: string[] = [];
+    try {
+      stage = fs.mkdtempSync(path.join(dg, `.${name}.creating-`));
+      for (const d of [NODES_DIR, EDGES_DIR, "snapshots", INDEX_DIR, ".locks"]) {
+        fs.mkdirSync(path.join(stage, d), { recursive: true });
+      }
+      // S3-5/N4（f15）：graph.yaml 骨架改走 GraphSchema 对象 + yaml.dump 落盘——
+      // 与 parser.writeGraph 同一序列化器，label 含 : # " 换行时自动加引号/转义。
+      // id 加随机后缀：graph_${Date.now()} 毫秒粒度不足，同毫秒建两图会撞 id。
+      const skeleton: Omit<GraphSchema, "version"> & { version?: string } = {
+        id: `graph_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        label,
+        entry: { description: "", defined_by: "human", level: 0 },
+        exit: { description: "", acceptance_criteria: [], defined_by: "human", level: 0 },
+        nodes: [],
+        edges: [],
+      };
+      if (opts.version) skeleton.version = opts.version;
+      // F03/F13（DEC-2）：init --class 工作类预设（缺省不标注，schema 可选枚举）
+      if (opts.class) skeleton.class = opts.class;
+      writeTextAtomic(
+        path.join(stage, GRAPH_FILE),
+        yaml.dump(skeleton, { indent: 2, lineWidth: 120 }),
+      );
+
+      // 建第二图触发一次性迁移，且与骨架发布处于同一工作区事务。
+      if (names.length > 0 && fs.existsSync(path.join(dg, GRAPH_FILE))) {
+        moved = migrateLegacyLayoutCore(workspace, opts.actor);
+      }
+      const dir = path.join(dg, name);
+      if (fs.existsSync(dir)) {
+        throw new Error(`目录已存在: ${dir}`);
+      }
+      fs.renameSync(stage, dir);
+      stage = undefined;
+      clearGraphDirMemo(); // 新图目录入布局：确定性失效路径 memo
+      appendWorkspaceEvent(workspace, "init", `graph=${name} label="${label}"`, opts.actor);
+      return dir;
+    } catch (error) {
+      if (stage !== undefined) {
+        try {
+          fs.rmSync(stage, { recursive: true, force: true });
+        } catch {
+          /* staging 目录清理失败不掩盖主异常 */
+        }
+      }
+      if (moved.length > 0) restoreLegacyItems(workspace, moved);
+      throw error;
     }
   });
-  const dir = path.join(dg, name);
-  if (fs.existsSync(dir)) throw new Error(`目录已存在: ${dir}`);
-  for (const d of [NODES_DIR, EDGES_DIR, "snapshots", INDEX_DIR, ".locks"]) {
-    fs.mkdirSync(path.join(dir, d), { recursive: true });
-  }
-  // S3-5/N4（f15）：graph.yaml 骨架改走 GraphSchema 对象 + yaml.dump 落盘——
-  // 与 parser.writeGraph 同一序列化器，label 含 : # " 换行时自动加引号/转义。
-  // 旧实现手拼 `label: ${label}` 模板：冒号形产出非法 YAML（init 退出码 0 但
-  // status 误报"无 graph.yaml"）；换行形更静默注入额外字段（如 tampered: true）
-  // 且 graph validate 零错误——注入面而非解析面。
-  // id 加随机后缀：graph_${Date.now()} 毫秒粒度不足，同毫秒建两图会撞 id。
-  const skeleton: Omit<GraphSchema, "version"> & { version?: string } = {
-    id: `graph_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    label,
-    entry: { description: "", defined_by: "human", level: 0 },
-    exit: { description: "", acceptance_criteria: [], defined_by: "human", level: 0 },
-    nodes: [],
-    edges: [],
-  };
-  if (opts.version) skeleton.version = opts.version;
-  // F03/F13（DEC-2）：init --class 工作类预设（缺省不标注，schema 可选枚举）
-  if (opts.class) skeleton.class = opts.class;
-  fs.writeFileSync(
-    path.join(dir, GRAPH_FILE),
-    yaml.dump(skeleton, { indent: 2, lineWidth: 120 }),
-    "utf-8",
-  );
-  clearGraphDirMemo(); // 新图目录入布局：确定性失效路径 memo（先于 appendWorkspaceEvent）
-  appendWorkspaceEvent(wsRoot, "init", `graph=${name} label="${label}"`, opts.actor);
-  return dir;
 }
 
 /** 软删除：移入 .trash/<名>-<时间戳>/（可手工救回）。调用方负责策略校验（最后一张/active）。 */
 export function trashGraph(wsRoot: string, name: string, actor = "unknown"): string {
-  const dg = dotGraph(wsRoot);
-  const src =
-    name === "default" && fs.existsSync(path.join(dg, GRAPH_FILE))
-      ? dg
-      : path.join(dg, name);
-  if (!fs.existsSync(path.join(src, GRAPH_FILE))) {
-    throw new Error(`图 "${name}" 不存在。可用: ${listGraphNames(wsRoot).join(", ") || "（无）"}`);
-  }
-  const trash = path.join(dg, TRASH_DIR);
-  fs.mkdirSync(trash, { recursive: true });
-  const dest = path.join(trash, `${name}-${Date.now()}`);
-  fs.renameSync(src, dest);
-  clearGraphDirMemo(); // 图目录移出布局：确定性失效路径 memo（先于 appendWorkspaceEvent）
-  appendWorkspaceEvent(wsRoot, "delete", `graph=${name} -> .graph/.trash/（可手工救回）`, actor);
-  return dest;
+  assertValidGraphName(name);
+  const workspace = workspaceOf(wsRoot);
+  return withLockSync(workspace, WORKSPACE_MIGRATE_LOCK, () => {
+    const dg = dotGraph(workspace);
+    const src =
+      name === "default" && fs.existsSync(path.join(dg, GRAPH_FILE))
+        ? dg
+        : path.join(dg, name);
+    if (!fs.existsSync(path.join(src, GRAPH_FILE))) {
+      throw new Error(`图 "${name}" 不存在。可用: ${listGraphNames(workspace).join(", ") || "（无）"}`);
+    }
+    const trash = path.join(dg, TRASH_DIR);
+    fs.mkdirSync(trash, { recursive: true });
+    let dest = path.join(trash, `${name}-${Date.now()}`);
+    if (fs.existsSync(dest)) dest = `${dest}-${Math.random().toString(36).slice(2, 8)}`;
+    fs.renameSync(src, dest);
+    clearGraphDirMemo(); // 图目录移出布局：确定性失效路径 memo
+    appendWorkspaceEvent(workspace, "delete", `graph=${name} -> .graph/.trash/（可手工救回）`, actor);
+    return dest;
+  });
 }

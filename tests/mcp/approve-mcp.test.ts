@@ -1,6 +1,6 @@
 // tests/mcp/approve-mcp.test.ts — DEC-1（g080-approve-core）：graph_approve 工具
 // MCP 通道：zod 校验（by 必填、status 枚举 approved|self 缺省 approved）、
-// 响应回显 review 与图名、claim 响应的 review_flag 条件注入（有凭据不出现）。
+// 响应回显 review 与图名、claim 响应的 review_flag 条件注入（仅 approved 不出现）。
 // 断言针对 dist 构建（vitest 前置 npm run build），与既有 MCP 测试同构。
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import * as fs from "node:fs";
@@ -225,5 +225,24 @@ describe("DEC-1 graph_approve（MCP 通道）", () => {
       arguments: { by: "alice", level: "" },
     });
     expect(r.isError).toBe(true);
+  });
+
+  it("AP-13 status=self：MCP next 仍保留 review_flag，明确 approved 才消除", async () => {
+    const created = await client.callTool({
+      name: "graph_create_node",
+      arguments: { id: "self-check", label: "Self check" },
+    });
+    expect(created.isError).toBeFalsy();
+
+    const approved = await client.callTool({
+      name: "graph_approve",
+      arguments: { by: "quick-op", status: "self" },
+    });
+    expect(approved.isError).toBeFalsy();
+
+    const next = await client.callTool({ name: "graph_get_next_actions", arguments: {} });
+    const body = parseBody(next.content![0].text);
+    const selfCheck = body.ready_eligible.find((n: any) => n.id === "self-check");
+    expect(selfCheck?.review_flag).toBe(REVIEW_FLAG_UNREVIEWED);
   });
 });

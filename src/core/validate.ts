@@ -226,37 +226,35 @@ export function validateGraphDir(rootDir: string): GraphValidateResult {
   // 5. 拓扑排序 + 循环检测
   let topo_ok = true;
   let cycles_found = false;
-  if (nodes.length > 1) {
-    try {
-      topologicalSort(
-        nodes.map((n) => n.id),
-        edges,
-      );
-    } catch (e: any) {
-      errors.push(`拓扑排序失败: ${e.message}`);
-      topo_ok = false;
-    }
-
-    const cycles = detectCycles(
+  try {
+    topologicalSort(
       nodes.map((n) => n.id),
       edges,
     );
-    cycles_found = cycles.length > 0;
-    for (const cycle of cycles) {
-      errors.push(`检测到循环依赖: ${cycle.join(" → ")}`);
-    }
+  } catch (e: any) {
+    errors.push(`拓扑排序失败: ${e.message}`);
+    topo_ok = false;
+  }
 
-    // FIX-B1：隐藏环路（fan 门控边闭合的互等环——ready 门禁今天就会死锁，
-    // 但拓扑排序不可见。fallback/iterates 闭合属设计内回退/迭代，仅 per-edge 警告）
-    const hidden = detectHiddenCycles(
-      nodes.map((n) => n.id),
-      edges,
+  const cycles = detectCycles(
+    nodes.map((n) => n.id),
+    edges,
+  );
+  cycles_found = cycles.length > 0;
+  for (const cycle of cycles) {
+    errors.push(`检测到循环依赖: ${cycle.join(" → ")}`);
+  }
+
+  // FIX-B1：隐藏环路（fan 门控边闭合的互等环——ready 门禁今天就会死锁，
+  // 但拓扑排序不可见。fallback/iterates 闭合属设计内回退/迭代，仅 per-edge 警告）
+  const hidden = detectHiddenCycles(
+    nodes.map((n) => n.id),
+    edges,
+  );
+  for (const cycle of hidden) {
+    warnings.push(
+      `隐藏环路（fan_out/fan_in 门控边闭合: ${cycle.join(" → ")}）：门禁互等，节点可能永远无法 ready`,
     );
-    for (const cycle of hidden) {
-      warnings.push(
-        `隐藏环路（fan_out/fan_in 门控边闭合: ${cycle.join(" → ")}）：门禁互等，节点可能永远无法 ready`,
-      );
-    }
   }
 
   // 6. 引用完整性（双向）

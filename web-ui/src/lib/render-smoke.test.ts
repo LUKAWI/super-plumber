@@ -74,6 +74,39 @@ function miniGraph(): GraphIndex {
 	} as unknown as GraphIndex;
 }
 
+function knowledgeOnlyGraph(): GraphIndex {
+	return {
+		name: "knowledge-only",
+		nodes: [
+			{
+				id: "ctx-boundary",
+				type: "context",
+				label: "Web 边界",
+				level: 0,
+				status: "accepted",
+				attempts: 0,
+				max_attempts: 1,
+				created_at: "",
+				updated_at: "",
+			},
+			{
+				id: "adr-boundary",
+				type: "adr",
+				label: "边界契约",
+				level: 0,
+				status: "accepted",
+				attempts: 0,
+				max_attempts: 1,
+				created_at: "",
+				updated_at: "",
+			},
+		],
+		edges: [],
+		adjacency: {},
+		reverseAdj: {},
+	} as unknown as GraphIndex;
+}
+
 describe("App 渲染冒烟（S0-6 黑屏回归）", () => {
 	let app: ReturnType<typeof mount> | null = null;
 
@@ -129,4 +162,29 @@ describe("App 渲染冒烟（S0-6 黑屏回归）", () => {
       expect(graphState.frontierOnly).toBe(true);
     });
   });
+
+	it("RS-04 同 ID 全量更新重建节点 datum，不残留旧标签/状态", async () => {
+		app = mount(App, { target: document.body });
+		graphState.applyFull("smoke", miniGraph());
+		await vi.waitFor(() => expect(document.querySelector("text.node-label")?.textContent).toContain("冒烟节点"));
+
+		const updated = miniGraph();
+		updated.nodes[0] = { ...updated.nodes[0], label: "同 ID 新状态", status: "running" };
+		graphState.applyFull("smoke", updated);
+		await vi.waitFor(() => {
+			expect(document.querySelector("text.node-label")?.textContent).toContain("同 ID 新状态");
+			expect(document.querySelector("g.node.st-running")).not.toBeNull();
+		});
+	});
+
+	it("RS-05 只有 context/ADR 的空知识图显示可恢复空态", async () => {
+		app = mount(App, { target: document.body });
+		graphState.applyFull("knowledge-only", knowledgeOnlyGraph());
+		await vi.waitFor(() => {
+			const empty = document.querySelector(".knowledge-empty");
+			expect(empty).not.toBeNull();
+			expect(empty?.textContent).toContain("空知识图");
+		});
+		expect(document.querySelector(".lens-empty:not(.knowledge-empty)")).toBeNull();
+	});
 });

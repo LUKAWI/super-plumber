@@ -1,6 +1,6 @@
 {
   "name": "super-plumber",
-  "version": "0.9.5",
+  "version": "0.9.6",
   "description": "Super Plumber workflow orchestration: design task graphs as agent-native topologies, then execute them node by node.",
   "author": {
     "name": "lukawi",

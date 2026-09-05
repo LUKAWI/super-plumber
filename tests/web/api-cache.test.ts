@@ -1,7 +1,7 @@
 // tests/web/api-cache.test.ts
 // f13 回归（S2-9）：/api/graph 与 WS 初始推送统一启用索引缓存。
-// 缓存命中用"mtime 回拨"确定性观测（直接改文件 + utimes 回拨 → isFresh 判新鲜
-// → 命中缓存的响应仍返回旧 label；若未启用缓存则会读到新 label）。
+// 缓存一致性用"mtime 回拨"确定性观测（直接改文件 + utimes 回拨 → 源代际仍变化
+// → /api/graph 不得复活旧 label）。
 // 写后读一致性走正规写路径（createNode → invalidateIndex）。
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import * as fs from "node:fs";
@@ -54,11 +54,12 @@ async function apiGraph(): Promise<{ nodes: { id: string; label?: string }[]; ed
 }
 
 describe("f13 Web 缓存统一（S2-9）", () => {
-  it("WC-01 连续 /api/graph 第二次命中缓存（mtime 回拨确定性观测）", async () => {
+  it("WC-01 mtime 回拨后 /api/graph 仍返回更新节点（不得复活旧缓存）", async () => {
     const first = await apiGraph();
     expect(first.nodes.map((n) => n.id).sort()).toEqual(["a", "b"]);
 
-    // 直接改文件 + mtime 回拨（模拟 NTFS mtime 滞后）：缓存命中则读到旧 label
+    // 直接改文件 + mtime 回拨（模拟 NTFS mtime 滞后）。0.9.6 的 ctime/size/身份
+    // 快照必须使旧代际失效，Web 不能把旧 label 复活出来。
     const aFile = path.join(tmpDir, ".graph", "nodes", "a.yaml");
     const raw = fs.readFileSync(aFile, "utf-8");
     fs.writeFileSync(aFile, raw.replace("label: A", "label: A-MUTATED"), "utf-8");
@@ -67,7 +68,7 @@ describe("f13 Web 缓存统一（S2-9）", () => {
 
     const second = await apiGraph();
     const a2 = second.nodes.find((n) => n.id === "a");
-    expect(a2?.label).toBe("A"); // 命中缓存（未回源）；未启用缓存会是 A-MUTATED
+    expect(a2?.label).toBe("A-MUTATED");
   });
 
   it("WC-02 正规写路径后 /api/graph 数据一致（invalidateIndex 生效）", async () => {

@@ -37,6 +37,8 @@ describe("createGraphConnection (reconnect)", () => {
 
   function makeFetch() {
     return vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
       json: () => Promise.resolve({ nodes: [], edges: [] }),
     }) as unknown as typeof fetch;
   }
@@ -83,6 +85,85 @@ describe("createGraphConnection (reconnect)", () => {
     expect(FakeWebSocket.instances).toHaveLength(2);
   });
 
+  it("HTTP fallback 校验状态与 payload，错误不伪造图数据", async () => {
+    const onGraph = vi.fn();
+    const onError = vi.fn();
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: () => Promise.resolve({ nodes: [], edges: [] }),
+    }) as unknown as typeof fetch;
+    const disconnect = createGraphConnection({
+      url: "ws://test/graph",
+      onGraph,
+      onNodeUpdated: vi.fn(),
+      onError,
+      reconnectDelays: [10],
+      WebSocketImpl: FakeWebSocket as unknown as typeof WebSocket,
+      fetchImpl,
+    });
+
+    FakeWebSocket.instances[0].serverClose();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onGraph).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith({ code: "HTTP_ERROR", graph: "default", retryable: true });
+    disconnect();
+  });
+
+  it("HTTP 2xx 但坏 payload 时进入降级错误契约", async () => {
+    const onGraph = vi.fn();
+    const onError = vi.fn();
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ error: "half-written" }),
+    }) as unknown as typeof fetch;
+    const disconnect = createGraphConnection({
+      url: "ws://test/graph",
+      onGraph,
+      onNodeUpdated: vi.fn(),
+      onError,
+      reconnectDelays: [10],
+      WebSocketImpl: FakeWebSocket as unknown as typeof WebSocket,
+      fetchImpl,
+    });
+
+    FakeWebSocket.instances[0].serverClose();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onGraph).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith({ code: "INVALID_PAYLOAD", graph: "default", retryable: true });
+    disconnect();
+  });
+
+  it("重连后的 WS 全量使旧 HTTP fallback 失效", async () => {
+    const onGraph = vi.fn();
+    let resolveFetch!: (response: unknown) => void;
+    const fetchImpl = vi.fn(() => new Promise((resolve) => { resolveFetch = resolve; })) as unknown as typeof fetch;
+    const disconnect = createGraphConnection({
+      url: "ws://test/graph",
+      onGraph,
+      onNodeUpdated: vi.fn(),
+      reconnectDelays: [10],
+      WebSocketImpl: FakeWebSocket as unknown as typeof WebSocket,
+      fetchImpl,
+    });
+
+    const first = FakeWebSocket.instances[0];
+    first.serverClose();
+    await vi.advanceTimersByTimeAsync(10);
+    const second = FakeWebSocket.instances[1];
+    second.serverOpen();
+    second.serverMessage({ type: "graph:full", graph: "default", data: { nodes: [], edges: [] } });
+    resolveFetch({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ nodes: [], edges: [] }),
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onGraph).toHaveBeenCalledTimes(1);
+    disconnect();
+  });
+
   it("node:updated 增量消息按图名路由到 onNodeUpdated", () => {
     const onNodeUpdated = vi.fn();
     createGraphConnection({
@@ -97,7 +178,17 @@ describe("createGraphConnection (reconnect)", () => {
       type: "node:updated",
       graph: "refactor-auth",
       nodeId: "a",
-      node: { id: "a", status: "running" },
+      node: {
+        id: "a",
+        type: "task",
+        label: "A",
+        level: 1,
+        status: "running",
+        attempts: 1,
+        max_attempts: 3,
+        created_at: "",
+        updated_at: "",
+      },
     });
     expect(onNodeUpdated).toHaveBeenCalledWith(
       "refactor-auth",
@@ -137,6 +228,8 @@ describe("createGraphConnection (multi-graph routing)", () => {
       onGraphsList,
       WebSocketImpl: FakeWebSocket as unknown as typeof WebSocket,
       fetchImpl: vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
         json: () => Promise.resolve({ nodes: [], edges: [] }),
       }) as unknown as typeof fetch,
     });
@@ -154,9 +247,24 @@ describe("createGraphConnection (multi-graph routing)", () => {
 
   it("不同图名的 node:updated 分别投递（后台图热更新不打扰当前图）", () => {
     const { ws, onNodeUpdated } = setup();
-    ws.serverMessage({ type: "node:updated", graph: "alpha", nodeId: "n1", node: { id: "n1" } });
+    ws.serverMessage({
+      type: "node:updated",
+      graph: "alpha",
+      nodeId: "n1",
+      node: {
+        id: "n1",
+        type: "task",
+        label: "N1",
+        level: 1,
+        status: "pending",
+        attempts: 0,
+        max_attempts: 3,
+        created_at: "",
+        updated_at: "",
+      },
+    });
     ws.serverMessage({ type: "node:updated", graph: "beta", nodeId: "n2", node: null, removed: true });
-    expect(onNodeUpdated).toHaveBeenNthCalledWith(1, "alpha", "n1", { id: "n1" });
+    expect(onNodeUpdated).toHaveBeenNthCalledWith(1, "alpha", "n1", expect.objectContaining({ id: "n1" }));
     expect(onNodeUpdated).toHaveBeenNthCalledWith(2, "beta", "n2", null);
   });
 
@@ -186,5 +294,29 @@ describe("createGraphConnection (multi-graph routing)", () => {
     expect(onGraph).not.toHaveBeenCalled();
     expect(onNodeUpdated).not.toHaveBeenCalled();
     expect(onGraphsList).not.toHaveBeenCalled();
+  });
+
+  it("服务端 graph:error 进入可恢复错误回调", () => {
+    const onError = vi.fn();
+    const disconnect = createGraphConnection({
+      url: "ws://test/graph",
+      onGraph: vi.fn(),
+      onNodeUpdated: vi.fn(),
+      onError,
+      WebSocketImpl: FakeWebSocket as unknown as typeof WebSocket,
+      fetchImpl: vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ nodes: [], edges: [] }),
+      }) as unknown as typeof fetch,
+    });
+    const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+    ws.serverMessage({
+      type: "graph:error",
+      graph: "alpha",
+      error: { code: "GRAPH_UNAVAILABLE", retryable: true, message: "暂不可用" },
+    });
+    expect(onError).toHaveBeenCalledWith({ code: "GRAPH_UNAVAILABLE", graph: "alpha", retryable: true });
+    disconnect();
   });
 });

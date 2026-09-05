@@ -7,6 +7,7 @@ import type {
 	GraphMeta,
 } from "./types";
 import { DEFAULT_ACTIVE_MAPS, type ActiveMaps, type MapKind } from "./maps";
+import { GraphApiError, readGraphResponse } from "./api";
 
 export type { ActiveMaps, MapKind };
 
@@ -236,13 +237,21 @@ export const graphState = {
 		b.loadError = null;
 		try {
 			const res = await fetch(`/api/graph?graph=${encodeURIComponent(name)}`);
-			if (res.ok) {
-				this.applyFull(name, (await res.json()) as GraphIndex);
-			} else {
-				b.loadError = `服务端返回 ${res.status}`;
+			const graph = await readGraphResponse(res);
+			// 查询参数与载荷图名必须一致；缺省 name 只为旧服务端兼容，
+			// 但服务端显式返回另一张图时不能把数据落进当前桶。
+			if (graph.name !== undefined && graph.name !== name) {
+				throw new GraphApiError("payload", "服务端返回了不匹配的图数据", res.status);
 			}
-		} catch {
-			b.loadError = "网络不可达——检查 graph serve 是否在运行";
+			this.applyFull(name, graph);
+		} catch (error: unknown) {
+			if (error instanceof GraphApiError) {
+				b.loadError = error.kind === "http" && error.status !== undefined
+					? `服务端返回 ${error.status}`
+					: "服务端返回无效图数据";
+			} else {
+				b.loadError = "网络不可达——检查 graph serve 是否在运行";
+			}
 		} finally {
 			b.loading = false;
 		}

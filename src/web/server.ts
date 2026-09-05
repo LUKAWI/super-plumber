@@ -39,6 +39,49 @@ export interface GraphsPayload {
   graphs: GraphMeta[];
 }
 
+export interface WebServerOptions {
+  open?: boolean;
+  /** WebSocket 活跃连接上限（含尚在握手中的连接）。 */
+  maxWebSocketClients?: number;
+  /** 单客户端尚未完成发送的消息数上限。 */
+  maxWebSocketPendingMessages?: number;
+  /** 单客户端尚未完成发送的字节数上限。 */
+  maxWebSocketPendingBytes?: number;
+  /** 简短别名，便于嵌入式调用方配置同一边界。 */
+  maxConnections?: number;
+  maxPendingMessages?: number;
+  maxPendingBytes?: number;
+}
+
+export const DEFAULT_MAX_WEBSOCKET_CLIENTS = 64;
+export const DEFAULT_MAX_WEBSOCKET_PENDING_MESSAGES = 64;
+export const DEFAULT_MAX_WEBSOCKET_PENDING_BYTES = 4 * 1024 * 1024;
+const SLOW_CLIENT_CLOSE_CODE = 1013;
+const SLOW_CLIENT_CLOSE_REASON = "发送队列已满，请稍后重连";
+
+function positiveLimit(value: number | undefined, fallback: number): number {
+  return value !== undefined && Number.isFinite(value) && value > 0
+    ? Math.max(1, Math.floor(value))
+    : fallback;
+}
+
+/**
+ * 本地 serve 只接受本机 HTTP 页面发起的浏览器 WebSocket 连接。
+ * 非浏览器客户端通常不发送 Origin，保留该连接方式便于 CLI/自动化探针使用。
+ */
+export function isAllowedWebSocketOrigin(origin: string | undefined): boolean {
+  if (!origin) return true;
+  try {
+    const parsed = new URL(origin);
+    return (
+      parsed.protocol === "http:" &&
+      ["localhost", "127.0.0.1", "::1", "[::1]"].includes(parsed.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** 工作区级文件（不属于任何图）与旧布局已知的图内顶层名 */
 const WS_LEVEL_FILES = new Set(["active", "workspace-events.jsonl", "schema.yaml"]);
 const LEGACY_INSIDE_TOPS = new Set(["nodes", "edges", "snapshots", "index", "events.jsonl"]);
@@ -248,7 +291,7 @@ function serveStatic(req: http.IncomingMessage, res: http.ServerResponse): void 
 export function startServer(
   rootDir: string,
   port: number = 8934,
-  options: { open?: boolean } = {},
+  options: WebServerOptions = {},
 ) {
   // rootDir 兼容两种传法：工作区根（CLI serve 的 process.cwd()）或图目录
   // （workspaceOf 归一化到工作区根——多图服务必须以工作区为监听单位）
@@ -324,29 +367,57 @@ export function startServer(
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     const respondJson = (data: unknown) => {
-      res.writeHead(200, { "Content-Type": "application/json" });
+      res.writeHead(200, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      });
       res.end(JSON.stringify(data));
     };
-    const respondError = (status: number, message: string) => {
-      res.writeHead(status, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: message }));
+    const respondError = (
+      status: number,
+      message: string,
+      code = status >= 500 ? "INTERNAL_ERROR" : "REQUEST_ERROR",
+      retryable = status >= 500 || status === 408 || status === 429,
+    ) => {
+      res.writeHead(status, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      });
+      // 对外只返回稳定、脱敏的契约字段；底层异常只写入本机 serve 日志。
+      res.end(JSON.stringify({ error: message, code, retryable }));
     };
 
     // 全部图的元信息（图选择器数据源）
     if (url.pathname === "/api/graphs") {
-      refreshGraphs();
-      respondJson(graphsPayload());
+      try {
+        refreshGraphs();
+        respondJson(graphsPayload());
+      } catch (err: any) {
+        console.error("[serve] /api/graphs failed:", err?.message);
+        respondError(500, "内部错误：图列表暂不可用", "GRAPHS_UNAVAILABLE", true);
+      }
       return;
     }
     if (url.pathname === "/api/graph") {
-      const target = resolveGraphTarget(url);
-      if (!target) {
-        respondError(404, `图 "${url.searchParams.get("graph")}" 不存在`);
-        return;
+      try {
+        const target = resolveGraphTarget(url);
+        if (!target) {
+          respondError(404, `图 "${url.searchParams.get("graph")}" 不存在`, "GRAPH_NOT_FOUND", false);
+          return;
+        }
+        // S2-9（f13）：启用索引缓存——与 watcher 推送路径同一 I/O 模型，
+        // 连续 /api/graph 轮询不再全量扫盘；跨进程写由 isFresh 的 mtime 检查兜底
+        respondJson(
+          serializeGraphIndex(buildGraphIndex(target.apiRoot, { useCache: true }), target.apiRoot, target.name),
+        );
+      } catch (err: any) {
+        // S0-5：内部错误脱敏——细节只进本机终端，不向客户端回显；
+        // 尤其要隔离损坏的节点/边 YAML，避免单次轮询击穿 serve 进程。
+        console.error("[serve] /api/graph failed:", err?.message);
+        respondError(500, "内部错误：图数据暂不可用", "GRAPH_UNAVAILABLE", true);
       }
-      // S2-9（f13）：启用索引缓存——与 watcher 推送路径同一 I/O 模型，
-      // 连续 /api/graph 轮询不再全量扫盘；跨进程写由 isFresh 的 mtime 检查兜底
-      respondJson(serializeGraphIndex(buildGraphIndex(target.apiRoot, { useCache: true }), target.apiRoot, target.name));
       return;
     }
     // 快照列表（UI diff 视图数据源；?graph=<名> 缺省 = active 图）
@@ -354,14 +425,14 @@ export function startServer(
       try {
         const target = resolveGraphTarget(url);
         if (!target) {
-          respondError(404, `图 "${url.searchParams.get("graph")}" 不存在`);
+          respondError(404, `图 "${url.searchParams.get("graph")}" 不存在`, "GRAPH_NOT_FOUND", false);
           return;
         }
         respondJson(listSnapshots(target.apiRoot));
       } catch (err: any) {
         // S0-5：内部错误脱敏——细节只进本机终端，不向客户端回显
         console.error("[serve] /api/snapshots failed:", err?.message);
-        respondError(500, "内部错误（详见 serve 终端输出）");
+        respondError(500, "内部错误：快照暂不可用", "SNAPSHOTS_UNAVAILABLE", true);
       }
       return;
     }
@@ -370,7 +441,7 @@ export function startServer(
       try {
         const target = resolveGraphTarget(url);
         if (!target) {
-          respondError(404, `图 "${url.searchParams.get("graph")}" 不存在`);
+          respondError(404, `图 "${url.searchParams.get("graph")}" 不存在`, "GRAPH_NOT_FOUND", false);
           return;
         }
         const against = url.searchParams.get("against") ?? undefined;
@@ -387,14 +458,137 @@ export function startServer(
       } catch (err: any) {
         // S0-5：内部错误脱敏——细节只进本机终端，不向客户端回显
         console.error("[serve] /api/diff failed:", err?.message);
-        respondError(500, "内部错误（详见 serve 终端输出）");
+        respondError(500, "内部错误：差异暂不可用", "DIFF_UNAVAILABLE", true);
       }
       return;
     }
     serveStatic(req, res);
   });
 
-  const wss = new WebSocketServer({ server });
+  const maxWsClients = positiveLimit(
+    options.maxWebSocketClients ?? options.maxConnections,
+    DEFAULT_MAX_WEBSOCKET_CLIENTS,
+  );
+  const maxWsPendingMessages = positiveLimit(
+    options.maxWebSocketPendingMessages ?? options.maxPendingMessages,
+    DEFAULT_MAX_WEBSOCKET_PENDING_MESSAGES,
+  );
+  const maxWsPendingBytes = positiveLimit(
+    options.maxWebSocketPendingBytes ?? options.maxPendingBytes,
+    DEFAULT_MAX_WEBSOCKET_PENDING_BYTES,
+  );
+  const clients = new Set<WebSocket>();
+  const clientStates = new Map<WebSocket, { pendingMessages: number; pendingBytes: number }>();
+  const acceptedRequests = new Set<http.IncomingMessage>();
+  const slowClientTimers = new Map<WebSocket, ReturnType<typeof setTimeout>>();
+  let pendingHandshakes = 0;
+
+  const verifyClient = (
+    info: { origin: string; req: http.IncomingMessage },
+    callback: (
+      verified: boolean,
+      code?: number,
+      message?: string,
+      headers?: http.OutgoingHttpHeaders,
+    ) => void,
+  ) => {
+    if (!isAllowedWebSocketOrigin(info.origin)) {
+      callback(false, 403, "Forbidden WebSocket Origin");
+      return;
+    }
+    if (clients.size + pendingHandshakes >= maxWsClients) {
+      callback(false, 503, "WebSocket capacity reached", { "Retry-After": "1" });
+      return;
+    }
+    pendingHandshakes += 1;
+    acceptedRequests.add(info.req);
+    const releaseHandshake = () => {
+      if (acceptedRequests.delete(info.req)) pendingHandshakes = Math.max(0, pendingHandshakes - 1);
+    };
+    info.req.once("close", releaseHandshake);
+    callback(true);
+  };
+
+  const graphUnavailableMessage = (graph: string) => ({
+    type: "graph:error",
+    graph,
+    error: {
+      code: "GRAPH_UNAVAILABLE",
+      retryable: true,
+      message: "图数据暂不可用，请稍后重试",
+    },
+  });
+
+  function disconnectSlowClient(client: WebSocket): void {
+    if (!clients.has(client)) return;
+    const state = clientStates.get(client);
+    if (state) {
+      state.pendingMessages = 0;
+      state.pendingBytes = 0;
+    }
+    try {
+      if (client.readyState === WebSocket.OPEN) {
+        client.close(SLOW_CLIENT_CLOSE_CODE, SLOW_CLIENT_CLOSE_REASON);
+      }
+    } catch {
+      try {
+        client.terminate();
+      } catch {
+        /* 已关闭的客户端无需再处理 */
+      }
+    }
+    if (!slowClientTimers.has(client)) {
+      const timer = setTimeout(() => {
+        slowClientTimers.delete(client);
+        if (client.readyState !== WebSocket.CLOSED) {
+          try {
+            client.terminate();
+          } catch {
+            /* 已关闭的客户端无需再处理 */
+          }
+        }
+      }, 250);
+      slowClientTimers.set(client, timer);
+    }
+  }
+
+  function sendToClient(client: WebSocket, json: string): boolean {
+    if (client.readyState !== WebSocket.OPEN) return false;
+    const state = clientStates.get(client);
+    if (!state) return false;
+    const bytes = Buffer.byteLength(json, "utf8");
+    const bufferedBytes = Number.isFinite(client.bufferedAmount) ? Math.max(0, client.bufferedAmount) : 0;
+    if (
+      state.pendingMessages >= maxWsPendingMessages ||
+      state.pendingBytes + bufferedBytes + bytes > maxWsPendingBytes
+    ) {
+      disconnectSlowClient(client);
+      return false;
+    }
+    state.pendingMessages += 1;
+    state.pendingBytes += bytes;
+    let settled = false;
+    const done = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      const current = clientStates.get(client);
+      if (!current) return;
+      current.pendingMessages = Math.max(0, current.pendingMessages - 1);
+      current.pendingBytes = Math.max(0, current.pendingBytes - bytes);
+      if (error) disconnectSlowClient(client);
+    };
+    try {
+      client.send(json, done);
+    } catch {
+      done(new Error("WebSocket send failed"));
+    }
+    return true;
+  }
+
+  const wss = new WebSocketServer({
+    server,
+    verifyClient,
+  });
   // ws 库会把 http server 的 'error' 事件转发到 wss 实例（this.emit.bind），
   // wss 无监听器时 emit('error') 直接 throw 并中断后续监听器——必须给 wss 也注册
   wss.on("error", (err: NodeJS.ErrnoException) => {
@@ -404,25 +598,43 @@ export function startServer(
     }
     throw err;
   });
-  const clients = new Set<WebSocket>();
-
   function broadcast(msg: unknown) {
-    const json = JSON.stringify(msg);
+    let json: string;
+    try {
+      json = JSON.stringify(msg);
+    } catch (err: any) {
+      console.error("[serve] websocket message serialization failed:", err?.message);
+      return;
+    }
     for (const client of clients) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(json);
-      }
+      sendToClient(client, json);
     }
   }
 
-  wss.on("connection", (ws) => {
+  wss.on("connection", (ws, req) => {
+    if (acceptedRequests.delete(req)) pendingHandshakes = Math.max(0, pendingHandshakes - 1);
     clients.add(ws);
-    ws.on("close", () => clients.delete(ws));
+    clientStates.set(ws, { pendingMessages: 0, pendingBytes: 0 });
+    ws.on("close", () => {
+      clients.delete(ws);
+      clientStates.delete(ws);
+      const timer = slowClientTimers.get(ws);
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        slowClientTimers.delete(ws);
+      }
+    });
     // 连接建立：先推图列表（前端据此渲染选图器并选中 active），
     // 再推初始图（active，无 active 时第一张）的 full 快照；
     // 其余图由前端切换到时经 /api/graph?graph=<名> 懒加载。
-    const payload = graphsPayload();
-    ws.send(JSON.stringify({ type: "graphs:list", graph: "*", data: payload }));
+    let payload: GraphsPayload;
+    try {
+      payload = graphsPayload();
+    } catch (err: any) {
+      console.error("[serve] websocket initial graph list failed:", err?.message);
+      payload = { active: null, graphs: [] };
+    }
+    sendToClient(ws, JSON.stringify({ type: "graphs:list", graph: "*", data: payload }));
     const initial =
       payload.active !== null && graphEntries.has(payload.active)
         ? payload.active
@@ -430,7 +642,8 @@ export function startServer(
     if (initial !== null) {
       const dir = graphEntries.get(initial)!;
       try {
-        ws.send(
+        sendToClient(
+          ws,
           JSON.stringify({
             type: "graph:full",
             graph: initial,
@@ -439,7 +652,8 @@ export function startServer(
           }),
         );
       } catch {
-        /* 图半初始化（graph.yaml 不可读）：跳过 full，等 watcher 推送 */
+        // 图半初始化（graph.yaml 不可读）时保留连接，交给前端按可恢复错误降级。
+        sendToClient(ws, JSON.stringify(graphUnavailableMessage(initial)));
       }
     }
   });
@@ -457,11 +671,18 @@ export function startServer(
         fullTimers.delete(graphName);
         const dir = graphEntries.get(graphName);
         if (!dir || !fs.existsSync(path.join(dir, GRAPH_FILE))) return; // 图已删除：graphs:list 已接管
-        broadcast({
-          type: "graph:update",
-          graph: graphName,
-          data: serializeGraphIndex(buildGraphIndex(dir, { useCache: true }), dir, graphName),
-        });
+        try {
+          broadcast({
+            type: "graph:update",
+            graph: graphName,
+            data: serializeGraphIndex(buildGraphIndex(dir, { useCache: true }), dir, graphName),
+          });
+        } catch (err: any) {
+          // 文件监听回调在定时器中执行，必须自行隔离损坏/半写入的图文件，
+          // 否则异常会变成 uncaught exception 终止整个 serve 进程。
+          console.error("[serve] graph broadcast failed:", err?.message);
+          broadcast(graphUnavailableMessage(graphName));
+        }
       }, FULL_BROADCAST_DEBOUNCE_MS),
     );
   }
@@ -473,8 +694,12 @@ export function startServer(
     if (rescanTimer !== null) clearTimeout(rescanTimer);
     rescanTimer = setTimeout(() => {
       rescanTimer = null;
-      refreshGraphs();
-      broadcast({ type: "graphs:list", graph: "*", data: graphsPayload() });
+      try {
+        refreshGraphs();
+        broadcast({ type: "graphs:list", graph: "*", data: graphsPayload() });
+      } catch (err: any) {
+        console.error("[serve] graph list broadcast failed:", err?.message);
+      }
     }, RESCAN_DEBOUNCE_MS);
   }
 
@@ -497,12 +722,19 @@ export function startServer(
         .pop()!
         .replace(/\.yaml$/, "")
         .replace(/\.deleted.*$/, "");
-      // 软删除或 unlink 时节点可能不存在
+      const nodeFile = path.join(dir, "nodes", `${nodeId}.yaml`);
+      const isUnlink = event.type === "unlink";
+      // 软删除或 unlink 时节点可能不存在；change/add 的半写入不能伪装成删除。
       let node: ReturnType<typeof getNode> | null = null;
       try {
         node = getNode(dir, nodeId);
-      } catch {
-        /* 节点已删除 */
+      } catch (err: any) {
+        if (!isUnlink || fs.existsSync(nodeFile)) {
+          console.error("[serve] node broadcast failed:", err?.message);
+          broadcast(graphUnavailableMessage(route.graph));
+          return;
+        }
+        /* unlink 后节点确实不存在，按删除推送 */
       }
       broadcast({
         type: "node:updated",

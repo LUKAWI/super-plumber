@@ -8,7 +8,15 @@ import {
   type Contract,
   GATE_EDGE_TYPES,
 } from "./types.js";
-import { readNode, writeNode, nodeFilePath, addGraphRef } from "./graph-io.js";
+import {
+  readNode,
+  writeNode,
+  writeNodeCore,
+  nodeFilePath,
+  addGraphRefLocked,
+  ensureGraphDir,
+  withGraphLock,
+} from "./graph-io.js";
 import { transition } from "./state-machine.js";
 import { withLockSync } from "./lock.js";
 import {
@@ -24,6 +32,8 @@ import { withGraphAmend } from "./amend.js";
 // arch-c1（C1）：NODE_NOT_FOUND / 门禁 / 非法转换 / 接替者缺失落机器可读 code
 import { ErrorCode, GraphError, nodeNotFound } from "./errors.js";
 import * as fs from "node:fs";
+import { toGraphDir } from "./graph-dir.js";
+import { invalidateIndex } from "./index-service.js";
 
 export { GATE_EDGE_TYPES } from "./types.js";
 
@@ -50,16 +60,17 @@ export function createNode(
   // S0-3：入口断言（进锁之前）——非法 ID（含 Windows 非法文件名字符）若先进锁，
   // 锁文件名编码不覆盖 * 等字符会在 .locks/ 上 ENOENT 崩掉，报错面目全非
   assertValidEntityId("节点", params.id);
-  return withLockSync(rootDir, params.id, () => {
+  const graphDir = toGraphDir(rootDir);
+  return withLockSync(graphDir, params.id, () => {
     // 重复 id 检查（锁内）：不静默覆盖已有节点，并发创建也只有一个成功
-    if (fs.existsSync(nodeFilePath(rootDir, params.id))) {
+    if (fs.existsSync(nodeFilePath(graphDir, params.id))) {
       throw new Error(`Node ${params.id} already exists`);
     }
     // F21 (a)(b)（C5 组合器）：结构修订守卫——落图前自动快照 + 成功后
     // graph_amended 事件/review 回置。重复 id 拒绝路径（上方）在守卫段之前，
     // 不留快照；batch_create 外层统一守卫，嵌套内层自动免守卫（防快照风暴）。
     return withGraphAmend(
-      rootDir,
+      graphDir,
       { action: "add-node", target: params.id, actor: opts.actor },
       () => {
         const now = new Date().toISOString();
@@ -84,15 +95,36 @@ export function createNode(
           updated_at: now,
           ...(params.checkpoints ? { checkpoints: params.checkpoints } : {}),
         };
-        writeNode(rootDir, node);
-        if (opts.syncRef !== false) addGraphRef(rootDir, "node", node.id);
-        appendEvent(rootDir, {
-          actor: opts.actor ?? "unknown",
-          kind: "node_created",
-          node: node.id,
-          to: NodeStatus.Pending,
+        return withGraphLock(graphDir, () => {
+          // 与直接 graph-io 写入并发时仍在图锁内复查，避免覆盖同名实体。
+          if (fs.existsSync(nodeFilePath(graphDir, params.id))) {
+            throw new Error(`Node ${params.id} already exists`);
+          }
+          ensureGraphDir(graphDir);
+          let entityWritten = false;
+          try {
+            writeNodeCore(graphDir, node);
+            entityWritten = true;
+            if (opts.syncRef !== false) addGraphRefLocked(graphDir, "node", node.id);
+          } catch (error) {
+            if (entityWritten) {
+              try {
+                fs.rmSync(nodeFilePath(graphDir, node.id), { force: true });
+                invalidateIndex(graphDir);
+              } catch {
+                /* best-effort compensation */
+              }
+            }
+            throw error;
+          }
+          appendEvent(graphDir, {
+            actor: opts.actor ?? "unknown",
+            kind: "node_created",
+            node: node.id,
+            to: NodeStatus.Pending,
+          });
+          return node;
         });
-        return node;
       },
     );
   });
@@ -116,7 +148,8 @@ export function getGoverningAdrs(
   rootDir: string,
   nodeId: string,
 ): ReturnType<typeof governingAdrsFor> {
-  const index = buildGraphIndex(rootDir, { useCache: true });
+  const graphDir = toGraphDir(rootDir);
+  const index = buildGraphIndex(graphDir, { useCache: true });
   return governingAdrsFor(index.nodes, index.edges, nodeId);
 }
 
@@ -142,7 +175,8 @@ export interface GateResult {
 }
 
 export function checkReadyGate(rootDir: string, nodeId: string): GateResult {
-  const index = buildGraphIndex(rootDir, { useCache: true });
+  const graphDir = toGraphDir(rootDir);
+  const index = buildGraphIndex(graphDir, { useCache: true });
   const sources = index.gateReverseAdj.get(nodeId) ?? [];
   if (sources.length === 0) return { ok: true, unmet: [] };
 
@@ -150,7 +184,7 @@ export function checkReadyGate(rootDir: string, nodeId: string): GateResult {
   const statuses = new Map<string, string>();
   for (const src of sources) {
     try {
-      statuses.set(src, getNode(rootDir, src).status);
+      statuses.set(src, getNode(graphDir, src).status);
     } catch {
       statuses.set(src, "missing");
     }
@@ -492,8 +526,9 @@ export function updateCheckpoint(
 }
 
 export function listNodes(rootDir: string): NodeSchema[] {
-  return listNodeFileNames(rootDir).map((f) =>
-    readNode(rootDir, f.replace(/\.yaml$/, "")),
+  const graphDir = toGraphDir(rootDir);
+  return listNodeFileNames(graphDir).map((f) =>
+    readNode(graphDir, f.replace(/\.yaml$/, "")),
   );
 }
 
@@ -510,8 +545,9 @@ export interface CreateAdrParams {
 
 /** 下一个 ADR 编号：扫描现有 adr_NNNN 顶点取最大号+1（四位零填充） */
 export function nextAdrId(rootDir: string): string {
+  const graphDir = toGraphDir(rootDir);
   let max = 0;
-  for (const f of listNodeFileNames(rootDir)) {
+  for (const f of listNodeFileNames(graphDir)) {
     const m = f.replace(/\.yaml$/, "").match(/^adr_(\d+)$/);
     if (m) max = Math.max(max, parseInt(m[1], 10));
   }
@@ -532,8 +568,9 @@ export function createAdr(
   params: CreateAdrParams,
   opts: { actor?: string } = {},
 ): NodeSchema {
+  const graphDir = toGraphDir(rootDir);
   for (let attempt = 1; ; attempt++) {
-    const id = nextAdrId(rootDir);
+    const id = nextAdrId(graphDir);
     const now = new Date().toISOString();
     const node: NodeSchema = {
       id,
@@ -554,25 +591,32 @@ export function createAdr(
       ...(params.consequences !== undefined ? { consequences: params.consequences } : {}),
     };
     try {
-      withLockSync(rootDir, id, () => {
+      withLockSync(graphDir, id, () => {
         // S1-3：锁内重复检查——编号扫描与抢锁之间的竞争在此收口，绝不覆盖
-        if (fs.existsSync(nodeFilePath(rootDir, id))) {
+        if (fs.existsSync(nodeFilePath(graphDir, id))) {
           throw new Error(`Node ${id} already exists`);
         }
         // F21 (a)(b)：ADR 顶点创建 = 建节点，同受结构修订守卫（C5 组合器；
         // 拒绝路径在守卫段之前，不留快照）
         withGraphAmend(
-          rootDir,
+          graphDir,
           { action: "add-node", target: id, actor: opts.actor },
           () => {
-            writeNode(rootDir, node);
-            addGraphRef(rootDir, "node", id);
-            appendEvent(rootDir, {
-              actor: opts.actor ?? "unknown",
-              kind: "adr_created",
-              node: id,
-              to: AdrStatus.Proposed,
-              detail: params.title,
+            return withGraphLock(graphDir, () => {
+              if (fs.existsSync(nodeFilePath(graphDir, id))) {
+                throw new Error(`Node ${id} already exists`);
+              }
+              ensureGraphDir(graphDir);
+              writeNodeCore(graphDir, node);
+              addGraphRefLocked(graphDir, "node", id);
+              appendEvent(graphDir, {
+                actor: opts.actor ?? "unknown",
+                kind: "adr_created",
+                node: id,
+                to: AdrStatus.Proposed,
+                detail: params.title,
+              });
+              return node;
             });
           },
         );

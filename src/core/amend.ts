@@ -18,10 +18,12 @@
 //   (c) 改 passed/blocked 节点 plan 的响应 nudge：planAmendNudge 供 CLI/MCP
 //       update-node 双通道在响应中各自附加「计划已变更，是否重开/重验」提示，
 //       纯提示不改状态。
+import * as path from "node:path";
 import { createSnapshot } from "./snapshot.js";
 import { resetGraphReview } from "./review.js";
 import { appendEvent } from "./eventlog.js";
 import { NodeStatus, type NodeSchema } from "./types.js";
+import { toGraphDir } from "./graph-dir.js";
 
 export type StructuralAmendAction =
   | "add-node" // createNode / createAdr（含 batch 内逐节点，由外层统一守卫）
@@ -62,6 +64,7 @@ export function beginStructuralAmend(
   rootDir: string,
   info: StructuralAmendInfo,
 ): ActiveAmend {
+  const graphDir = path.resolve(toGraphDir(rootDir));
   const by = info.actor ?? "unknown";
   const scope = info.target !== undefined ? `${info.action} ${info.target}` : info.action;
   const message =
@@ -70,7 +73,7 @@ export function beginStructuralAmend(
   try {
     // skipDocsExport：自动快照是回滚安全网、不是设计定稿点（v0.5.1 的"快照即
     // 定稿点"文档导出语义留给显式 snapshot）——零文档副作用、零写放大
-    snapshotId = createSnapshot(rootDir, message, { actor: by, skipDocsExport: true }).id;
+    snapshotId = createSnapshot(graphDir, message, { actor: by, skipDocsExport: true }).id;
   } catch {
     snapshotId = undefined; // best-effort：快照失败不阻断结构修订（红线）
   }
@@ -82,7 +85,7 @@ export function beginStructuralAmend(
       done = true;
       // (b) 审计事件：与既有事件同构（ts/actor/kind/detail），graph 级事件
       // 不带 node/edge 字段（node/edge 过滤读数保持纯净，target 走 detail）
-      appendEvent(rootDir, {
+      appendEvent(graphDir, {
         actor: by,
         kind: "graph_amended",
         detail:
@@ -94,7 +97,7 @@ export function beginStructuralAmend(
       // (b) review 回置：只写凭据字段，零门禁；图从未审核（无 review 字段）不动。
       // best-effort——回置失败不阻断（事件已在案），也不让 complete 向写路径抛错。
       try {
-        resetGraphReview(rootDir, { actor: by });
+        resetGraphReview(graphDir, { actor: by });
       } catch {
         /* 凭据回置失败不追溯阻断结构修订（红线） */
       }
@@ -127,8 +130,19 @@ export function planAmendNudge(
 // 替代各写入口的手工布线；同图嵌套调用自动免守卫（batch_create / cascade 删边
 // 等"一次操作、多次底层写"由最外层统一守卫一次），「跳过守卫」透传字段退役。
 
-/** 存活守卫作用域（按图目录登记）：嵌套判定依据，withGraphAmend 出口必清理 */
+/** 存活守卫作用域（按规范化图目录登记）：嵌套判定依据，withGraphAmend 出口必清理 */
 const activeAmendScopes = new Set<string>();
+
+/**
+ * 结构修订的唯一图身份。
+ *
+ * 调用方有时传工作区根、有时传已经解析的图目录；只用入参做 scope key
+ * 会把同一张图拆成两个活跃作用域，批量操作于是为每个内层写再次落快照。
+ * 先解析图目录、再绝对化，令快照、事件和嵌套 guard 使用同一个身份。
+ */
+function canonicalAmendGraphDir(rootDir: string): string {
+  return path.resolve(toGraphDir(rootDir));
+}
 
 /**
  * 结构修订组合器：begin（落图前自动快照）→ 执行 fn 内的写入 → 成功后
@@ -147,14 +161,17 @@ export function withGraphAmend<T>(
   info: StructuralAmendInfo,
   fn: () => T,
 ): T {
-  if (activeAmendScopes.has(rootDir)) return fn(); // 嵌套：外层统一守卫
-  const amend = beginStructuralAmend(rootDir, info);
-  activeAmendScopes.add(rootDir);
+  const graphDir = canonicalAmendGraphDir(rootDir);
+  if (activeAmendScopes.has(graphDir)) return fn(); // 嵌套：外层统一守卫
+  // 先登记再开始快照，保证即使守卫初始化异常也由 finally 清理作用域，
+  // 且守卫初始化期间的重入仍视为同一张图的嵌套调用。
+  activeAmendScopes.add(graphDir);
   try {
+    const amend = beginStructuralAmend(graphDir, info);
     const result = fn();
     amend.complete();
     return result;
   } finally {
-    activeAmendScopes.delete(rootDir);
+    activeAmendScopes.delete(graphDir);
   }
 }

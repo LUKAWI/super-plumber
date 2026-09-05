@@ -117,20 +117,22 @@ describe("review_flag（core 注入面：ready_eligible 桶）", () => {
     expect(JSON.stringify(r.ready)).not.toContain("review_flag");
   });
 
-  it("approve 后 review_flag 消失（写入失效调度缓存，立即可见）", () => {
+  it("仅明确 approved 后 review_flag 消失（写入失效调度缓存，立即可见）", () => {
     createNode(tmpDir, { id: "a", type: NodeType.Task, label: "A" });
     let r = computeNextActions(tmpDir);
     expect(r.ready_eligible.find((n) => n.id === "a")?.review_flag).toBe(REVIEW_FLAG_UNREVIEWED);
-    approveGraph(tmpDir, { by: "alice", status: "self" });
+    approveGraph(tmpDir, { by: "alice", status: "approved" });
     r = computeNextActions(tmpDir);
     expect(r.ready_eligible.find((n) => n.id === "a")?.review_flag).toBeUndefined();
     expect(JSON.stringify(r.ready_eligible)).not.toContain("review_flag");
   });
 
-  it("reviewFlagFor：无凭据 → 定稿文案；有凭据（self 也算已审）→ undefined", () => {
+  it("reviewFlagFor：无凭据/self → 定稿文案；明确 approved → undefined", () => {
     createNode(tmpDir, { id: "a", type: NodeType.Task, label: "A" });
     expect(reviewFlagFor(tmpDir)).toBe(REVIEW_FLAG_UNREVIEWED);
     approveGraph(tmpDir, { by: "q", status: "self" });
+    expect(reviewFlagFor(tmpDir)).toBe(REVIEW_FLAG_UNREVIEWED);
+    approveGraph(tmpDir, { by: "q", status: "approved" });
     expect(reviewFlagFor(tmpDir)).toBeUndefined();
   });
 });

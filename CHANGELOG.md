@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.6] — 2026-09-05（patch：并发、索引、快照与 Web/UI 边界加固）
+
+> 主题：在不改变既有拓扑语义的前提下，收口跨实体并发一致性、缓存代际、输入契约、快照回滚和 Web/UI 边界，形成可复验的 0.9.6 修复版候选。
+
+- **图身份与跨实体并发一致性**：统一规范化 graphDir 作为快照/事件/嵌套 amend 的 scope key；节点、边和引用写入保持身份绑定与事务补偿；锁增加跨进程 waiter 单槽交接，降低 Windows 热写入 race，并保留 stale 回收与 CAS 式释放。
+- **Index 缓存与写入代际一致性**：以源文件快照生成 generation，构建前后和图锁内提交前后复核；临时 index 解析校验后原子替换，过期结果拒绝提交，旧格式 index 回源并兼容补推导。
+- **Schema 与审批契约收口**：graph entry/exit、edge.type、review.status/by/at/layers 的输入约束在 schema 层稳定校验；CLI、MCP、Web 和 scheduler 对明确 `approved` 的审批语义保持一致，存量格式继续兼容。
+- **Snapshot 路径隔离与原子回滚**：snapshot 标识及派生路径执行 containment 校验；回滚采用 staging、完整校验、备份和原子切换，失败可恢复，覆盖跨图、软删除与故障注入路径。
+- **Web API/WS 与 UI 状态边界**：补齐脱敏错误与恢复推送契约，限制 Origin、连接洪峰和慢客户端；UI fallback 校验 HTTP/payload，切图与同 ID 更新按图数据代际重建，避免旧状态伪成功。
+- **验证**：后端 99 文件 **858 用例**、web-ui 12 文件 **117 用例**全绿；root typecheck/build、UI typecheck/build、`sync-integrations.mjs --check`、`export --docs --check` 与真实 MCP SDK stdio handshake 均自然退出 0。取证见 `docs/roadmap-to-1-0-0/v096-release-evidence.md`。
+- 发布动作：npm 0.9.6（latest）+ GitHub tag v0.9.6（由本节点在授权后执行）。
+
 ## [0.9.5] — 2026-09-04（minor：Codex 官方插件渠道 + 叶子复核防嵌套）
 
 > 主题：以官方 `.codex-plugin` 形态接入第四渠道（pi / Claude / ZCode / Codex），共享既有 plugin 包、skills、scripts 与手册；不改图核心语义。同步收紧代理派单边界：复核纪律为纯叶子方法，防止代理在读到同一技能后递归派生。

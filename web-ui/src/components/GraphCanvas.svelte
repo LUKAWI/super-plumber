@@ -69,6 +69,72 @@
   /** 图级雾区（adr_0007）：随全量数据刷新（renderGraph/syncEdges）重建；无雾 null */
   let currentFog: GraphFog | null = null;
 
+  /**
+   * 全量消息的边界判定不能只看对象引用或节点 id：同一 id 的状态/标签更新
+   * 仍然必须重建 D3 datum，否则旧 SimNode 会继续显示旧状态。稳定序列化让
+   * 属性顺序变化不制造假更新，同时把图数据代际/内容纳入渲染判定。
+   */
+  function stableDataKey(value: unknown): string {
+    if (value === null) return "null";
+    if (value === undefined) return "undefined";
+    if (typeof value !== "object") return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map(stableDataKey).join(",")}]`;
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableDataKey(record[key])}`).join(",")}}`;
+  }
+
+  function nodeDataKey(node: NodeSchema | SimNode): string {
+    if ("x" in node || "y" in node || "vx" in node || "vy" in node || "fx" in node || "fy" in node) {
+      const {
+        x: _x, y: _y, vx: _vx, vy: _vy, fx: _fx, fy: _fy, index: _index,
+        __labelCulled: _labelCulled,
+        ...data
+      } = node as SimNode & Record<string, unknown>;
+      return stableDataKey(data);
+    }
+    return stableDataKey(node);
+  }
+
+  function graphNodeKey(graph: GraphIndex): string {
+    return stableDataKey(
+      graph.nodes
+        .map((node) => ({ id: node.id, data: nodeDataKey(node) }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
+    );
+  }
+
+  function simulationNodeKey(nodes: SimNode[]): string {
+    return stableDataKey(
+      nodes
+        .map((node) => ({ id: node.id, data: nodeDataKey(node) }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
+    );
+  }
+
+  function graphEdgeKey(graph: GraphIndex): string {
+    return stableDataKey({
+      edges: graph.edges.slice().sort((a, b) => a.id.localeCompare(b.id)),
+      adjacency: graph.adjacency,
+      reverseAdj: graph.reverseAdj,
+    });
+  }
+
+  function graphIdentityKey(graph: GraphIndex): string {
+    return stableDataKey({
+      name: graph.name ?? "default",
+      id: graph.id,
+      version: graph.version,
+    });
+  }
+
+  function graphMetaKey(graph: GraphIndex): string {
+    return stableDataKey({
+      label: graph.label,
+      class: (graph as GraphIndex & { class?: string }).class,
+      fog: graph.fog,
+    });
+  }
+
   interface HullRender {
     contextId: string;
     label: string;
@@ -147,6 +213,16 @@
     const g = graphState.graph;
     if (!g) return 0;
     return g.nodes.filter((n) => nodeRendered(n)).length;
+  });
+
+  /** context/ADR-only 图没有可渲染的工作流星体，单独给出可恢复的空知识图态。 */
+  const knowledgeOnlyGraph = $derived.by(() => {
+    const g = graphState.graph;
+    return Boolean(
+      g &&
+      g.nodes.length > 0 &&
+      g.nodes.every((n) => n.type === "context" || n.type === "adr"),
+    );
   });
 
   // ── 过滤（map 透镜 + 层级 + 搜索）与 diff 着色的命中判断 ──
@@ -1234,9 +1310,11 @@
       return;
     }
     const newNodeIds = new Set(graph.nodes.map((n) => n.id));
+    const renderableNodes = graph.nodes.filter((n) => n.type !== "adr");
     const sameNodes =
-      currentNodes.length === graph.nodes.filter((n) => n.type !== "adr").length &&
-      currentNodes.every((n) => newNodeIds.has(n.id));
+      currentNodes.length === renderableNodes.length &&
+      currentNodes.every((n) => newNodeIds.has(n.id)) &&
+      simulationNodeKey(currentNodes) === graphNodeKey({ ...graph, nodes: renderableNodes });
     if (!sameNodes) {
       renderGraph(graph);
       return;
@@ -1436,20 +1514,37 @@
   // ── 数据流 ──
   let lastGraphRef: GraphIndex | null = null;
   let lastMapsRef: { workflow: boolean; domain: boolean } | null = null;
+  let lastGraphNodeKey: string | null = null;
+  let lastGraphEdgeKey: string | null = null;
+  let lastGraphIdentityKey: string | null = null;
+  let lastGraphMetaKey: string | null = null;
   $effect(() => {
     const g = graphState.graph;
     if (!g || !svgEl) return;
     const maps = graphState.activeMaps;
     const mapsChanged = maps !== lastMapsRef;
-    if (g !== lastGraphRef || mapsChanged) {
-      const isFirst = lastGraphRef === null;
-      lastGraphRef = g;
-      lastMapsRef = maps;
-      if (isFirst || mapsChanged) {
-        renderGraph(g); // 透镜切换 → 力系不同（ctxCluster），全量重渲染（位置缓存保形）
-      } else {
-        syncEdges(g); // 节点集相同 → 边增量；否则内部回退全量
-      }
+    const nodeKey = graphNodeKey(g);
+    const edgeKey = graphEdgeKey(g);
+    const identityKey = graphIdentityKey(g);
+    const metaKey = graphMetaKey(g);
+    const isFirst = lastGraphRef === null;
+    const referenceChanged = g !== lastGraphRef;
+    const nodeContentChanged = lastGraphNodeKey !== null && nodeKey !== lastGraphNodeKey;
+    const edgeContentChanged = lastGraphEdgeKey !== null && edgeKey !== lastGraphEdgeKey;
+    const identityChanged = lastGraphIdentityKey !== null && identityKey !== lastGraphIdentityKey;
+    const metaChanged = lastGraphMetaKey !== null && metaKey !== lastGraphMetaKey;
+
+    lastGraphRef = g;
+    lastMapsRef = maps;
+    lastGraphNodeKey = nodeKey;
+    lastGraphEdgeKey = edgeKey;
+    lastGraphIdentityKey = identityKey;
+    lastGraphMetaKey = metaKey;
+
+    if (isFirst || mapsChanged || identityChanged || nodeContentChanged) {
+      renderGraph(g); // 节点内容/图代际变化必须重建 D3 datum；透镜变化重建力系
+    } else if (referenceChanged || edgeContentChanged || metaChanged) {
+      syncEdges(g); // 仅边/图元数据变化沿用位置与模拟，仍刷新当前图引用
     }
   });
 
@@ -1661,7 +1756,11 @@
   <svg bind:this={svgEl} class="graph-canvas"></svg>
   <div bind:this={tooltipEl} class="node-tooltip"></div>
 
-  {#if graphState.graph && lensVisibleCount === 0}
+  {#if graphState.graph && knowledgeOnlyGraph}
+    <div class="lens-empty knowledge-empty" role="status">
+      <span>空知识图：当前图只有领域知识节点，暂无可视工作流节点</span>
+    </div>
+  {:else if graphState.graph && lensVisibleCount === 0}
     <div class="lens-empty" role="status">
       所有 map 透镜已关闭——在左侧工具轨的「透镜」里至少勾选一个
     </div>

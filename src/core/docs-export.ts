@@ -76,7 +76,7 @@ function renderContextFile(c: NodeSchema): string {
   return lines.join("\n");
 }
 
-function renderContextMap(contexts: NodeSchema[]): string {
+function renderContextMap(contexts: NodeSchema[], contextMapDir: string, ctxDir: string): string {
   const lines: string[] = [
     `# Context Map`,
     ``,
@@ -92,7 +92,9 @@ function renderContextMap(contexts: NodeSchema[]): string {
     // （此前只转义了 boundary，label 含 | 会撕裂表格列）。
     const esc = (s: string) => s.replace(/\|/g, "\\|");
     const boundary = esc(c.boundary ?? "").slice(0, 80);
-    lines.push(`| ${esc(c.id)}（${esc(c.label)}） | ${boundary} | ${terms} | docs/contexts/${c.id}.md |`);
+    const contextFile = path.join(ctxDir, `${c.id}.md`);
+    const contextLink = path.relative(contextMapDir, contextFile).replace(/\\/g, "/");
+    lines.push(`| ${esc(c.id)}（${esc(c.label)}） | ${boundary} | ${terms} | ${contextLink} |`);
   }
   lines.push("");
   return lines.join("\n");
@@ -258,7 +260,7 @@ function planDocsExport(
     files.push({
       absPath: contextMapPath,
       relPath: contextMapRel,
-      content: renderContextMap(contexts),
+      content: renderContextMap(contexts, path.dirname(contextMapPath), ctxDir),
     });
   }
 

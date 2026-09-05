@@ -275,6 +275,44 @@ describe("多图分桶 store", () => {
     }
   });
 
+  it("切图 fallback 的 HTTP 错误不伪成功，保留可读状态", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: () => Promise.resolve({ error: "unavailable" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      graphState.applyGraphsList(graphsListOf(["alpha", "beta"], "alpha"));
+      graphState.applyFull("alpha", makeGraphOf("a1"));
+      graphState.selectGraph("beta");
+      await vi.waitFor(() => expect(graphState.loadError).toBe("服务端返回 503"));
+      expect(graphState.isLoaded("beta")).toBe(false);
+      expect(graphState.graph).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("切图 fallback 的 2xx 坏 payload 不进入图桶", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ error: "half-written" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      graphState.applyGraphsList(graphsListOf(["alpha", "beta"], "alpha"));
+      graphState.applyFull("alpha", makeGraphOf("a1"));
+      graphState.selectGraph("beta");
+      await vi.waitFor(() => expect(graphState.loadError).toBe("服务端返回无效图数据"));
+      expect(graphState.isLoaded("beta")).toBe(false);
+      expect(fetchMock).toHaveBeenCalledWith("/api/graph?graph=beta");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("当前图被删（列表刷新）→ 回落 active 图", () => {
     graphState.applyGraphsList(graphsListOf(["alpha", "beta"], "alpha"));
     graphState.applyFull("alpha", makeGraphOf("a1"));

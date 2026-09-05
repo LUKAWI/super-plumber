@@ -98,6 +98,21 @@ describe("validateGraphDir：结构契约（arch-c3b）", () => {
     expect(r.fatal_stage).toBeNull();
   });
 
+  it("单节点自环 → ok=false，不能因节点数为 1 跳过循环检测", () => {
+    createNode(graphDir, { id: "solo", type: NodeType.Task, label: "Solo" });
+    createEdge(graphDir, {
+      id: "self-loop",
+      source: "solo",
+      target: "solo",
+      type: EdgeType.DependsOn,
+    });
+    const r = validateGraphDir(graphDir);
+    expect(r.ok).toBe(false);
+    expect(r.cycles_found).toBe(true);
+    expect(r.topo_ok).toBe(false);
+    expect(r.errors.some((e) => e.includes("检测到循环依赖") && e.includes("solo"))).toBe(true);
+  });
+
   it("幽灵边（手编残留）→ errors 报不存在的端点", () => {
     createNode(graphDir, { id: "a", type: NodeType.Task, label: "A" });
     writeGhostEdge(graphDir, "e-ghost", "a");

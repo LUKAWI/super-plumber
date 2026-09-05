@@ -75,6 +75,22 @@ describe("schema validation", () => {
     expect(issues.some((i) => i.field === "attempts")).toBe(true);
   });
 
+  it("Infinity/-Infinity 数值 → 报错而不是作为合法数字接受", () => {
+    for (const value of [Infinity, -Infinity, Number.NaN]) {
+      const issues = validateNode(validNode({ level: value }));
+      expect(issues.some((i) => i.field === "level")).toBe(true);
+    }
+    const issues = validateGraph({
+      id: "g1",
+      label: "图",
+      entry: { description: "需求", defined_by: "human", level: Infinity },
+      exit: { description: "交付", acceptance_criteria: [], defined_by: "human", level: 0 },
+      nodes: [],
+      edges: [],
+    });
+    expect(issues.some((i) => i.field === "entry.level")).toBe(true);
+  });
+
   it("合法边 → 0 issues", () => {
     expect(
       validateEdge({ id: "e1", source: "a", target: "b", type: "depends_on" }),
@@ -83,6 +99,11 @@ describe("schema validation", () => {
 
   it("边类型枚举外 → 报 type", () => {
     const issues = validateEdge({ id: "e1", source: "a", target: "b", type: "magic" });
+    expect(issues.some((i) => i.field === "type")).toBe(true);
+  });
+
+  it("边缺 type → 报 type", () => {
+    const issues = validateEdge({ id: "e1", source: "a", target: "b" });
     expect(issues.some((i) => i.field === "type")).toBe(true);
   });
 
@@ -123,6 +144,51 @@ describe("schema validation", () => {
       edges: [],
     });
     expect(issues.some((i) => i.field === "entry.defined_by")).toBe(true);
+  });
+
+  it("graph entry/exit 及其必需字段缺失 → 稳定定位字段", () => {
+    const missing = validateGraph({ id: "g1", label: "图", nodes: [], edges: [] });
+    expect(missing.map((i) => i.field)).toEqual(expect.arrayContaining(["entry", "exit"]));
+
+    const incomplete = validateGraph({
+      id: "g1",
+      label: "图",
+      entry: { description: "需求" },
+      exit: { description: "交付" },
+      nodes: [],
+      edges: [],
+    });
+    expect(incomplete.map((i) => i.field)).toEqual(expect.arrayContaining([
+      "entry.defined_by",
+      "entry.level",
+      "exit.defined_by",
+      "exit.level",
+      "exit.acceptance_criteria",
+    ]));
+  });
+
+  it("review 缺 status/by/at 或 layers 形状错误 → 稳定报错", () => {
+    const missing = validateGraph({
+      id: "g1",
+      label: "图",
+      entry: { description: "需求", defined_by: "human", level: 0 },
+      exit: { description: "交付", acceptance_criteria: [], defined_by: "human", level: 0 },
+      review: {},
+      nodes: [],
+      edges: [],
+    });
+    expect(missing.map((i) => i.field)).toEqual(expect.arrayContaining(["status", "by", "at"]));
+
+    const malformedLayers = validateGraph({
+      id: "g1",
+      label: "图",
+      entry: { description: "需求", defined_by: "human", level: 0 },
+      exit: { description: "交付", acceptance_criteria: [], defined_by: "human", level: 0 },
+      review: { status: "approved", by: "alice", at: "2026-08-13T00:00:00Z", layers: "L1" },
+      nodes: [],
+      edges: [],
+    });
+    expect(malformedLayers.some((i) => i.field === "layers")).toBe(true);
   });
 });
 

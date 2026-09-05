@@ -97,3 +97,9 @@
 | task · passed | v095-manifest | [0.9.5] Codex 官方插件三件套落地 | 2026-09-04T13:56:05.809Z |
 | task · passed | v095-release | [0.9.5] 0.9.5 发布收尾 | 2026-09-04T23:54:48.771Z |
 | task · passed | v095-verify | [0.9.5] 交叉验证 | 2026-09-04T14:30:00.961Z |
+| task · passed | v096-concurrency-identity | [0.9.6] 图身份与跨实体并发一致性 | 2026-09-05T06:59:05.622Z |
+| task · passed | v096-index-consistency | [0.9.6] Index 缓存与写入代际一致性 | 2026-09-05T06:50:27.711Z |
+| task · passed | v096-schema-contract | [0.9.6] Schema 与审批契约收口 | 2026-09-05T05:21:45.593Z |
+| task · passed | v096-snapshot-integrity | [0.9.6] Snapshot 路径隔离与原子回滚 | 2026-09-05T06:13:35.167Z |
+| task · passed | v096-verify | [0.9.6] 交叉验证：一致性与边界修复 | 2026-09-05T08:38:23.816Z |
+| task · passed | v096-webui-boundary | [0.9.6] Web API/WS 与 UI 状态边界加固 | 2026-09-05T07:31:16.664Z |

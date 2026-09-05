@@ -44,21 +44,58 @@ describe("index freshness cache", () => {
     createNode(tmpDir, { id: "a", type: NodeType.Task, label: "A" });
     const fromCache = buildGraphIndex(tmpDir, { useCache: true });
     expect(fromCache.nodes.map((n) => n.id)).toEqual(["a"]);
+
+    const disk = JSON.parse(
+      fs.readFileSync(path.join(tmpDir, ".graph/index/graph.json"), "utf-8"),
+    ) as { index_version: number; generation: string; sources: { path: string }[] };
+    expect(disk.index_version).toBe(2);
+    expect(disk.generation).toBe(fromCache.generation);
+    expect(disk.sources.map((source) => source.path)).toEqual(
+      expect.arrayContaining(["graph.yaml", "nodes/a.yaml", "nodes", "edges"]),
+    );
   });
 
-  it("缓存存在且新鲜 → 命中磁盘缓存数据", () => {
+  it("代际完整的缓存存在且新鲜 → 命中磁盘缓存数据", () => {
     createNode(tmpDir, { id: "a", type: NodeType.Task, label: "A" });
     const real = readNode(tmpDir, "a");
-    // 直接写哨兵磁盘缓存（不先构建索引，避免命中进程内内存缓存）
+    // 先生成真实 v2 代际，再替换节点载荷为哨兵；重置内存缓存后只验证磁盘命中。
+    buildGraphIndex(tmpDir, { useCache: true });
+    const cacheFile = path.join(tmpDir, ".graph/index/graph.json");
+    const payload = JSON.parse(fs.readFileSync(cacheFile, "utf-8")) as {
+      nodes: Array<typeof real>;
+    };
+    payload.nodes = [{ ...real, label: "FROM_CACHE" }];
+    resetIndexCache();
+    fs.writeFileSync(cacheFile, JSON.stringify(payload), "utf-8");
+
+    const fromCache = buildGraphIndex(tmpDir, { useCache: true });
+    expect(fromCache.nodes[0].label).toBe("FROM_CACHE");
+  });
+
+  it("缺代际元数据的旧索引不会在 mtime 回拨后复活更新节点", () => {
+    createNode(tmpDir, { id: "a", type: NodeType.Task, label: "OLD" });
+    const nodePath = path.join(tmpDir, ".graph/nodes/a.yaml");
+    const original = fs.statSync(nodePath);
+    const real = readNode(tmpDir, "a");
+
+    // 旧版 graph.json 没有源快照；它不能仅凭 cache mtime 声称自己新鲜。
     writeDiskCacheJson({
-      nodes: [{ ...real, label: "FROM_CACHE" }],
+      nodes: [{ ...real, label: "STALE" }],
       edges: [],
       adjacency: { a: [] },
       reverseAdj: { a: [] },
       gateReverseAdj: { a: [] },
     });
-    const fromCache = buildGraphIndex(tmpDir, { useCache: true });
-    expect(fromCache.nodes[0].label).toBe("FROM_CACHE");
+    const raw = fs.readFileSync(nodePath, "utf-8");
+    fs.writeFileSync(nodePath, raw.replace("label: OLD", "label: UPDATED"), "utf-8");
+    fs.utimesSync(nodePath, original.atime, original.mtime);
+
+    const current = buildGraphIndex(tmpDir, { useCache: true });
+    expect(current.nodes[0].label).toBe("UPDATED");
+    const rebuilt = JSON.parse(
+      fs.readFileSync(path.join(tmpDir, ".graph/index/graph.json"), "utf-8"),
+    ) as { index_version: number };
+    expect(rebuilt.index_version).toBe(2);
   });
 
   it("同进程二次构建命中内存缓存（同一对象引用）", () => {
@@ -90,17 +127,18 @@ describe("index freshness cache", () => {
     expect(idx.nodes.map((n) => n.id)).toEqual(["a"]);
   });
 
-  it("旧格式磁盘缓存（缺 gateReverseAdj）自动推导门控邻接", () => {
+  it("代际完整但缺 gateReverseAdj 的缓存自动推导门控邻接", () => {
     createNode(tmpDir, { id: "a", type: NodeType.Task, label: "A" });
     createNode(tmpDir, { id: "b", type: NodeType.Task, label: "B" });
     createEdge(tmpDir, { id: "e1", source: "a", target: "b", type: EdgeType.DependsOn });
-    // 旧格式：无 gateReverseAdj 字段
-    writeDiskCacheJson({
-      nodes: [readNode(tmpDir, "a"), readNode(tmpDir, "b")],
-      edges: [{ id: "e1", source: "a", target: "b", type: "depends_on" }],
-      adjacency: { a: ["b"], b: [] },
-      reverseAdj: { a: [], b: ["a"] },
-    });
+    // 早期 v2 缓存可能没有 gateReverseAdj，但必须带真实 generation/source stamps。
+    buildGraphIndex(tmpDir, { useCache: true });
+    const cacheFile = path.join(tmpDir, ".graph/index/graph.json");
+    const payload = JSON.parse(fs.readFileSync(cacheFile, "utf-8")) as Record<string, unknown>;
+    delete payload.gateReverseAdj;
+    resetIndexCache();
+    fs.writeFileSync(cacheFile, JSON.stringify(payload), "utf-8");
+
     const idx = buildGraphIndex(tmpDir, { useCache: true });
     expect(idx.gateReverseAdj.get("b")).toEqual(["a"]);
   });

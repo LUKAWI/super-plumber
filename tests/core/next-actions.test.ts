@@ -204,16 +204,18 @@ describe("computeNextActions 注入时钟", () => {
     createNode(tmpDir, { id: "a", type: NodeType.Task, label: "A" });
     updateNodeStatus(tmpDir, "a", NodeStatus.Ready);
     updateNodeStatus(tmpDir, "a", NodeStatus.Running, "agent-1");
+    const startedMs = Date.parse(getNode(tmpDir, "a").execution_report!.started_at!);
     const t0 = Date.now();
     const r = computeNextActions(tmpDir);
     const t1 = Date.now();
     expect(r.stale_running).toEqual([]);
     const elapsed = r.running[0].elapsed_ms as number;
     expect(elapsed).toBeGreaterThanOrEqual(0);
-    // 容差 50ms：v091-tooling 起套件并行文件数增加，5ms 容差在高负载
-    // （perf 5k 同跑）下会被 worker 抢占式调度击穿（claim→t0 间隙 >5ms）。
-    // 断言本意是"现读现算"——错误实现会产生分钟级漂移，50ms 仍能守住。
-    expect(elapsed).toBeLessThanOrEqual(t1 - t0 + 50);
+    // elapsed 的起点是节点 started_at，而不是 claim 完成后才取得的 t0；
+    // 因此把 claim→t0 的文件 I/O/worker 抢占纳入上下界，避免把正常延迟误判为时钟错误。
+    // 断言本意仍是"现读现算"：错误实现产生分钟级漂移时，仍会超出这个实际时间窗口。
+    expect(elapsed).toBeGreaterThanOrEqual(t0 - startedMs);
+    expect(elapsed).toBeLessThanOrEqual(t1 - startedMs + 50);
   });
 
   it("注入时钟只影响 stale 判定：ready/blocked/summary 各桶与时钟无关", () => {

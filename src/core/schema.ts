@@ -58,7 +58,8 @@ const CP_STATUSES = ["pending", "running", "passed", "failed", "skipped"];
 const VERIFIERS = ["auto", "cross_review", "human"];
 const VERDICTS = ["pending", "passed", "failed"];
 const DEFINED_BY = ["human", "llm"];
-// DEC-1（g080-approve-core）：设计审核凭据的合法状态（self=quick 自签、approved=人工审核）
+// DEC-1（g080-approve-core）：设计审核凭据的合法状态（self=quick 自签、approved=人工审核）。
+// scheduler 只把 approved 作为已审批；self/unreviewed 仍会触发提示。
 // F21（DEC-7）：+ unreviewed=结构修订后回置（resetGraphReview 只写凭据字段，零门禁）
 const REVIEW_STATUSES = ["approved", "self", "unreviewed"];
 // DEC-2：图级工作类标注合法值（F03/F13，0.9.0 随雾区机制进 schema）。
@@ -146,14 +147,15 @@ function optNumber(
   key: string,
   issues: SchemaIssue[],
   opts: { min?: number } = {},
+  field = key,
 ): void {
   if (obj[key] === undefined) return;
-  if (typeof obj[key] !== "number" || Number.isNaN(obj[key])) {
-    issues.push(issue(key, `必须是数字`));
+  if (typeof obj[key] !== "number" || !Number.isFinite(obj[key])) {
+    issues.push(issue(field, `必须是数字`));
     return;
   }
   if (opts.min !== undefined && (obj[key] as number) < opts.min) {
-    issues.push(issue(key, `不能小于 ${opts.min}`));
+    issues.push(issue(field, `不能小于 ${opts.min}`));
   }
 }
 
@@ -162,10 +164,39 @@ function optEnum(
   key: string,
   allowed: readonly string[],
   issues: SchemaIssue[],
+  field = key,
 ): void {
   if (obj[key] !== undefined && !allowed.includes(obj[key] as string)) {
-    issues.push(issue(key, `非法值 "${String(obj[key])}"，允许: ${allowed.join("|")}`));
+    issues.push(issue(field, `非法值 "${String(obj[key])}"，允许: ${allowed.join("|")}`));
   }
+}
+
+function reqEnum(
+  obj: Record<string, unknown>,
+  key: string,
+  allowed: readonly string[],
+  issues: SchemaIssue[],
+  field = key,
+): void {
+  if (obj[key] === undefined) {
+    issues.push(issue(field, `必填枚举值，允许: ${allowed.join("|")}`));
+    return;
+  }
+  optEnum(obj, key, allowed, issues, field);
+}
+
+function reqNumber(
+  obj: Record<string, unknown>,
+  key: string,
+  issues: SchemaIssue[],
+  opts: { min?: number } = {},
+  field = key,
+): void {
+  if (obj[key] === undefined) {
+    issues.push(issue(field, "必须是数字且不能为空"));
+    return;
+  }
+  optNumber(obj, key, issues, opts, field);
 }
 
 function optStringArray(
@@ -442,7 +473,7 @@ export function validateEdge(data: unknown): SchemaIssue[] {
       issues.push(issue(k, `非法 ID 格式: "${String(data[k])}"（规则 ^[a-z0-9][a-z0-9._-]{0,63}$，不得以 .deleted 结尾）`));
     }
   }
-  optEnum(data, "type", EDGE_TYPES, issues);
+  reqEnum(data, "type", EDGE_TYPES, issues);
   optString(data, "rel_kind", issues);
   if (data.contract !== undefined) {
     if (!isRecord(data.contract)) {
@@ -466,7 +497,10 @@ export function validateGraph(data: unknown): SchemaIssue[] {
   reqString(data, "label", issues);
   optString(data, "version", issues);
   for (const key of ["entry", "exit"] as const) {
-    if (data[key] === undefined) continue;
+    if (data[key] === undefined) {
+      issues.push(issue(key, "必须是对象"));
+      continue;
+    }
     if (!isRecord(data[key])) {
       issues.push(issue(key, "必须是对象"));
       continue;
@@ -477,21 +511,16 @@ export function validateGraph(data: unknown): SchemaIssue[] {
     if (typeof rec.description !== "string") {
       issues.push(issue(`${key}.description`, "必须是字符串"));
     }
-    if (rec.defined_by !== undefined && !DEFINED_BY.includes(rec.defined_by as string)) {
-      issues.push(
-        issue(`${key}.defined_by`, `非法值 "${String(rec.defined_by)}"，允许: ${DEFINED_BY.join("|")}`),
-      );
-    }
-    if (rec.level !== undefined && (typeof rec.level !== "number" || rec.level < 0)) {
-      issues.push(issue(`${key}.level`, "必须是非负数字"));
-    }
-  }
-  if (data.exit !== undefined && isRecord(data.exit)) {
-    const exitRec = data.exit as Record<string, unknown>;
-    if (exitRec.acceptance_criteria !== undefined) {
-      const v = exitRec.acceptance_criteria;
-      if (!Array.isArray(v) || v.some((x) => typeof x !== "string")) {
-        issues.push(issue("exit.acceptance_criteria", "必须是字符串数组"));
+    reqEnum(rec, "defined_by", DEFINED_BY, issues, `${key}.defined_by`);
+    reqNumber(rec, "level", issues, { min: 0 }, `${key}.level`);
+    if (key === "exit") {
+      if (rec.acceptance_criteria === undefined) {
+        issues.push(issue("exit.acceptance_criteria", "必须是字符串数组且不能为空"));
+      } else {
+        const v = rec.acceptance_criteria;
+        if (!Array.isArray(v) || v.some((x) => typeof x !== "string")) {
+          issues.push(issue("exit.acceptance_criteria", "必须是字符串数组"));
+        }
       }
     }
   }
@@ -510,16 +539,17 @@ export function validateGraph(data: unknown): SchemaIssue[] {
   if (data.root_context !== undefined && !isRecord(data.root_context)) {
     issues.push(issue("root_context", "必须是对象"));
   }
-  // DEC-1（g080-approve-core）：review 为可选字段——缺省不存在（零迁移、零默认拒绝），
-  // 存在时严格校验形状（status 枚举 / by、at 字符串），手编拼错在读入层即拦截。
+  // acceptance_criteria 的存在性与元素形状在上方和 exit 同一分支校验，避免
+  // 缺少 exit 时出现误导性的二级错误。
+  // DEC-1：review 本身保持可选以兼容存量图；一旦存在，status/by/at 必须完整。
   if (data.review !== undefined) {
     if (!isRecord(data.review)) {
       issues.push(issue("review", "必须是对象"));
     } else {
       const rev = data.review as Record<string, unknown>;
-      optEnum(rev, "status", REVIEW_STATUSES, issues);
+      reqEnum(rev, "status", REVIEW_STATUSES, issues);
       reqString(rev, "by", issues);
-      optString(rev, "at", issues);
+      reqString(rev, "at", issues);
       // F08（0.9.2 渐进审批）：layers 为可选字段——缺省不存在（存量图零迁移），
       // 存在时严格校验形状（数组；每项 level/by 非空字符串、at 字符串），
       // 手编拼错在读入层即拦截。

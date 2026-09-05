@@ -7,7 +7,7 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
-import { startServer } from "../../src/web/server.js";
+import { isAllowedWebSocketOrigin, startServer } from "../../src/web/server.js";
 import { createGraph } from "../../src/core/graph-dir.js";
 
 // WEB-05 用：条件故障注入（race.armed 置 true 后 readFileSync 一律 ENOENT，
@@ -100,5 +100,13 @@ describe("web 服务安全加固（S0-5/S3-7）", () => {
     // 进程未崩：下一个请求正常服务
     const ok = await fetch(`http://127.0.0.1:${port}/index.html`);
     expect(ok.status).toBe(200);
+  });
+
+  it("WEB-06 WebSocket 仅接受本机 HTTP Origin", () => {
+    expect(isAllowedWebSocketOrigin("http://localhost:8934")).toBe(true);
+    expect(isAllowedWebSocketOrigin("http://127.0.0.1:8934")).toBe(true);
+    expect(isAllowedWebSocketOrigin(undefined)).toBe(true); // 非浏览器客户端
+    expect(isAllowedWebSocketOrigin("https://evil.example")).toBe(false);
+    expect(isAllowedWebSocketOrigin("not-an-origin")).toBe(false);
   });
 });

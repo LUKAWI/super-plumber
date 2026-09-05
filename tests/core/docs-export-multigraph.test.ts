@@ -63,6 +63,9 @@ describe("多图工作区：知识视图按图名分离（adr_0013）", () => {
     ).toBe(true);
     expect(fs.existsSync(path.join(tmpDir, "docs", "alpha", "contexts", "ctx_alpha.md"))).toBe(true);
     expect(fs.existsSync(path.join(tmpDir, "docs", "alpha", "CONTEXT-MAP.md"))).toBe(true);
+    expect(fs.readFileSync(path.join(tmpDir, "docs", "alpha", "CONTEXT-MAP.md"), "utf-8")).toContain(
+      "contexts/ctx_alpha.md",
+    );
     expect(fs.existsSync(path.join(tmpDir, "CONTEXT-MAP.md"))).toBe(false);
     expect(fs.existsSync(path.join(tmpDir, "docs", "adr"))).toBe(false);
     expect(fs.existsSync(path.join(tmpDir, "docs", "contexts"))).toBe(false);
@@ -95,6 +98,9 @@ describe("多图工作区：知识视图按图名分离（adr_0013）", () => {
     expect(fs.existsSync(path.join(tmpDir, "CONTEXT-MAP.md"))).toBe(false);
     expect(fs.existsSync(path.join(tmpDir, "docs", "alpha", "CONTEXT-MAP.md"))).toBe(true);
     expect(fs.existsSync(path.join(tmpDir, "docs", "alpha"))).toBe(true);
+    expect(
+      fs.readFileSync(path.join(tmpDir, "docs", "alpha", "CONTEXT-MAP.md"), "utf-8"),
+    ).toContain("../../custom-ctx/ctx_alpha.md");
   });
 });
 

@@ -3,6 +3,7 @@
 // workspaceNotInitialized 单源文案（"ENOENT 提示六份归一"）。
 import { readGraph } from "../core/parser.js";
 import { buildGraphIndex } from "../core/graph.js";
+import { persistGraphIndex } from "../core/index-service.js";
 import { toGraphDir } from "../core/graph-dir.js";
 import { workspaceNotInitialized } from "../core/errors.js";
 import type { GraphExportMeta } from "./export-mermaid.js";
@@ -11,6 +12,33 @@ import type { EdgeSchema, NodeSchema } from "../core/types.js";
 import { defineCommand } from "./runner.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
+
+let atomicRebuildWriteCounter = 0;
+
+/** 派生文本与索引一样采用同目录临时文件 + 完整性复读 + 原子替换，避免 watcher
+ * 或另一个 rebuild 读到半写入的 topology/meta 文件。graph.json 的代际校验由
+ * index-service.persistGraphIndex 负责。 */
+function writeTextAtomically(file: string, content: string): void {
+  const dir = path.dirname(file);
+  fs.mkdirSync(dir, { recursive: true });
+  const temp = path.join(
+    dir,
+    `.${path.basename(file)}.${process.pid}.${++atomicRebuildWriteCounter}.tmp`,
+  );
+  try {
+    fs.writeFileSync(temp, content, { encoding: "utf-8", flag: "wx" });
+    if (fs.readFileSync(temp, "utf-8") !== content) {
+      throw new Error(`rebuild temporary file validation failed: ${file}`);
+    }
+    fs.renameSync(temp, file);
+  } finally {
+    try {
+      fs.unlinkSync(temp);
+    } catch {
+      /* rename 成功后临时路径已不存在 */
+    }
+  }
+}
 
 /** S3-4（f15）：DOT label 属性转义——`\` 与 `"` 会破坏 "..." 定界，裸换行会破坏行结构
  * （换行写成 `\n` 两字符字面，Graphviz 识别为节点内换行）。转义顺序：先 `\` 再 `"`。 */
@@ -92,18 +120,13 @@ export const rebuildCommand = defineCommand("rebuild").alias("rb")
     // 确保 index/ 目录存在
     fs.mkdirSync(indexPath, { recursive: true });
 
-    // 重建 graph.json（完整节点/边数据 + 邻接表 + 门控邻接，供 MCP/Web 新鲜度缓存直接加载）
+    // 重建 graph.json（完整节点/边数据 + 邻接表 + 门控邻接，供 MCP/Web 新鲜度缓存直接加载）。
+    // persistGraphIndex 会在图级锁内复核源代际，拒绝把构建期间已过期的结果发布出去。
     const index = buildGraphIndex(rootDir);
-    const graphJson = {
-      nodes: index.nodes,
-      edges: index.edges,
-      adjacency: Object.fromEntries(index.adjacency),
-      reverseAdj: Object.fromEntries(index.reverseAdj),
-      gateReverseAdj: Object.fromEntries(index.gateReverseAdj),
-    };
-
     const jsonPath = path.join(indexPath, "graph.json");
-    fs.writeFileSync(jsonPath, JSON.stringify(graphJson, null, 2), "utf-8");
+    if (!persistGraphIndex(rootDir, index)) {
+      throw new Error("源文件在索引重建期间发生变化，索引未发布，请重试");
+    }
     console.log(
       `✅ 已重建: ${jsonPath} (${index.nodes.length} 节点, ${index.edges.length} 边)`,
     );
@@ -118,14 +141,14 @@ export const rebuildCommand = defineCommand("rebuild").alias("rb")
       graphMeta = undefined;
     }
     const dotPath = path.join(indexPath, "topology.dot");
-    fs.writeFileSync(dotPath, buildDotTopology(index.nodes, index.edges, graphMeta), "utf-8");
+    writeTextAtomically(dotPath, buildDotTopology(index.nodes, index.edges, graphMeta));
     console.log(`✅ 已重建: ${dotPath}`);
 
     // 尝试读取 graph.yaml 补充信息
     try {
       const graph = readGraph(rootDir);
       const metaPath = path.join(indexPath, "meta.json");
-      fs.writeFileSync(
+      writeTextAtomically(
         metaPath,
         JSON.stringify(
           {
@@ -138,7 +161,6 @@ export const rebuildCommand = defineCommand("rebuild").alias("rb")
           null,
           2,
         ),
-        "utf-8",
       );
       console.log(`✅ 已重建: ${metaPath}`);
     } catch {

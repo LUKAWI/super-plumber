@@ -33,7 +33,7 @@ import {
   validateEdge,
   validateGraph,
 } from "./schema.js";
-import { withLockSync } from "./lock.js";
+import { GRAPH_LOCK, withLockSync } from "./lock.js";
 import { toGraphDir } from "./graph-dir.js";
 // arch-c1（C1）：graph.yaml 缺失 → WORKSPACE_NOT_INITIALIZED 单源（此前 CLI 六份手写提示）
 import {
@@ -49,7 +49,7 @@ import { invalidateIndex } from "./index-service.js";
 // 需要图级互斥。GRAPH_LOCK 以 "__graph__" 为 id：合法节点 ID 不可能以下划线
 // 开头（NODE_ID_RE），天然无碰撞。锁序恒为 实体锁 → 图锁（图锁内不再取
 // 任何锁），无死锁环；锁不可重入——图锁持有人必须调 *Core/*Locked 变体。
-export const GRAPH_LOCK = "__graph__";
+export { GRAPH_LOCK } from "./lock.js";
 
 export function withGraphLock<T>(
   rootDir: string,
@@ -63,6 +63,27 @@ export function ensureGraphDir(rootDir: string): void {
   const g = toGraphDir(rootDir);
   fs.mkdirSync(path.join(g, NODES_DIR), { recursive: true });
   fs.mkdirSync(path.join(g, EDGES_DIR), { recursive: true });
+}
+
+let atomicWriteCounter = 0;
+
+function writeFileAtomic(file: string, content: string): void {
+  const dir = path.dirname(file);
+  fs.mkdirSync(dir, { recursive: true });
+  const temp = path.join(
+    dir,
+    `.${path.basename(file)}.${process.pid}.${++atomicWriteCounter}.tmp`,
+  );
+  try {
+    fs.writeFileSync(temp, content, "utf-8");
+    fs.renameSync(temp, file);
+  } finally {
+    try {
+      fs.unlinkSync(temp);
+    } catch {
+      /* rename 成功后临时路径已不存在 */
+    }
+  }
 }
 
 function enoent(file: string): Error & { code: string } {
@@ -88,14 +109,96 @@ function assertWritable(
   }
 }
 
+function graphRefId(kind: "node" | "edge", file: string): string {
+  const prefix = kind === "node" ? `${NODES_DIR}/` : `${EDGES_DIR}/`;
+  if (!file.startsWith(prefix) || !file.endsWith(".yaml")) {
+    throw new Error(
+      `${kind === "node" ? "节点" : "边"}引用必须是 ${prefix}<id>.yaml: "${file}"`,
+    );
+  }
+  const id = file.slice(prefix.length, -".yaml".length);
+  assertValidEntityId(kind === "node" ? "节点" : "边", id);
+  if (file !== `${prefix}${id}.yaml`) {
+    throw new Error(`非规范${kind === "node" ? "节点" : "边"}引用: "${file}"`);
+  }
+  return id;
+}
+
+/**
+ * graph.yaml 允许先写引用、后写实体（兼容 parser 的作者式工作流），但只要
+ * 实体文件已经存在，就必须证明文件名中的 id 与正文 id 相同；否则拒绝写图，
+ * 不让一次 graph.yaml 更新覆盖/掩盖另一实体的身份。
+ */
+function assertExistingEntityIdentity(
+  rootDir: string,
+  kind: "node" | "edge",
+  id: string,
+): void {
+  const file = kind === "node" ? nodeFilePath(rootDir, id) : edgeFilePath(rootDir, id);
+  const res = kind === "node"
+    ? loadNodeFile(rootDir, `${id}.yaml`)
+    : loadEdgeFile(rootDir, `${id}.yaml`);
+  if (res.ok) {
+    if (res.data.id !== id) {
+      throw new Error(
+        `${kind === "node" ? "节点" : "边"}文件身份不一致: ${file} 内部 id="${res.data.id}"，文件名 id="${id}"`,
+      );
+    }
+    return;
+  }
+  if (res.enoent) return; // 兼容先写 graph.yaml 引用、后落实体的旧工作流
+  throw new SchemaValidationError(
+    file,
+    res.issues,
+    `${file} schema 校验失败: ${formatIssues(res.issues)}`,
+  );
+}
+
+function assertEntityIdentityExists(
+  rootDir: string,
+  kind: "node" | "edge",
+  id: string,
+): void {
+  const file = kind === "node" ? nodeFilePath(rootDir, id) : edgeFilePath(rootDir, id);
+  const res = kind === "node"
+    ? loadNodeFile(rootDir, `${id}.yaml`)
+    : loadEdgeFile(rootDir, `${id}.yaml`);
+  if (res.ok) {
+    if (res.data.id !== id) {
+      throw new Error(
+        `${kind === "node" ? "节点" : "边"}文件身份不一致: ${file} 内部 id="${res.data.id}"，文件名 id="${id}"`,
+      );
+    }
+    return;
+  }
+  if (res.enoent) throw enoent(file);
+  throw new SchemaValidationError(
+    file,
+    res.issues,
+    `${file} schema 校验失败: ${formatIssues(res.issues)}`,
+  );
+}
+
+function assertGraphReferenceBindings(rootDir: string, graph: GraphSchema): void {
+  for (const ref of graph.nodes) {
+    const id = graphRefId("node", ref.file);
+    assertExistingEntityIdentity(rootDir, "node", id);
+  }
+  for (const ref of graph.edges) {
+    const id = graphRefId("edge", ref.file);
+    assertExistingEntityIdentity(rootDir, "edge", id);
+  }
+}
+
 // ── Graph ──
 export function readGraph(rootDir: string): GraphSchema {
-  const res = loadGraphFile(rootDir);
+  const graphDir = toGraphDir(rootDir);
+  const res = loadGraphFile(graphDir);
   if (res.ok) return res.data;
   if (res.enoent) {
     // arch-c1（C1）：WORKSPACE_NOT_INITIALIZED 单源。toGraphDir 对未初始化的
     // ".graph" 目录会再降一级（.graph/.graph）——错误消息里归一回去，提示可读。
-    const g = toGraphDir(rootDir);
+    const g = graphDir;
     const dir = path.basename(g) === GRAPH_DIR ? path.dirname(g) : g;
     throw workspaceNotInitialized(dir);
   }
@@ -111,15 +214,17 @@ export function readGraph(rootDir: string): GraphSchema {
  * 图锁不可重入，持锁方不得改调自带加锁的 writeGraph。 */
 export function writeGraphCore(rootDir: string, graph: GraphSchema): void {
   assertWritable(GRAPH_FILE, validateGraph(graph));
+  assertGraphReferenceBindings(rootDir, graph);
   const content = yaml.dump(graph, { indent: 2, lineWidth: 120 });
-  fs.writeFileSync(path.join(toGraphDir(rootDir), GRAPH_FILE), content, "utf-8");
+  writeFileAtomic(path.join(toGraphDir(rootDir), GRAPH_FILE), content);
   invalidateIndex(rootDir);
 }
 
 export function writeGraph(rootDir: string, graph: GraphSchema): void {
-  ensureGraphDir(rootDir);
+  const graphDir = toGraphDir(rootDir);
+  ensureGraphDir(graphDir);
   // S1-4：graph.yaml 写入纳入图级锁——与引用列表 RMW、快照/回滚互斥
-  withGraphLock(rootDir, () => writeGraphCore(rootDir, graph));
+  withGraphLock(graphDir, () => writeGraphCore(graphDir, graph));
 }
 
 // ── Node ──
@@ -131,9 +236,17 @@ export function nodeFilePath(rootDir: string, id: string): string {
 
 export function readNode(rootDir: string, id: string): NodeSchema {
   assertValidEntityId("节点", id); // loadNodeFile 以 id 拼文件名，先行拦截
-  const res = loadNodeFile(rootDir, `${id}.yaml`);
-  if (res.ok) return res.data;
-  if (res.enoent) throw enoent(nodeFilePath(rootDir, id));
+  const graphDir = toGraphDir(rootDir);
+  const res = loadNodeFile(graphDir, `${id}.yaml`);
+  if (res.ok) {
+    if (res.data.id !== id) {
+      throw new Error(
+        `节点文件身份不一致: ${nodeFilePath(graphDir, id)} 内部 id="${res.data.id}"，文件名 id="${id}"`,
+      );
+    }
+    return res.data;
+  }
+  if (res.enoent) throw enoent(nodeFilePath(graphDir, id));
   throw new SchemaValidationError(
     `nodes/${id}.yaml`,
     res.issues,
@@ -141,16 +254,20 @@ export function readNode(rootDir: string, id: string): NodeSchema {
   );
 }
 
+export function writeNodeCore(rootDir: string, node: NodeSchema): void {
+  assertWritable(`nodes/${node.id}.yaml`, validateNode(node));
+  assertExistingEntityIdentity(rootDir, "node", node.id);
+  const content = yaml.dump(node, { indent: 2, lineWidth: 120 });
+  writeFileAtomic(nodeFilePath(rootDir, node.id), content);
+  invalidateIndex(rootDir);
+}
+
 export function writeNode(rootDir: string, node: NodeSchema): void {
-  ensureGraphDir(rootDir);
+  const graphDir = toGraphDir(rootDir);
+  ensureGraphDir(graphDir);
   // S1-11：单文件写入纳入图级锁——快照逐文件 copyFileSync 期间不再与写路径
   // 穿插（撕裂副本），回滚恢复期间写入被互斥（防复活半旧状态）
-  withGraphLock(rootDir, () => {
-    assertWritable(`nodes/${node.id}.yaml`, validateNode(node));
-    const content = yaml.dump(node, { indent: 2, lineWidth: 120 });
-    fs.writeFileSync(nodeFilePath(rootDir, node.id), content, "utf-8");
-    invalidateIndex(rootDir);
-  });
+  withGraphLock(graphDir, () => writeNodeCore(graphDir, node));
 }
 
 /**
@@ -160,7 +277,8 @@ export function writeNode(rootDir: string, node: NodeSchema): void {
  * 重建含读-改-写，公共入口自持图级锁；持锁调用方（rollback）用 *Locked 变体。
  */
 export function rebuildGraphRefs(rootDir: string): void {
-  withGraphLock(rootDir, () => rebuildGraphRefsLocked(rootDir));
+  const graphDir = toGraphDir(rootDir);
+  withGraphLock(graphDir, () => rebuildGraphRefsLocked(graphDir));
 }
 
 /** 重建核心（无锁）：调用方必须已持有图锁（GRAPH_LOCK） */
@@ -180,32 +298,49 @@ export function rebuildGraphRefsLocked(rootDir: string): void {
 // ── graph.yaml 引用列表同步（node/edge 创建与软删除时维护）──
 // S1-4：读-改-写全程持图级锁——调用方只持各自实体 id 锁，不同 id 并发时
 // 旧实现互相覆盖（丢条目），此处补上图级互斥（公共咽喉，CLI/MCP 全覆盖）。
-function syncGraphRef(
+function syncGraphRefLocked(
   rootDir: string,
   kind: "node" | "edge",
   id: string,
   remove: boolean,
 ): void {
-  withGraphLock(rootDir, () => {
-    let graph: GraphSchema;
-    try {
-      graph = readGraph(rootDir);
-    } catch (err: any) {
-      if (isWorkspaceNotInitialized(err)) return; // 图未初始化时跳过（无 graph.yaml 可同步；arch-c1 code 判定）
-      throw err; // schema 损坏必须浮出，不得静默
-    }
-    const list = kind === "node" ? graph.nodes : graph.edges;
-    const file = kind === "node" ? `nodes/${id}.yaml` : `edges/${id}.yaml`;
-    const idx = list.findIndex((r) => r.file === file);
-    if (remove) {
-      if (idx === -1) return;
-      list.splice(idx, 1);
-    } else {
-      if (idx !== -1) return; // 已存在
-      list.push({ file });
-    }
-    writeGraphCore(rootDir, graph);
-  });
+  assertValidEntityId(kind === "node" ? "节点" : "边", id);
+  let graph: GraphSchema;
+  try {
+    graph = readGraph(rootDir);
+  } catch (err: any) {
+    if (isWorkspaceNotInitialized(err)) return; // 图未初始化时跳过（无 graph.yaml 可同步；arch-c1 code 判定）
+    throw err; // schema 损坏必须浮出，不得静默
+  }
+  const list = kind === "node" ? graph.nodes : graph.edges;
+  const file = kind === "node" ? `nodes/${id}.yaml` : `edges/${id}.yaml`;
+  const idx = list.findIndex((r) => r.file === file);
+  if (remove) {
+    if (idx === -1) return;
+    list.splice(idx, 1);
+  } else {
+    // 创建引用是实体+graph.yaml 的一次事务的一部分，不能接受缺失或身份错配文件。
+    assertEntityIdentityExists(rootDir, kind, id);
+    if (idx !== -1) return; // 已存在
+    list.push({ file });
+  }
+  writeGraphCore(rootDir, graph);
+}
+
+export function addGraphRefLocked(
+  rootDir: string,
+  kind: "node" | "edge",
+  id: string,
+): void {
+  syncGraphRefLocked(rootDir, kind, id, false);
+}
+
+export function removeGraphRefLocked(
+  rootDir: string,
+  kind: "node" | "edge",
+  id: string,
+): void {
+  syncGraphRefLocked(rootDir, kind, id, true);
 }
 
 export function addGraphRef(
@@ -213,7 +348,8 @@ export function addGraphRef(
   kind: "node" | "edge",
   id: string,
 ): void {
-  syncGraphRef(rootDir, kind, id, false);
+  const graphDir = toGraphDir(rootDir);
+  withGraphLock(graphDir, () => addGraphRefLocked(graphDir, kind, id));
 }
 
 /** 导出仅为 parser.ts 的 deleteNode/deleteEdge 复用（撤引用先于软删文件），非公共 API */
@@ -222,7 +358,8 @@ export function removeGraphRef(
   kind: "node" | "edge",
   id: string,
 ): void {
-  syncGraphRef(rootDir, kind, id, true);
+  const graphDir = toGraphDir(rootDir);
+  withGraphLock(graphDir, () => removeGraphRefLocked(graphDir, kind, id));
 }
 
 // ── Edge ──
@@ -233,9 +370,17 @@ export function edgeFilePath(rootDir: string, id: string): string {
 
 export function readEdge(rootDir: string, id: string): EdgeSchema {
   assertValidEntityId("边", id);
-  const res = loadEdgeFile(rootDir, `${id}.yaml`);
-  if (res.ok) return res.data;
-  if (res.enoent) throw enoent(edgeFilePath(rootDir, id));
+  const graphDir = toGraphDir(rootDir);
+  const res = loadEdgeFile(graphDir, `${id}.yaml`);
+  if (res.ok) {
+    if (res.data.id !== id) {
+      throw new Error(
+        `边文件身份不一致: ${edgeFilePath(graphDir, id)} 内部 id="${res.data.id}"，文件名 id="${id}"`,
+      );
+    }
+    return res.data;
+  }
+  if (res.enoent) throw enoent(edgeFilePath(graphDir, id));
   throw new SchemaValidationError(
     `edges/${id}.yaml`,
     res.issues,
@@ -243,12 +388,16 @@ export function readEdge(rootDir: string, id: string): EdgeSchema {
   );
 }
 
+export function writeEdgeCore(rootDir: string, edge: EdgeSchema): void {
+  assertWritable(`edges/${edge.id}.yaml`, validateEdge(edge));
+  assertExistingEntityIdentity(rootDir, "edge", edge.id);
+  const content = yaml.dump(edge, { indent: 2, lineWidth: 120 });
+  writeFileAtomic(edgeFilePath(rootDir, edge.id), content);
+  invalidateIndex(rootDir);
+}
+
 export function writeEdge(rootDir: string, edge: EdgeSchema): void {
-  ensureGraphDir(rootDir);
-  withGraphLock(rootDir, () => {
-    assertWritable(`edges/${edge.id}.yaml`, validateEdge(edge));
-    const content = yaml.dump(edge, { indent: 2, lineWidth: 120 });
-    fs.writeFileSync(edgeFilePath(rootDir, edge.id), content, "utf-8");
-    invalidateIndex(rootDir);
-  });
+  const graphDir = toGraphDir(rootDir);
+  ensureGraphDir(graphDir);
+  withGraphLock(graphDir, () => writeEdgeCore(graphDir, edge));
 }

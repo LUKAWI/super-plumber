@@ -524,11 +524,11 @@ The same workflow assets (role prompts / staged skills / execution scripts / Ope
 | **pi** (repo-native) | Use the repo-root `.pi/` directly; to bring it elsewhere, copy the `.pi/` directory to that project root |
 | **Claude Code** (plugin `super-plumber`) | `/plugin marketplace add lukawi/super-plumber`, then install `super-plumber`; for local preview run `claude plugin marketplace add ./` at the repo root |
 | **ZCode** (same plugin) | Settings → Plugin management → Discover → add marketplace `lukawi/super-plumber` (or a local directory), then install `super-plumber` |
-| **Codex** (official plugin, v0.9.5) | `codex plugin marketplace add lukawi/super-plumber`, then install `super-plumber`; for a local checkout run `codex plugin marketplace add .` at the repo root |
+| **Codex** (official plugin, v0.9.6) | `codex plugin marketplace add lukawi/super-plumber`, then install `super-plumber`; for a local checkout run `codex plugin marketplace add .` at the repo root |
 
 > Claude Code, ZCode, and Codex reuse **the same plugin package** (`integrations/plugin/`). Claude/ZCode use the `.claude-plugin` manifest, while Codex uses the package's `.codex-plugin/plugin.json`; skills, scripts, and the manual are shared, with host-specific registration and MCP configuration.
 
-### Codex plugin (v0.9.5)
+### Codex plugin (v0.9.6)
 
 The repo-level Codex marketplace is `.agents/plugins/marketplace.json`. Install from GitHub:
 
@@ -585,7 +585,7 @@ cd super-plumber
 npm install
 npm run build && npm --prefix web-ui run build
 
-# Tests (822 backend + 109 frontend: state machine/topology/CLI/MCP protocol/multi-graph migration & perf/concurrency hardening/escaping/render smoke)
+# Tests (858 backend + 117 frontend: state machine/topology/CLI/MCP protocol/multi-graph migration & perf/concurrency hardening/escaping/render smoke)
 npm test
 
 # Link globally for development
@@ -624,7 +624,7 @@ graph --version
 ## Project status
 
 ```text
-Tests: 822 (backend) + 109 (frontend) ✅ | CLI: 29 commands | MCP: 26 tools | Slash commands: 4 | State machine: 7 states + ready gate + max_attempts + passed hard gate + audit event log + ADR 3-state machine (knowledge vertices exempt) + design review credentials (v0.8.0) + delete-refusal reason credentials & DECISIONS.md decision index (v0.8.1) + human-machine division in scheduling: requires_human derivation / waiting-for-human flag / human stale 4h + class credentials /plumber-class & class_changed events (v0.9.1) | Edge types: 9 | Versioning: snapshot/diff/rollback (incl. design-only) | Web UI: Svelte 5 + D3.js starfield observatory (v0.7.0 Deep-Space Instrument Bay + v0.8.1 frontier one-click views / phase legend / Avoid annotations)
+Tests: 858 (backend) + 117 (frontend) ✅ | CLI: 29 commands | MCP: 26 tools | Slash commands: 4 | State machine: 7 states + ready gate + max_attempts + passed hard gate + audit event log + ADR 3-state machine (knowledge vertices exempt) + design review credentials (v0.8.0) + delete-refusal reason credentials & DECISIONS.md decision index (v0.8.1) + human-machine division in scheduling: requires_human derivation / waiting-for-human flag / human stale 4h + class credentials /plumber-class & class_changed events (v0.9.1) | Edge types: 9 | Versioning: snapshot/diff/rollback (incl. design-only) | Web UI: Svelte 5 + D3.js starfield observatory (v0.7.0 Deep-Space Instrument Bay + v0.8.1 frontier one-click views / phase legend / Avoid annotations)
 ```
 
 - **npm**: [@lukawi/super-plumber](https://www.npmjs.com/package/@lukawi/super-plumber)

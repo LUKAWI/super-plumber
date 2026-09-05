@@ -1,5 +1,5 @@
 // tests/core/snapshot.test.ts — Snapshot / Diff / Rollback 原语
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -15,7 +15,38 @@ import { deleteEdge, deleteNode } from "../../src/core/parser.js";
 import { readEvents } from "../../src/core/eventlog.js";
 import { updateGraph, writeGraph } from "../../src/core/parser.js";
 import { withLockSync } from "../../src/core/lock.js";
+import { createGraph } from "../../src/core/graph-dir.js";
 import { NodeType, NodeStatus, EdgeType } from "../../src/core/types.js";
+
+// Snapshot 故障注入：只对本测试显式 armed 的 staging/交换步骤失败，
+// 其余 fs 行为完全沿用 Node 原实现。
+const snapshotFault = { copyStage: false, renameStageNodes: false };
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    default: (actual as unknown as { default?: object }).default ?? actual,
+    copyFileSync: ((...args: Parameters<typeof fs.copyFileSync>) => {
+      const destination = String(args[1] ?? "");
+      if (snapshotFault.copyStage && destination.includes(".rollback-stage-")) {
+        throw new Error("injected snapshot staging copy failure");
+      }
+      return actual.copyFileSync(...args);
+    }) as typeof fs.copyFileSync,
+    renameSync: ((...args: Parameters<typeof fs.renameSync>) => {
+      const source = String(args[0] ?? "");
+      const destination = String(args[1] ?? "");
+      if (
+        snapshotFault.renameStageNodes &&
+        source.includes(".rollback-stage-") &&
+        path.basename(destination) === "nodes"
+      ) {
+        throw new Error("injected snapshot component switch failure");
+      }
+      return actual.renameSync(...args);
+    }) as typeof fs.renameSync,
+  };
+});
 
 let tmpDir: string;
 
@@ -24,6 +55,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  snapshotFault.copyStage = false;
+  snapshotFault.renameStageNodes = false;
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -114,6 +147,10 @@ describe("snapshot", () => {
     expect(getNode(tmpDir, "a").status).toBe("pending");
     // 自动备份了回滚前的状态
     expect(listSnapshots(tmpDir).map((s) => s.id)).toContain(backup.id);
+
+    // 备份本身可作为下一次恢复源
+    rollbackToSnapshot(tmpDir, backup.id, { confirm: true });
+    expect(getNode(tmpDir, "a").status).toBe("ready");
   });
 
   it("rollback 不存在的快照 → 报错", () => {
@@ -203,5 +240,93 @@ describe("snapshot", () => {
     const { restored } = rollbackToSnapshot(tmpDir, snap.id, { confirm: true });
     expect(restored.id).toBe(snap.id);
     expect(getNode(tmpDir, "a").status).toBe("pending");
+  });
+
+  it("0.9.6 拒绝 snapshot id traversal，且不触碰图外路径", () => {
+    buildGraph();
+    const outside = path.join(tmpDir, "..", `${path.basename(tmpDir)}-snapshot-outside.txt`);
+    fs.writeFileSync(outside, "sentinel", "utf-8");
+    try {
+      expect(() => diffSnapshot(tmpDir, "../snapshot-outside", null)).toThrow(/快照 ID/);
+      expect(() => rollbackToSnapshot(tmpDir, "../snapshot-outside", { confirm: true })).toThrow(/快照 ID/);
+      expect(fs.readFileSync(outside, "utf-8")).toBe("sentinel");
+    } finally {
+      fs.rmSync(outside, { force: true });
+    }
+  });
+
+  it("0.9.6 拒绝 manifest 文件 traversal 与哈希篡改，不创建回滚备份", () => {
+    buildGraph();
+    const snap = createSnapshot(tmpDir, "安全基线");
+    const manifestFile = path.join(tmpDir, ".graph", "snapshots", snap.id, "manifest.json");
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf-8")) as {
+      files: { file: string; sha256: string }[];
+    };
+    manifest.files.push({ file: "../../escape.yaml", sha256: "0".repeat(64) });
+    fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2), "utf-8");
+
+    expect(() => diffSnapshot(tmpDir, snap.id, null)).toThrow(/文件路径非法/);
+    expect(() => rollbackToSnapshot(tmpDir, snap.id, { confirm: true })).toThrow(/文件路径非法/);
+    expect(listSnapshots(tmpDir).some((item) => item.id === snap.id)).toBe(false);
+    expect(listSnapshots(tmpDir).some((item) => item.message?.includes("pre-rollback"))).toBe(false);
+  });
+
+  it("0.9.6 保留软删除归档，回滚后活动实体可恢复", () => {
+    buildGraph();
+    const snap = createSnapshot(tmpDir, "软删除前");
+    deleteNode(tmpDir, "b", { reason: "测试软删除", actor: "test", cascade: true });
+    const archived = fs
+      .readdirSync(path.join(tmpDir, ".graph", "nodes"))
+      .find((name) => name.startsWith("b.deleted") && name.endsWith(".yaml"));
+    expect(archived).toBeDefined();
+
+    rollbackToSnapshot(tmpDir, snap.id, { confirm: true });
+    expect(getNode(tmpDir, "b").label).toBe("B");
+    expect(fs.existsSync(path.join(tmpDir, ".graph", "nodes", archived!))).toBe(true);
+  });
+
+  it("0.9.6 多图快照隔离：不能用另一张图的 snapshot id 回滚", () => {
+    const graphA = createGraph(tmpDir, "alpha", "Alpha");
+    const graphB = createGraph(tmpDir, "beta", "Beta");
+    createNode(graphA, { id: "a", type: NodeType.Task, label: "A" });
+    createNode(graphB, { id: "b", type: NodeType.Task, label: "B" });
+    const snapA = createSnapshot(graphA, "A 基线");
+
+    expect(() => rollbackToSnapshot(graphB, snapA.id, { confirm: true })).toThrow(/not found/);
+    expect(getNode(graphB, "b").label).toBe("B");
+    expect(listSnapshots(graphA).map((item) => item.id)).toContain(snapA.id);
+    expect(listSnapshots(graphB).map((item) => item.id)).not.toContain(snapA.id);
+  });
+
+  it("0.9.6 staging 复制失败：原工作区完整保留且无半快照", () => {
+    buildGraph();
+    const snap = createSnapshot(tmpDir, "复制失败基线");
+    updateNodeStatus(tmpDir, "a", NodeStatus.Ready);
+    snapshotFault.copyStage = true;
+    expect(() => rollbackToSnapshot(tmpDir, snap.id, { confirm: true })).toThrow(/staging copy failure/);
+
+    expect(getNode(tmpDir, "a").status).toBe("ready");
+    const graphDir = path.join(tmpDir, ".graph");
+    expect(fs.readdirSync(graphDir).some((name) => name.startsWith(".rollback-stage-"))).toBe(false);
+    expect(listSnapshots(tmpDir).some((item) => item.message?.includes("pre-rollback"))).toBe(false);
+  });
+
+  it("0.9.6 组件切换失败：反向恢复原工作区并保留可恢复备份", () => {
+    buildGraph();
+    const snap = createSnapshot(tmpDir, "切换失败基线");
+    updateNodeStatus(tmpDir, "a", NodeStatus.Ready);
+    snapshotFault.renameStageNodes = true;
+    expect(() => rollbackToSnapshot(tmpDir, snap.id, { confirm: true })).toThrow(/component switch failure/);
+
+    expect(getNode(tmpDir, "a").status).toBe("ready");
+    const graphDir = path.join(tmpDir, ".graph");
+    expect(fs.readdirSync(graphDir).some((name) => name.startsWith(".rollback-stage-"))).toBe(false);
+    expect(fs.readdirSync(graphDir).some((name) => name.startsWith(".rollback-backup-"))).toBe(false);
+    const backups = listSnapshots(tmpDir).filter((item) => item.message?.includes("pre-rollback"));
+    expect(backups).toHaveLength(1);
+    // 失败后仍可用自动备份恢复当前状态
+    snapshotFault.renameStageNodes = false;
+    rollbackToSnapshot(tmpDir, backups[0].id, { confirm: true });
+    expect(getNode(tmpDir, "a").status).toBe("ready");
   });
 });
