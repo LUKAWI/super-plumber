@@ -42,10 +42,10 @@ describe("f10 MCP 工具补全（S2-1）", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("TC-01 工具注册数与头注释一致（26 个，0.9.0 增 graph_graduate_fog；validate/events/approve 在列）", async () => {
+  it("TC-01 工具注册数与头注释一致（27 个，含 graph_survey；validate/events/approve 在列）", async () => {
     const tools = await client.listTools();
     const names = tools.tools.map((t) => t.name);
-    expect(tools.tools.length).toBe(26);
+    expect(tools.tools.length).toBe(27);
     expect(names).toContain("graph_validate");
     expect(names).toContain("graph_events");
     expect(names).toContain("graph_approve");

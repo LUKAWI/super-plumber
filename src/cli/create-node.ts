@@ -2,10 +2,11 @@
 // runner。未初始化拒绝（防孤儿节点文件）复用 core workspaceNotInitialized 单源文案
 // （"ENOENT 提示六份归一"）；类型枚举校验消费 assertEnum 单源（六份之一）。
 import { createNode } from "../core/node.js";
-import { NodeType } from "../core/types.js";
+import { CHECKPOINT_STATUSES } from "../core/checkpoint.js";
+import { NodeType, type Checkpoint } from "../core/types.js";
 import { workspaceNotInitialized } from "../core/errors.js";
 import { coerceInt } from "./coerce.js";
-import { defineCommand, assertEnum, type RunContext } from "./runner.js";
+import { defineCommand, assertEnum, CliUsageError, type RunContext } from "./runner.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -25,6 +26,13 @@ export const createNodeCommand = defineCommand("create-node").alias("cn")
     (val: string, prev: string[]) => [...prev, val],
     [] as string[],
   )
+  .option(
+    "--add-checkpoint <json>",
+    '追加一个检查点 (可多次使用, JSON: {"id":"...","label":"..."})',
+    (val: string, prev: string[]) => [...prev, val],
+    [] as string[],
+  )
+  .option("--max-attempts <n>", "最大重试次数（0 = 不限）")
   .action((options: {
     id: string;
     label: string;
@@ -35,6 +43,8 @@ export const createNodeCommand = defineCommand("create-node").alias("cn")
     assignedTo?: string;
     planDesc?: string;
     dod: string[];
+    addCheckpoint: string[];
+    maxAttempts?: string;
   }, _cmd, ctx: RunContext) => {
     const rootDir = ctx.rootDir;
     const type = options.type as NodeType;
@@ -44,6 +54,37 @@ export const createNodeCommand = defineCommand("create-node").alias("cn")
     if (!fs.existsSync(path.join(rootDir, "graph.yaml"))) {
       throw workspaceNotInitialized(rootDir);
     }
+
+    // C6：与 update-node 同形解析，创建命令一次写入完整节点压缩包。
+    let checkpoints: Checkpoint[] | undefined;
+    if (options.addCheckpoint.length > 0) {
+      checkpoints = [];
+      for (const raw of options.addCheckpoint) {
+        let cp: any;
+        try {
+          cp = JSON.parse(raw);
+        } catch {
+          throw new CliUsageError(
+            'checkpoint 格式错误，需为 JSON: {"id":"...","label":"..."}',
+          );
+        }
+        if (cp.status !== undefined) {
+          assertEnum(cp.status, CHECKPOINT_STATUSES, "checkpoint 状态");
+        }
+        if (!cp.id || !cp.label) {
+          throw new CliUsageError(
+            'checkpoint 需包含 id 和 label 字段: {"id":"...","label":"..."}',
+          );
+        }
+        checkpoints.push({
+          id: cp.id,
+          label: cp.label,
+          status: cp.status ?? "pending",
+          verifier: cp.verifier ?? "auto",
+        });
+      }
+    }
+
     const node = createNode(rootDir, {
       id: options.id,
       type,
@@ -56,6 +97,10 @@ export const createNodeCommand = defineCommand("create-node").alias("cn")
       assigned_to: options.assignedTo,
       plan_description: options.planDesc,
       definition_of_done: options.dod.length > 0 ? options.dod : undefined,
+      checkpoints,
+      ...(options.maxAttempts !== undefined
+        ? { max_attempts: coerceInt("--max-attempts", options.maxAttempts, { min: 0 }) }
+        : {}),
     }, { actor: "cli" });
     ctx.out(`✅ 已创建节点: ${node.id} (${node.status})`);
   });

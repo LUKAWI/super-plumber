@@ -1,5 +1,7 @@
-import { computeNextActions } from "../core/graph.js";
+import { computeNextActions, computeNextActionsAll } from "../core/graph.js";
+import { readWorkspaceDefault } from "../core/graph-dir.js";
 import { coerceInt } from "./coerce.js";
+import { cliGraphCtx } from "./graph-ctx.js";
 import { defineCommand, type RunContext } from "./runner.js";
 
 // F09（adr_0017）：死节点读面标注渲染——ready_eligible/blocked 桶条目附
@@ -20,15 +22,42 @@ function deadMarks(n: {
   return ` ⚠️ ${parts.join(" | ")}`;
 }
 
-export const nextCommand = defineCommand("next").alias("n")
+export const nextCommand = defineCommand("next", { workspace: true }).alias("n")
   .description("调度决策：列出可认领 / 等依赖 / 执行中 / 疑似卡住的节点")
+  .option("--all", "跨图聚合所有图的只读前沿（不切换 active）")
   .option(
     "--stale-ms <ms>",
     "running 节点无更新阈值（毫秒；缺省基线 30 分钟，requires_human 节点默认放大 8 倍 = 4 小时；显式传值对全部节点生效）",
   )
   .option("--json", "输出稳定 JSON（供脚本/agent 消费）")
-  .action((options: { staleMs?: string }, _cmd, ctx: RunContext) => {
-    const rootDir = ctx.rootDir;
+  .action((options: { staleMs?: string; all?: boolean }, _cmd, ctx: RunContext) => {
+    if (options.all) {
+      const graphs = computeNextActionsAll(ctx.rootDir, {
+        ...(options.staleMs !== undefined
+          ? { staleMs: coerceInt("--stale-ms", options.staleMs, { min: 0 }) }
+          : {}),
+      });
+      ctx.emit(
+        () => ({ current: readWorkspaceDefault(ctx.rootDir), graphs }),
+        () => {
+          ctx.out(`工作区跨图前沿（${graphs.length} 张图）`);
+          for (const graph of graphs) {
+            const s = graph.summary;
+            ctx.out(`\n图: ${graph.graph}（${graph.label}）`);
+            ctx.out(
+              `📊 状态分布: 总 ${s.total} | pending ${s.pending} | ready ${s.ready} | running ${s.running} | passed ${s.passed} | failed ${s.failed} | blocked ${s.blocked} | cancelled ${s.cancelled}`,
+            );
+            ctx.out(
+              `   前沿: ready ${graph.ready.length} | ready_eligible ${graph.ready_eligible.length} | blocked ${graph.blocked.length} | running ${graph.running.length} | stale ${graph.stale_running.length}`,
+            );
+          }
+        },
+      );
+      return;
+    }
+
+    const gctx = cliGraphCtx();
+    const rootDir = gctx.dir;
     // F07：--stale-ms 未显式给出时不透传（undefined）——core 缺省基线生效，
     // requires_human 节点享有人类节奏的放大阈值；显式传值则对全部节点生效
     const result = computeNextActions(rootDir, {
@@ -38,9 +67,9 @@ export const nextCommand = defineCommand("next").alias("n")
     });
 
     ctx.emit(
-      () => ({ graph: ctx.gctx!.name, ...result }),
+      () => ({ graph: gctx.name, ...result }),
       () => {
-        ctx.out(`图: ${ctx.gctx!.name}`);
+        ctx.out(`图: ${gctx.name}`);
 
         const s = result.summary;
         ctx.out(

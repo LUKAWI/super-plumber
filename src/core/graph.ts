@@ -22,6 +22,17 @@ export {
 } from "./scheduler.js";
 export type { GraphIndex } from "./index-service.js";
 export type { NextActionsResult } from "./scheduler.js";
+export {
+  computeNextActionsAll,
+  surveyWorkspace,
+  writeSurveyReport,
+} from "./workspace-read.js";
+export type {
+  WorkspaceNextActionsEntry,
+  SurveyAdrConflict,
+  SurveyGraph,
+  WorkspaceSurveyReport,
+} from "./workspace-read.js";
 
 /**
  * 拓扑排序（Kahn 算法）。只考虑 TOPOLOGICAL_EDGE_TYPES 中的边。

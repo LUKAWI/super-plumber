@@ -3,10 +3,105 @@
 // runner——本文件不再持有 console.error + process.exit 散点。
 import { createGraph, listGraphNames, writeWorkspaceDefault, trashGraph, migrateLegacyLayout } from "../core/graph-dir.js";
 import { GRAPH_CLASSES } from "../core/schema.js";
+import { createNode } from "../core/node.js";
+import { createEdge } from "../core/edge.js";
+import { EdgeType, NodeType } from "../core/types.js";
 import { VERSION } from "../version.js";
 import { defineCommand, CliUsageError } from "./runner.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
+
+export const GRAPH_TEMPLATES = [
+  "vertical-slice",
+  "expand-contract",
+  "research-decision-build",
+  "hardening",
+] as const;
+type GraphTemplate = (typeof GRAPH_TEMPLATES)[number];
+
+type TemplateSpec = {
+  nodes: readonly {
+    id: string;
+    label: string;
+    plan: string;
+    dod: string[];
+  }[];
+  edges: readonly { id: string; source: string; target: string }[];
+};
+
+const TEMPLATE_SPECS: Record<GraphTemplate, TemplateSpec> = {
+  "vertical-slice": {
+    nodes: [
+      { id: "slice-discover", label: "切片澄清", plan: "锁定一条可交付的端到端切片", dod: ["范围与验收标准明确"] },
+      { id: "slice-build", label: "切片构建", plan: "实现并联通该切片的最小闭环", dod: ["切片可运行"] },
+      { id: "slice-verify", label: "切片验收", plan: "验证切片并记录交付证据", dod: ["测试与验收证据齐全"] },
+    ],
+    edges: [
+      { id: "slice-discover-to-build", source: "slice-discover", target: "slice-build" },
+      { id: "slice-build-to-verify", source: "slice-build", target: "slice-verify" },
+    ],
+  },
+  "expand-contract": {
+    nodes: [
+      { id: "expand", label: "Expand 扩展", plan: "先增加兼容的新结构或接口", dod: ["新旧路径可并存"] },
+      { id: "migrate", label: "Migrate 迁移", plan: "迁移数据与调用方并观察结果", dod: ["迁移完成且可回溯"] },
+      { id: "contract", label: "Contract 收缩", plan: "移除旧结构并收口兼容层", dod: ["旧路径安全下线"] },
+    ],
+    edges: [
+      { id: "expand-to-migrate", source: "expand", target: "migrate" },
+      { id: "migrate-to-contract", source: "migrate", target: "contract" },
+    ],
+  },
+  "research-decision-build": {
+    nodes: [
+      { id: "research", label: "研究", plan: "收集证据并明确未知项", dod: ["关键事实与风险有证据"] },
+      { id: "decision", label: "决策", plan: "比较选项并记录取舍", dod: ["决策与理由成文"] },
+      { id: "build", label: "构建", plan: "按决策实现最小可交付方案", dod: ["方案可运行"] },
+      { id: "build-verify", label: "验证", plan: "验证结果并回填决策证据", dod: ["验收结论可复核"] },
+    ],
+    edges: [
+      { id: "research-to-decision", source: "research", target: "decision" },
+      { id: "decision-to-build", source: "decision", target: "build" },
+      { id: "build-to-verify", source: "build", target: "build-verify" },
+    ],
+  },
+  hardening: {
+    nodes: [
+      { id: "baseline", label: "基线", plan: "记录当前行为、指标与风险", dod: ["基线数据可复测"] },
+      { id: "harden", label: "加固", plan: "修复高风险路径并补防护", dod: ["关键风险有对应防护"] },
+      { id: "regress", label: "回归", plan: "执行回归验证并检查退化", dod: ["回归测试通过"] },
+      { id: "observe", label: "观察", plan: "观察运行指标并确认交付", dod: ["观察窗口与结论记录"] },
+    ],
+    edges: [
+      { id: "baseline-to-harden", source: "baseline", target: "harden" },
+      { id: "harden-to-regress", source: "harden", target: "regress" },
+      { id: "regress-to-observe", source: "regress", target: "observe" },
+    ],
+  },
+};
+
+function applyGraphTemplate(graphDir: string, template: GraphTemplate | undefined): number {
+  if (template === undefined) return 0;
+  const spec = TEMPLATE_SPECS[template];
+  for (const node of spec.nodes) {
+    createNode(graphDir, {
+      id: node.id,
+      type: NodeType.Task,
+      label: node.label,
+      plan_description: node.plan,
+      definition_of_done: node.dod,
+    }, { actor: "cli" });
+  }
+  for (const edge of spec.edges) {
+    createEdge(graphDir, {
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      type: EdgeType.DependsOn,
+    }, { actor: "cli" });
+  }
+  return spec.nodes.length;
+}
 
 export const initCommand = defineCommand("init", { workspace: true }).alias("i")
   .description("初始化图：新仓库必须带图名（内容命名，如 refactor-auth）；旧仓库带名 init = 一次性迁移 + 建新图")
@@ -16,16 +111,25 @@ export const initCommand = defineCommand("init", { workspace: true }).alias("i")
     "--class <class>",
     `工作类预设：${GRAPH_CLASSES.join(" | ")}（DEC-2 三级路由；缺省不标注）`,
   )
+  .option(
+    "--template <template>",
+    `骨架模板：${GRAPH_TEMPLATES.join(" | ")}（预留 entry/exit 并生成示例节点）`,
+  )
   .option("-f, --force", "（仅旧式无名单图）已初始化时强制覆盖，慎用")
   .action((name: string | undefined, options: {
     label: string;
     class?: string;
+    template?: string;
     force?: boolean;
   }) => {
     const rootDir = process.cwd();
     const graphClass = options.class as (typeof GRAPH_CLASSES)[number] | undefined;
     if (graphClass !== undefined && !(GRAPH_CLASSES as readonly string[]).includes(graphClass)) {
       throw new CliUsageError(`--class 仅允许 ${GRAPH_CLASSES.join(" | ")}（收到: ${options.class}）`);
+    }
+    const template = options.template as GraphTemplate | undefined;
+    if (template !== undefined && !(GRAPH_TEMPLATES as readonly string[]).includes(template)) {
+      throw new CliUsageError(`--template 仅允许 ${GRAPH_TEMPLATES.join(" | ")}（收到: ${options.template}）`);
     }
     const existing = listGraphNames(rootDir);
     const isLegacySingle = existing.length > 0 &&
@@ -43,7 +147,7 @@ export const initCommand = defineCommand("init", { workspace: true }).alias("i")
         trashGraph(rootDir, name, "cli");
         console.log(`📦 已存在同名图 "${name}"，--force 已将旧图移入 .trash/ 后重建`);
       }
-      createGraph(rootDir, name, options.label, { actor: "cli", version: VERSION, class: graphClass });
+      const graphDir = createGraph(rootDir, name, options.label, { actor: "cli", version: VERSION, class: graphClass });
       if (wasLegacy) {
         console.log(`📦 旧布局已一次性迁移至 .graph/default/（建第二图触发，锁内原子）`);
       }
@@ -51,6 +155,8 @@ export const initCommand = defineCommand("init", { workspace: true }).alias("i")
       // 新图建好即设为工作区默认（建它就是为了干活）
       writeWorkspaceDefault(rootDir, name, "cli");
       console.log(`✅ 已创建图 "${name}" 并设为工作区默认: ${path.join(rootDir, ".graph", name)}`);
+      const seeded = applyGraphTemplate(graphDir, template);
+      if (seeded > 0) console.log(`   已按模板 "${template}" 生成 ${seeded} 个示例节点（entry/exit 保留为空待填写）`);
       console.log(`   切换：graph switch <名>；列举：graph list`);
       return;
     }
@@ -80,10 +186,12 @@ export const initCommand = defineCommand("init", { workspace: true }).alias("i")
       console.log(`📦 旧布局已迁移至 .graph/default/（${moved.length} 项）`);
     }
     trashGraph(rootDir, "default", "cli");
-    createGraph(rootDir, "default", options.label, { actor: "cli", version: VERSION, class: graphClass });
+    const graphDir = createGraph(rootDir, "default", options.label, { actor: "cli", version: VERSION, class: graphClass });
     writeWorkspaceDefault(rootDir, "default", "cli");
     writeSchemaDoc();
+    const seeded = applyGraphTemplate(graphDir, template);
     console.log(`✅ 已整目录重置旧式单图: ${path.join(rootDir, ".graph", "default")}（旧内容在 .graph/.trash/ 可手工救回）`);
+    if (seeded > 0) console.log(`   已按模板 "${template}" 生成 ${seeded} 个示例节点（entry/exit 保留为空待填写）`);
   });
 
 // 人类可读 schema 说明（校验的文档化对应物，随版本更新）

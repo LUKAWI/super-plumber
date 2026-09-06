@@ -88,27 +88,9 @@ function fsExists(p) {
 	}
 }
 
-/** 从脚本所在目录向上寻找当前分发树的包根。 */
-function bundledPackageRoot(startDir) {
-	let dir = path.resolve(startDir);
-	for (let i = 0; i < 12; i++) {
-		const distFile = path.join(dir, "dist", "core", "index.js");
-		const root = packageRootOf(distFile);
-		if (root && fsExists(distFile)) return root;
-		const parent = path.dirname(dir);
-		if (parent === dir) break;
-		dir = parent;
-	}
-	return null;
-}
-
-/** 定位 super-plumber 包根（dist 必须已构建）；优先当前分发树，最后才回退全局。 */
+/** 定位 super-plumber 包根（dist 必须已构建）；两路都失败返回 null。 */
 function resolvePackageRoot() {
-	// 1) 当前 integrations/<channel>/scripts、.pi/.../scripts 或源码脚本所在包根。
-	//    源码仓库不会把自己安装进 node_modules；若直接回退全局，测试/开发会误跑另一棵树。
-	const bundledRoot = bundledPackageRoot(path.dirname(fileURLToPath(import.meta.url)));
-	if (bundledRoot) return bundledRoot;
-	// 2) 项目本地安装 / 仓库自引用：沿 node_modules 解析规则定位公开桶入口
+	// 1) 项目本地安装 / 仓库自引用：沿 node_modules 解析规则定位公开桶入口
 	try {
 		const require = createRequire(import.meta.url);
 		const coreJs = require.resolve(`${PKG_NAME}/core`);
@@ -117,7 +99,7 @@ function resolvePackageRoot() {
 	} catch {
 		// 未本地安装 → 尝试全局
 	}
-	// 3) 全局安装回退
+	// 2) 全局安装回退
 	try {
 		const globalRoot = execSync("npm root -g", { stdio: ["pipe", "pipe", "pipe"] })
 			.toString()
@@ -370,57 +352,49 @@ function subcommandCheckDesign(args, graph) {
 // 入口分发
 // ---------------------------------------------------------------------------
 
-async function main() {
-	const parsed = parseGraphArgs(process.argv.slice(2));
-	const [subcommand, ...rest] = parsed.args;
-	const graph = parsed.graph;
+const parsed = parseGraphArgs(process.argv.slice(2));
+const [subcommand, ...rest] = parsed.args;
+const graph = parsed.graph;
 
-	switch (subcommand) {
-		case "claim":
-			subcommandClaim(resolvePackageRootOrExit(), rest, graph);
-			break;
-		case "update-status":
-		case "us":
-			subcommandUpdateStatus(resolvePackageRootOrExit(), rest, graph);
-			break;
-		case "get-node":
-		case "gn":
-			subcommandGetNode(resolvePackageRootOrExit(), rest, graph);
-			break;
-		case "checkpoint":
-			await subcommandCheckpoint(rest, graph);
-			break;
-		case "report":
-			await subcommandReport(rest, graph);
-			break;
-		case "traverse":
-			await subcommandTraverse(rest, graph);
-			break;
-		case "check-design":
-		case "doctor":
-			subcommandCheckDesign(rest, graph);
-			break;
-		case "help":
-		case "--help":
-		case "-h":
-			console.log(USAGE);
-			process.exit(0);
-			break;
-		case undefined:
-			console.error(USAGE);
-			process.exit(1);
-			break;
-		default:
-			console.error(`❌ 未知子命令: ${subcommand}`);
-			console.error(USAGE);
-			process.exit(1);
-	}
-}
-
-export { bundledPackageRoot, loadCore, resolvePackageRoot };
-
-if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
-	await main();
+switch (subcommand) {
+	case "claim":
+		subcommandClaim(resolvePackageRootOrExit(), rest, graph);
+		break;
+	case "update-status":
+	case "us":
+		subcommandUpdateStatus(resolvePackageRootOrExit(), rest, graph);
+		break;
+	case "get-node":
+	case "gn":
+		subcommandGetNode(resolvePackageRootOrExit(), rest, graph);
+		break;
+	case "checkpoint":
+		await subcommandCheckpoint(rest, graph);
+		break;
+	case "report":
+		await subcommandReport(rest, graph);
+		break;
+	case "traverse":
+		await subcommandTraverse(rest, graph);
+		break;
+	case "check-design":
+	case "doctor":
+		subcommandCheckDesign(rest, graph);
+		break;
+	case "help":
+	case "--help":
+	case "-h":
+		console.log(USAGE);
+		process.exit(0);
+		break;
+	case undefined:
+		console.error(USAGE);
+		process.exit(1);
+		break;
+	default:
+		console.error(`❌ 未知子命令: ${subcommand}`);
+		console.error(USAGE);
+		process.exit(1);
 }
 
 function resolvePackageRootOrExit() {

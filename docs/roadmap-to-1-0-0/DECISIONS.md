@@ -14,6 +14,8 @@
 | ADR · accepted | adr_0007 | 雾区进 schema：轻字段 + 只提示不阻止（0.9.0 设计基准） | 2026-09-01T16:15:49.179Z |
 | ADR · accepted | adr_0008 | 单真相源重组：正本唯一化 integrations/src/，双视图变构建产物（0.9.4） | 2026-09-04T07:03:46.405Z |
 | ADR · accepted | adr_0009 | hooks 是可选 harness 资产，不是 SP 机制（0.9.4） | 2026-09-04T07:03:50.880Z |
+| ADR · accepted | adr_0010 | 统一入口 /plumber router：只 hint 不点火（1.0.0） | 2026-09-05T23:28:22.787Z |
+| ADR · accepted | adr_0011 | 1.0.0 协议冻结承诺：MCP/CLI 语义 v1 + deprecation 政策 | 2026-09-05T23:28:24.971Z |
 | ADR · accepted | adr_0012 | 过程问题前馈回路：失败与用户反馈一律入账、转图节点、按常规流程治理 | 2026-08-30T09:33:39.056Z |
 | ADR · accepted | adr_0013 | 多图工作区知识视图导出按图名分离存放（根治 A1 跨图视图挤占） | 2026-08-30T11:39:27.326Z |
 | ADR · accepted | adr_0014 | sp-grilling 纪律技能：意图对齐与决策纠正的统一对话核心（替代 quiz 三问） | 2026-08-30T14:27:35.303Z |
@@ -28,6 +30,7 @@
 | task · passed | arch-c4a-fog-home | [0.9.1·架构] C4a 雾区概念成家（fog.ts 收写路径）+ class 枚举单源 | 2026-09-02T15:16:39.559Z |
 | task · passed | arch-c4b-review-home | [0.9.2·架构] C4b 审批凭据成家（review.ts）+ parser 减负解环 | 2026-09-02T23:41:03.563Z |
 | task · passed | arch-c5-amend-combinator | [0.9.2·架构] C5 改图守卫组合器（skipAmendGuard 通道退役） | 2026-09-03T00:43:55.722Z |
+| task · passed | arch-c6-field-chain | [架构] C6 节点字段声明链收敛（共享 zod + 对账金测 + CLI 压缩包补齐） | 2026-09-05T13:48:20.871Z |
 | task · passed | arch-c7a-view-tree-gate | [0.9.1·架构] C7a ADR 导出视图合树 + export --check 门禁 + 散文锚点即修 | 2026-09-02T14:55:24.764Z |
 | task · passed | arch-c7b-anchor-gate | [0.9.4·架构] C7b sync --check 增散文锚点断言（manual 版本锚点 + README 计数器） | 2026-09-04T01:01:12.709Z |
 | task · passed | fix-v080-a1 | [fix·0.7.0] A1 根治：ADR 编号×共享知识视图目录冲突（方案系统测试后定） | 2026-08-30T11:39:27.258Z |
@@ -105,3 +108,12 @@
 | task · passed | v096-snapshot-integrity | [0.9.6] Snapshot 路径隔离与原子回滚 | 2026-09-05T06:13:35.167Z |
 | task · passed | v096-verify | [0.9.6] 交叉验证：一致性与边界修复 | 2026-09-05T08:38:23.816Z |
 | task · passed | v096-webui-boundary | [0.9.6] Web API/WS 与 UI 状态边界加固 | 2026-09-05T07:31:16.664Z |
+| task · passed | v097-cli-targeting | [0.9.7] CLI/脚本图寻址与废弃面收口 | 2026-09-05T15:51:57.645Z |
+| task · passed | v097-issue-log-closure | [0.9.7] Issue log 残留闭环与渠道复验 | 2026-09-05T15:56:23.354Z |
+| task · passed | v097-release-gates | [0.9.7] 发布门禁、依赖版本与覆盖率收口 | 2026-09-05T16:39:50.138Z |
+| task · passed | v097-verify | [0.9.7] 交叉验证：工具链、WebUI 与发布门禁 | 2026-09-05T23:26:53.635Z |
+| task · passed | v097-webui-middle-pan | [0.9.7] WebUI CAD 式中键拖动视图 | 2026-09-05T22:59:31.815Z |
+| task · passed | v100-disciplines | [1.0.0] S11 +grilling-lite（服务统一入口路由） | 2026-09-05T14:21:14.788Z |
+| task · passed | v100-router | [1.0.0] WF13 /plumber router skill + S07 命令三通道（commands 终态 4） | 2026-09-05T14:28:51.302Z |
+| task · passed | v100-survey | [1.0.0] F10 next --all 跨图聚合 → F20 graph survey 巡检（内链串行，F20 依赖 F10） | 2026-09-05T14:14:40.646Z |
+| task · passed | v100-template-lint | [1.0.0] F19 init --template 四型 + F11 工具 description no-op 清扫（−20% token） | 2026-09-05T14:27:22.852Z |

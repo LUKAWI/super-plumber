@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // src/mcp/server.ts
-// Super Plumber MCP Server（stdio）— 26 个 graph_* 工具。
+// Super Plumber MCP Server（stdio）— 27 个 graph_* 工具。
 // 设计原则（agent 原生化）：
 //   1. 设计期/执行期/裁决期全流程 MCP 覆盖（建图→调度→claim→checkpoint→report→verdict→验收）
 //   2. zod 参数校验（缺参/非法枚举 → 协议错误），错误消息可读可自纠
@@ -35,6 +35,9 @@ import { withGraphAmend, planAmendNudge } from "../core/amend.js";
 import {
   buildGraphIndex,
   computeNextActions,
+  computeNextActionsAll,
+  surveyWorkspace,
+  writeSurveyReport,
 } from "../core/graph.js";
 // arch-c3a：认领提示包 core 单源组装（arch-c2 落位 scheduler.ts——调度/旗标装配
 // 与索引缓存分家后的新家）
@@ -298,10 +301,8 @@ server.registerTool(
   "graph_switch",
   {
     description:
-      "v0.5.2 切换本进程的目标图（类 git branch）：只改本 MCP server 进程内存的 active，" +
-      "不影响其它进程、不写 .graph/active（工作区默认用 CLI graph switch 改）；进程重启回落工作区默认。" +
-      "带 name：切换 + 返回目标图摘要（label/节点分布/最近活动）+ 原图在途 running 提示（不阻止）；" +
-      "不带 name：返回当前图信息（含命中来源）。图名不存在报错列出全部可用图 + did-you-mean。",
+      "进程内切换目标图（不写 .graph/active；重启回工作区默认）。带 name 返回目标摘要与原图 running 提示；" +
+      "不带 name 返回当前图及命中来源；不存在时报可用图与 did-you-mean。",
     inputSchema: {
       name: z.string().optional().describe("目标图名（缺省=查询当前图）"),
     },
@@ -363,9 +364,8 @@ server.registerTool(
   "graph_list_graphs",
   {
     description:
-      "v0.5.2 列举工作区全部图（或查指定图详情）：名/label/节点数/running/passed/最近活动/is_current。与 CLI graph list 同构。" +
-      "oneline=true（F18，与 CLI graph status --oneline 同款）：每份摘要附加 oneline 单行状态字符串 + workflow 计数（调度口径七工作流态零填充）——判定图健康度的最轻量读面（图名/进度 passed/total/前沿 ready/running/failed/blocked），hooks 与旅程提示的数据源，勿为此拉全图。" +
-      "注意：建图（graph init）/删图（trash）/文档导出（export --docs）刻意不设 MCP 通道（工作区级破坏性操作，人类走 CLI）——agent 需要时提示用户执行 CLI。",
+      "列出工作区图或详情：name/label/节点数/running/passed/最近活动/is_current；oneline=true 追加单行健康摘要与七态计数。" +
+      "建图、删图、文档导出刻意不设 MCP 通道，工作区级破坏性操作走 CLI。",
     inputSchema: {
       name: z.string().optional().describe("图名（缺省列全部）"),
       oneline: z
@@ -409,9 +409,8 @@ server.registerTool(
   "graph_get_node",
   {
     description:
-      "读取单个节点的完整内容（解压压缩包）。Use when you need a node's plan, checkpoints, definition_of_done or execution state. " +
-      "Returns the node plus allowed_transitions (legal next statuses — v0.5 按 type 分表：workflow 七态 / adr 三态 / context 无), checkpoint_aggregate, requires_human (F06：存在 verifier=human 的未完成 checkpoint 时为 true——渐进审批，等真人处理勿代签；条件缺省), ready_gate (whether its predecessors have passed), and governing_adrs (v0.5 管辖 ADR 指针：decides 指向该节点或其 context 的 ADR) — one call answers \"what can I do next with this node\". " +
-      "include_neighbors=up/down 附加拓扑相邻节点紧凑列表（基于索引缓存，零额外文件扫描），需要局部拓扑时用它替代 graph_traverse.",
+      "读取节点完整内容及 allowed_transitions、checkpoint_aggregate、requires_human、ready_gate、governing_adrs；" +
+      "include_neighbors=up/down 追加索引缓存中的邻居紧凑列表，替代局部 graph_traverse。",
     inputSchema: {
       id: z.string().describe("节点 ID"),
       include_neighbors: z
@@ -469,9 +468,8 @@ server.registerTool(
   "graph_get_graph",
   {
     description:
-      "获取图拓扑（节点 + 边 + 邻接表，命中 index 缓存）。默认 summary 模式：节点为紧凑字段（id/label/status/type/level/assigned_to），" +
-      "先拿全局再按需解压节点，避免大图 token 爆炸。mode=full 返回完整节点内容，用 offset/limit 分页（每页默认 200；offset/limit 同窗口作用于节点与边，" +
-      "summary 模式边为紧凑字段并返回 edge_total——S3-14 前边始终全量）。Returns total + edge_total + nodes + edges + adjacency.",
+      "读取节点、边与邻接表；默认 summary 仅返回紧凑节点/边字段，mode=full 返回完整节点。" +
+      "offset/limit 分页（默认 200，共用节点/边窗口），返回 total、edge_total、nodes、edges、adjacency。",
     inputSchema: {
       mode: z
         .enum(["summary", "full"])
@@ -540,11 +538,8 @@ server.registerTool(
   "graph_get_next_actions",
   {
     description:
-      "调度决策工具 — 一次调用回答\"我现在该干什么\"。Use this as your primary planning loop: returns ready nodes (claimable now), ready_eligible nodes (pending/failed whose gates are satisfied — flip them to ready, including cold start), blocked nodes with their unmet predecessors, running nodes with elapsed time, and stale running nodes that may be stuck (reclaim them with graph_reclaim_node). " +
-      "v0.5：ready/ready_eligible/running 条目可含 adr_flags（所依据 ADR 已 superseded → ⚠️ 决策依据过时，建议重审后再 claim）；知识顶点（context/adr）不进任何调度桶、不计入 summary。 " +
-      "F06/F07：requires_human=条目含未完成的 human checkpoint（渐进审批，agent 勿认领/勿代签）；ready/ready_eligible 对无人认领的此类条目再带 waiting_human=true（等真人）；requires_human 的 running 节点 stale 阈值默认放大 8 倍（30 分钟基线 → 4 小时，显式 stale_ms 对全部节点生效）。 " +
-      "F09（adr_0017）：重试预算耗尽的死节点（failed 且 attempts≥max_attempts）在 ready_eligible/blocked 桶带 attempts_exhausted=true 与 fallback_routes（沿出向 fallback 边的替代路线，非空才出现；纯读面零门禁）。 " +
-      "Each bucket is capped at limit (default 100); truncated flags tell you when more exist. Prefer this over combining graph_get_graph + graph_traverse + graph_search.",
+      "调度前沿：ready、ready_eligible、blocked、running、stale_running；含 ADR 过时标记、human checkpoint/waiting_human、" +
+      "死节点 attempts_exhausted/fallback_routes。支持 all_graphs 跨图只读聚合；各桶按 limit（默认 100）截断并标 truncated。",
     inputSchema: {
       stale_ms: z
         .number()
@@ -566,10 +561,52 @@ server.registerTool(
         .string()
         .optional()
         .describe("仅返回该执行者的 running/stale 节点"),
+      all_graphs: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe("跨图聚合只读前沿；不切换当前图"),
     },
   },
-  async ({ stale_ms, limit, assigned_to }) => {
+  async ({ stale_ms, limit, assigned_to, all_graphs }) => {
     const gctx = await resolveGraphCtx();
+    if (all_graphs) {
+      const graphs = computeNextActionsAll(gctx.wsRoot, {
+        ...(stale_ms !== undefined ? { staleMs: stale_ms } : {}),
+      }).map((r) => {
+        const cap = <T>(list: T[]): T[] => list.slice(0, limit);
+        const running = assigned_to
+          ? r.running.filter((n) => n.assigned_to === assigned_to)
+          : r.running;
+        const stale = assigned_to
+          ? r.stale_running.filter((n) => running.some((x) => x.id === n.id))
+          : r.stale_running;
+        return {
+          graph: r.graph,
+          label: r.label,
+          ready: cap(r.ready),
+          ready_eligible: cap(r.ready_eligible),
+          blocked: cap(r.blocked),
+          running: cap(running),
+          stale_running: cap(stale),
+          truncated: {
+            ready: r.ready.length > limit,
+            ready_eligible: r.ready_eligible.length > limit,
+            blocked: r.blocked.length > limit,
+            running: running.length > limit,
+            stale_running: stale.length > limit,
+          },
+          ...(r.fog !== undefined ? { fog: r.fog } : {}),
+          ...(r.class_nudge !== undefined ? { class_nudge: r.class_nudge } : {}),
+          ...(r.fog_graduation_nudge !== undefined
+            ? { fog_graduation_nudge: r.fog_graduation_nudge }
+            : {}),
+          summary: r.summary,
+        };
+      });
+      return jsonText({ current: gctx.name, graphs });
+    }
+
     const rootDir = gctx.dir;
     // F07：stale_ms 未显式给出时不透传（undefined）——core 缺省基线生效，
     // requires_human 节点享有人类节奏的放大阈值；显式传值则对全部节点生效
@@ -612,13 +649,34 @@ server.registerTool(
 );
 
 server.registerTool(
+  "graph_survey",
+  {
+    description:
+      "多图工作区只读体检：逐图报告 blocked、stale running 与需要重审的 ADR 管辖冲突。结果写入系统临时目录，不改图、不切换 active；用于发现长期卡点并挑选后续 entry。",
+    inputSchema: {
+      stale_ms: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe("running 节点无更新阈值（毫秒；缺省沿用 next 基线）"),
+    },
+  },
+  async ({ stale_ms }) => {
+    const gctx = await resolveGraphCtx();
+    const report = surveyWorkspace(gctx.wsRoot, {
+      ...(stale_ms !== undefined ? { staleMs: stale_ms } : {}),
+    });
+    const report_path = writeSurveyReport(report);
+    return jsonText({ current: gctx.name, report_path, ...report });
+  },
+);
+
+server.registerTool(
   "graph_traverse",
   {
     description:
-      "从指定节点出发遍历相邻节点（DFS，最大深度与节点数双限制）。Use when you only care about a node's neighborhood. " +
-      "Returns { nodes: ordered visited ids, truncated, truncated_by_depth, truncated_by_nodes } — " +
-      "truncated=true 表示发生任一截断；truncated_by_depth=true 表示深度截断（max_depth 内未达末端，深链图上调 max_depth 或从更远起点/汇聚点分段遍历）；" +
-      "truncated_by_nodes=true 表示达到 max_nodes 上限（缩小 max_depth 或换起点继续）。",
+      "从节点 DFS 遍历邻居，受 max_depth/max_nodes 双限；返回有序 nodes 与 truncated、truncated_by_depth、truncated_by_nodes。",
     inputSchema: {
       node_id: z.string(),
       direction: z
@@ -695,8 +753,7 @@ server.registerTool(
   "graph_search",
   {
     description:
-      "按条件过滤节点（query 模糊匹配 id/label，可叠加 status/type/assigned_to/level）。Use when you need to find specific nodes, e.g. all ready tasks assigned to nobody. " +
-      "与 graph_get_graph 同一 I/O 模型（命中 index 缓存，重复查询不重读盘）。Returns { total, limit, nodes } — nodes 为紧凑字段（id/label/status/type/level/assigned_to），total > limit 时缩小条件或增大 limit 继续查。",
+      "按 query/status/type/assigned_to/level 过滤节点，命中索引缓存；返回紧凑 nodes、total、limit。",
     inputSchema: {
       query: z.string().optional(),
       status: nodeStatusSchema.optional(),
@@ -752,11 +809,8 @@ server.registerTool(
   "graph_validate",
   {
     description:
-      "校验当前图的结构完整性：schema 逐文件校验 + 幽灵边 + 循环依赖（含 fan 门控隐藏环）+ " +
-      "v0.5 领域规则六条 + plan/DoD 文案 lint（manual §2.8 规则码 a/b/c，恒 warning）+ graph.yaml 引用列表双向漂移。" +
-      "Use after graph_batch_create / 批量改动 / 手编文件后自检；" +
-      "crash recovery 场景先调它再决定重跑范围。Returns { ok, errors[], warnings[], node_count, edge_count } — " +
-      "ok=false 时 errors 非空（结构问题），warnings 为提示性（如 entry/exit 描述为空、iterates 仅文档性标注；fallback 自 adr_0017 起有最小读语义不再警告）。",
+      "校验 schema、幽灵边、循环/隐藏 fan 环、六条领域规则、文案 lint 与 graph.yaml 双向漂移；适合批量/手编后自检。" +
+      "返回 ok、errors、warnings、node_count、edge_count；warning 不改变退出语义。",
     inputSchema: {},
   },
   async () => {
@@ -778,9 +832,7 @@ server.registerTool(
   "graph_events",
   {
     description:
-      "读取当前图的审计日志（events.jsonl：node_created/node_status/checkpoint_updated/force_override/attempts_reset/node_reclaimed/snapshot_created/rollback 等）。" +
-      "Use when 裁决 agent 需要回溯执行历史（谁在何时 claim/强制流转/重置了重试计数）。" +
-      "Returns { total, count, events[] } — 可按 node/kind 过滤，last 取最近 N 条（默认全部）。",
+      "读取 events.jsonl 审计日志，支持 node/kind/last 过滤；返回 total、count、events。",
     inputSchema: {
       node: entityIdSchema("节点").optional().describe("按节点 id 过滤"),
       kind: z.string().optional().describe("按事件类型过滤（如 force_override / attempts_reset / node_status）"),
@@ -818,26 +870,28 @@ const checkpointSchema = z.object({
   verifier: verifierSchema.optional().default("auto"),
 });
 
+// C6：单节点与批量创建共用同一份节点输入声明，避免字段链路漂移。
+const nodeInputSchema = z.object({
+  id: entityIdSchema("节点").describe("节点 ID"),
+  label: z.string().describe("节点标签"),
+  type: nodeTypeSchema.optional().default(NodeType.Task),
+  level: z.number().int().optional().default(1),
+  priority: z.number().int().min(0).optional().describe("调度优先级（越小越先；缺省最低）"),
+  context: z.string().optional().describe("v0.5：归属的 context 顶点 id（工作流节点用）"),
+  plan_description: z.string().optional().describe("构建计划描述"),
+  definition_of_done: z.array(z.string()).optional().describe("完成标准条目"),
+  checkpoints: z.array(checkpointSchema).optional().describe("子步骤检查点"),
+  assigned_to: z.string().optional(),
+  max_attempts: z.number().int().min(0).optional().default(3).describe("最大重试次数（0=不限）"),
+});
+
 server.registerTool(
   "graph_create_node",
   {
     description:
-      "创建新节点（默认 pending）。Pass plan_description, definition_of_done and checkpoints in one call to create a complete \"压缩包\" — no follow-up edits needed. " +
-      "v0.5 知识顶点：type=context（领域上下文，节点即文档——boundary/glossary 经 graph_update_node 填充）；type=adr 建议改用 graph_create_adr（自动编号+proposed）。" +
-      "Duplicate id returns an error (never overwrites).",
-    inputSchema: {
-      id: entityIdSchema("节点").describe("节点 ID"),
-      label: z.string().describe("节点标签"),
-      type: nodeTypeSchema.optional().default(NodeType.Task),
-      level: z.number().int().optional().default(1),
-      priority: z.number().int().min(0).optional().describe("调度优先级（越小越先；缺省最低）"),
-      context: z.string().optional().describe("v0.5：归属的 context 顶点 id（工作流节点用）"),
-      plan_description: z.string().optional().describe("构建计划描述"),
-      definition_of_done: z.array(z.string()).optional().describe("完成标准条目"),
-      checkpoints: z.array(checkpointSchema).optional().describe("子步骤检查点"),
-      assigned_to: z.string().optional(),
-      max_attempts: z.number().int().min(0).optional().default(3).describe("最大重试次数（0=不限）"),
-    },
+      "创建 pending 节点；可一次提交 plan、DoD、checkpoints、context 等完整压缩包。" +
+      "context 是领域文档，adr 建议用 graph_create_adr；重复 id 拒绝覆盖。",
+    inputSchema: nodeInputSchema.shape,
   },
   async ({ id, label, type, level, priority, context, plan_description, definition_of_done, checkpoints, assigned_to, max_attempts }) => {
     const gctx = await resolveGraphCtx();
@@ -863,9 +917,8 @@ server.registerTool(
   "graph_create_adr",
   {
     description:
-      "v0.5 创建 ADR（架构决策记录）顶点：自动编号 adr_NNNN，状态落 proposed（记录在案但不生效——accept/supersede 归裁决方 Super Mario/人类，提议/裁决分离）。" +
-      "创建后用 graph_add_edge 添加 decides 边把它挂到管辖的节点/context（孤儿 ADR 会被 graph validate 警告）。" +
-      "三判据全满足才值得记录：难逆转 + 脱离上下文令人费解 + 真实权衡的产物。",
+      "创建自动编号 adr_NNNN 的 proposed ADR；用 graph_add_edge 添加 decides 管辖边。" +
+      "accept/supersede 由裁决方/人类处理；适合记录难逆转且有真实权衡的决策。",
     inputSchema: {
       title: z.string().describe("决策标题（落 label）"),
       decision: z.string().describe("决策内容（我们决定了什么）"),
@@ -894,20 +947,6 @@ server.registerTool(
   },
 );
 
-const batchNodeSchema = z.object({
-  id: entityIdSchema("节点"),
-  label: z.string(),
-  type: nodeTypeSchema.optional().default(NodeType.Task),
-  level: z.number().int().optional().default(1),
-  priority: z.number().int().min(0).optional(),
-  context: z.string().optional(),
-  plan_description: z.string().optional(),
-  definition_of_done: z.array(z.string()).optional(),
-  checkpoints: z.array(checkpointSchema).optional(),
-  assigned_to: z.string().optional(),
-  max_attempts: z.number().int().min(0).optional().default(3),
-});
-
 const batchEdgeSchema = z.object({
   id: entityIdSchema("边"),
   source: entityIdSchema("边 source"),
@@ -924,11 +963,10 @@ server.registerTool(
   "graph_batch_create",
   {
     description:
-      "批量创建节点与边（设计期减负：20 节点 36 边从 ~56 次调用降到 1 次）。Validates the whole batch first and reports ALL conflicts (duplicate ids, ghost references) before writing anything; re-running after a crash reports remaining conflicts. " +
-      "Edge type is optional and defaults to depends_on (IL-011：与 CLI 既有默认对齐). " +
-      "Not transactional across files: if it errors midway, fix the reported conflicts and re-run.",
+      "批量创建节点/边，先整体校验并一次报告重复 id、幽灵引用；边 type 缺省 depends_on。" +
+      "非跨文件事务，失败后按冲突修复并重跑。",
     inputSchema: {
-      nodes: z.array(batchNodeSchema).optional().default([]),
+      nodes: z.array(nodeInputSchema).optional().default([]),
       edges: z.array(batchEdgeSchema).optional().default([]),
     },
   },
@@ -1029,15 +1067,10 @@ server.registerTool(
   "graph_add_edge",
   {
     description:
-      "添加一条类型化边。type 可省略，缺省 depends_on（IL-011：与 CLI 既有默认对齐，双通道一致化）——" +
-      "默认全用 depends_on，特殊边语义真有时才显式写（decides/relates 知识边、shares_context 非门禁标注）。" +
-      "depends_on/validates 参与拓扑排序与门禁；fan_out/fan_in 参与门控边语义（向后兼容存量，新设计不再使用——语义与 depends_on 多边等价）。" +
-      "注意：shares_context 不参与门禁与排序（仅表达上下文共享）；fallback 已有最小读语义" +
-      "（next 桶死节点附 fallback_routes 替代路线，adr_0017）但仍不门禁不排序；iterates 仍为**文档性标注**——" +
-      "迭代语义由内建 attempts 重试链承担，graph validate 会逐条警告。" +
-      "v0.5 知识边：decides（ADR → 任意顶点，决策管辖，superseded 时沿此传播 adr_flags）；relates（仅 context↔context，rel_kind 自由标注）。" +
-      "跨 context 的工作流边是契约边：须填 contract，或由 context 对默认契约声明（context 顶点的 contract_add）覆盖——两者皆无会被 graph validate 警告；单边 contract 优先于声明（例外集成点精确表达）。Both endpoints must exist. " +
-      "Duplicate edge id returns an error.",
+      "添加类型化边，type 缺省 depends_on。depends_on/validates 参与拓扑与门禁，fan_* 仅门禁；" +
+      "shares_context 不门禁，fallback 已有最小读语义但不排序（死节点可提供 fallback_routes），" +
+      "iterates 仍为**文档性标注**；decides/relates 为知识边。跨 context 边须 contract 或默认契约，" +
+      "缺失时 graph validate 警告；两端点须存在，重复 id 报错。",
     inputSchema: {
       id: entityIdSchema("边"),
       source: entityIdSchema("边 source"),
@@ -1076,10 +1109,8 @@ server.registerTool(
   "graph_update_node",
   {
     description:
-      "更新节点内容（plan / definition_of_done / checkpoints / assigned_to / label / max_attempts）。Use during the design phase to enrich nodes; during execution prefer graph_update_checkpoint and graph_update_execution_report. " +
-      "attempts never resets implicitly — changing plan.description does NOT clear the retry counter; pass reset_attempts=true explicitly (an attempts_reset audit event is always recorded). " +
-      "v0.5 领域字段：set_context 归属/清除 context 顶点（空串清除）、boundary 上下文边界、glossary_add 追加术语（context 顶点用）。" +
-      "IL-012：contract_add 为 context 顶点追加对其他 context 的默认契约声明——跨 context 工作流边自动继承（该 context 对无声明且边无 contract 才会被 graph validate 警告），单边 contract 仍可覆写。",
+      "更新 plan/DoD/checkpoints/assigned_to/label/max_attempts/context 等；执行期优先用 checkpoint/report。" +
+      "attempts 不会因改 plan 自动清零，需显式 reset_attempts；支持 context boundary、glossary、contracts。",
     inputSchema: {
       id: z.string(),
       plan_description: z.string().optional(),
@@ -1158,9 +1189,8 @@ server.registerTool(
   "graph_update_node_status",
   {
     description:
-      "更新节点状态（状态机强制校验 + ready 前置门禁 + max_attempts 拦截）。Claim semantics: pass claim_by when transitioning ready → running — records assigned_to and started_at atomically (concurrent double-claim fails for the loser); claim 响应附 governing_adrs（管辖 ADR 标题级指针，claim 后必读）。 " +
-      "Re-claiming by the same claim_by is idempotent. force is REJECTED on the MCP channel (agent-facing); human operators must use the CLI: graph update-status --force. " +
-      "v0.5 知识顶点：ADR 走私有状态机 proposed → accepted → superseded（superseded 必须先用 graph_update_node 设置 superseded_by 指向接替 ADR，再置 superseded——建议 CLI graph adr supersede 一步完成）；accept/supersede 属裁决动作（Super Mario/人类）。context 顶点无状态，任何状态变更都被拒绝。",
+      "更新状态并强制 ready 前置门禁/max_attempts；ready→running 传 claim_by 记录 owner/时间，重复 claim 幂等。" +
+      "MCP 禁 force，人工用 CLI --force；ADR 为 proposed→accepted→superseded，context 不可变更。",
     inputSchema: {
       id: z.string(),
       status: nodeStatusSchema,
@@ -1215,8 +1245,7 @@ server.registerTool(
   "graph_reclaim_node",
   {
     description:
-      "回收死认领：running → pending（清空 assigned_to，notes 附回收记录，attempts 不变）。Use when a running node is stale (graph_get_next_actions stale_running) and the claiming agent is dead or unresponsive. " +
-      "The reclaimed node can be re-claimed after it becomes ready again. Only works on running nodes.",
+      "回收死认领 running→pending，清空 owner，保留 attempts 并写回收审计；仅 stale running 可回收，之后可重新认领。",
     inputSchema: {
       id: z.string().describe("节点 ID"),
       by: z.string().optional().describe("回收操作者（写入回收记录）"),
@@ -1233,8 +1262,8 @@ server.registerTool(
   "graph_update_checkpoint",
   {
     description:
-      "上报单个 checkpoint 进度（只改 checkpoints 数组，不触发节点状态）。Checkpoint state machine enforced: pending→running/passed/failed/skipped, running→passed/failed, passed/failed→pending (reopen). " +
-      "Re-reporting the same status is idempotent. Report as you go — never batch at the end.",
+      "上报 checkpoint（不改节点状态）；按 pending→running/passed/failed/skipped、running→passed/failed、passed/failed→pending 校验。" +
+      "重复同状态幂等，边做边报。",
     inputSchema: {
       node_id: z.string(),
       checkpoint_id: z.string(),
@@ -1254,8 +1283,8 @@ server.registerTool(
   "graph_update_execution_report",
   {
     description:
-      "填写执行报告（交接单），供裁决方（Super Mario）抽查。artifacts 填真实文件路径 — 响应会对每个路径做存在性核验并返回 artifacts_check: [{path, exists}]（相对路径按工作区根解析；只核存在性，不代表内容正确），提交不存在的路径会以 exists=false 明确示警。 " +
-      "Optional verification {verdict, note} records the adjudication result after checkpoint aggregation + output spot-check.",
+      "填写执行报告供裁决抽查；artifacts 逐路径返回 artifacts_check: [{path, exists}]（只核存在，不代表内容正确）。" +
+      "checkpoint 聚合与产物抽查后可写 verification {verdict,note}。",
     inputSchema: {
       node_id: z.string(),
       summary: z.string(),
@@ -1304,9 +1333,8 @@ server.registerTool(
   "graph_update_graph",
   {
     description:
-      "编辑图级字段：label / entry.description / exit.description / exit.acceptance_criteria / root_context / fog（雾区，adr_0007）/ class（工作类，DEC-2）。Use during design to define the human-authored entry (需求) and exit (验收标准) without hand-editing graph.yaml. " +
-      "acceptance_criteria are the ground truth for the final three-layer acceptance check. " +
-      "fog 为整体 upsert（登记/更新雾区 {id, description, graduation, ignited?}）；毕业清雾走 graph_graduate_fog（专用凭据）。",
+      "编辑 label/entry/exit/acceptance_criteria/root_context/fog/class；用于填写人类入口与验收标准，不要手改 graph.yaml。" +
+      "acceptance_criteria 是最终三层验收真相；fog 用 graph_graduate_fog 毕业。",
     inputSchema: {
       label: z.string().optional(),
       entry_description: z.string().optional(),
@@ -1359,8 +1387,8 @@ server.registerTool(
   "graph_graduate_fog",
   {
     description:
-      "雾区毕业：清除图级 fog 字段并落 fog_graduated 审计事件（payload 带毕业产物节点与理由），复用 DEC-7 amend 守卫（自动快照 + graph_amended + review 回置提示）。" +
-      "无雾时报错——毕业是事实陈述，不是清理操作。与 CLI graph graduate-fog 双通道同源。",
+      "毕业图级 fog：清除 fog 并写 fog_graduated 审计事件，带 produced/reason；无 fog 报错。" +
+      "与 CLI graph graduate-fog 双通道同源。",
     inputSchema: {
       produced: z
         .array(z.string())
@@ -1396,11 +1424,8 @@ server.registerTool(
   "graph_approve",
   {
     description:
-      "DEC-1 写入设计审核凭据：graph.yaml 的 review 字段（status/by/at）+ design_approved 审计事件。" +
-      "status: approved=人工审核（默认）| self=quick 自签（quick 流程显式传 self，与人工审核可区分）。" +
-      "可选 level（F08 分层批准，如 L1/L2/...）：向 review.layers 追加/覆盖该层批准记录（program 类图审一层批一层；零门禁，任何图都照写）。" +
-      "幂等：重复调用覆盖为最新一次审核凭据。红线：review 仅记录、零门禁——不改变任何状态机合法转换；" +
-      "图无 review 凭据时调度面（graph_get_next_actions 的 ready_eligible 与 claim 响应）仅以 review_flag 提示，不拦截认领。",
+      "写入 review 与 design_approved 审计；status=approved（人工）或 self（quick 自签），可追加 F08 层级批准。" +
+      "幂等覆盖最新凭据；只记录、不改变状态机，缺 review 仅在调度面提示。",
     inputSchema: {
       by: z.string().min(1).describe("审核人（写入 review.by 与事件 payload；quick 自签时为 quick 操作者名）"),
       status: z
@@ -1430,9 +1455,8 @@ server.registerTool(
   "graph_delete_node",
   {
     description:
-      "软删除节点（保留 .deleted.yaml 历史）。Refuses (with the list of referencing edges) unless cascade=true, so you can never leave dangling edges by accident. " +
-      "Soft delete: recoverable, audit-friendly. " +
-      "Pass reason to record why (F14: written to the .deleted.yaml archive and the node_deleted audit event; optional — reason is a credential, not a refusal condition).",
+      "软删除节点并保留 .deleted.yaml；有引用边时需 cascade=true，否则列出引用并拒绝悬空。" +
+      "可传 reason 写历史与 node_deleted 审计；reason 可选。",
     inputSchema: {
       id: z.string(),
       cascade: z
@@ -1464,7 +1488,7 @@ server.registerTool(
   "graph_delete_edge",
   {
     description:
-      "软删除一条边（保留 .deleted.yaml 历史）。Use to rewire the topology during design iterations.",
+      "软删除边并保留 .deleted.yaml；用于设计迭代重接拓扑。",
     inputSchema: { id: z.string() },
   },
   async ({ id }) => {
@@ -1481,8 +1505,8 @@ server.registerTool(
   "graph_snapshot",
   {
     description:
-      "创建当前拓扑的完整版本快照（.graph/snapshots/<id>/，含文件 sha256 清单）。Take a snapshot before risky rewires or before execution starts. " +
-      "Returns the snapshot manifest; branch/merge itself is done with git.",
+      "创建完整拓扑快照（.graph/snapshots/<id>/，含 sha256 清单）；适合高风险重接或执行前。" +
+      "返回 manifest，分支/合并走 git。",
     inputSchema: {
       message: z.string().optional().describe("快照说明"),
     },
@@ -1498,8 +1522,7 @@ server.registerTool(
   "graph_diff",
   {
     description:
-      "比较拓扑差异（默认：最新快照 vs 当前工作区；也可指定任意两个快照）。Use to audit what changed since a snapshot or review a design iteration. " +
-      "Returns added/removed/modified files and node status changes.",
+      "比较快照差异（默认最新快照→当前工作区，也可指定 from/to）；返回新增、删除、修改文件与节点状态变化。",
     inputSchema: {
       from: z.string().optional().describe("基线快照 id（默认最新快照；无快照时为 working）"),
       to: z.string().optional().describe("目标快照 id（默认当前工作区）"),
@@ -1526,9 +1549,8 @@ server.registerTool(
   "graph_rollback",
   {
     description:
-      "回滚到指定快照（覆盖当前 .graph/，先自动备份当前状态为 pre-rollback 快照）。Requires confirm=true as a safety gate. " +
-      "Use when a design iteration went wrong and you want the previous known-good state. " +
-      "design_only=true restores design fields (plan/DoD/checkpoints/label/edges/graph.yaml) while KEEPING execution progress (status/attempts/execution_report); nodes added after the snapshot are removed.",
+      "回滚到快照前自动备份当前状态为 pre-rollback，覆盖当前 .graph，需 confirm=true；" +
+      "design_only 仅恢复设计字段并保留执行进度，快照后的节点会删除。",
     inputSchema: {
       snapshot_id: z.string(),
       confirm: z.boolean().optional().default(false).describe("必须显式 true 才会执行"),

@@ -1,7 +1,7 @@
 {
   "name": "super-plumber",
   "description": "Super Plumber workflow orchestration plugin: design task graphs as agent-native topologies, then execute them node by node.",
-  "version": "0.9.7",
+  "version": "1.0.0-beta",
   "author": {
     "name": "lukawi",
     "url": "https://www.npmjs.com/package/@lukawi/super-plumber"
@@ -12,5 +12,42 @@
     "mcp",
     "agents",
     "skills"
+  ],
+  "skills": [
+    {
+      "name": "plumber-design",
+      "invocation": "model-invoked",
+      "command": "plumber-design"
+    },
+    {
+      "name": "plumber-execute",
+      "invocation": "model-invoked",
+      "command": "plumber-execute"
+    },
+    {
+      "name": "plumber-join",
+      "invocation": "model-invoked",
+      "command": "plumber-join"
+    },
+    {
+      "name": "plumber",
+      "invocation": "model-invoked",
+      "command": "plumber"
+    },
+    {
+      "name": "sp-grilling",
+      "invocation": "model-invoked",
+      "command": null
+    },
+    {
+      "name": "plumber-tdd",
+      "invocation": "model-invoked",
+      "command": null
+    },
+    {
+      "name": "plumber-review",
+      "invocation": "model-invoked",
+      "command": null
+    }
   ]
 }

@@ -1,7 +1,7 @@
 # Super Plumber Operations 手册（唯一正本）
 
 > **定位**：三访问层（CLI / MCP / 脚本）操作语法、状态机、错误处理、solo 裁决边界的**唯一权威正本**。角色提示词与 skill 中的一切语法引用指向本文对应章节；本文不复述任何角色的判断力内容（边类型选型、设计甄别、DoD 质量裁量等归各自角色提示词，见 §10/§11）。
-> **版本锚点**：super-plumber **0.9.7**（全部 CLI 参数经 `graph --help` 实测：0.6.1 重构期全量校，其后增量（0.7.x 多图/导出、0.8.0 approve 与写作规范、0.8.1 拒绝理由凭据与分期导出、0.9.x 雾区/档位/分层审批、0.9.3 fallback 拍板、0.9.4 单真相源重组后 gen 门禁/锚点断言）随交付核对；与旧文档不符处以实测为准，表中以〔已校〕标注）。
+> **版本锚点**：super-plumber **1.0.0-beta**（全部 CLI 参数经 `graph --help` 实测：0.6.1 重构期全量校，其后增量（0.7.x 多图/导出、0.8.0 approve 与写作规范、0.8.1 拒绝理由凭据与分期导出、0.9.x 雾区/档位/分层审批、0.9.3 fallback 拍板、0.9.4 单真相源重组后 gen 门禁/锚点断言）随交付核对；与旧文档不符处以实测为准，表中以〔已校〕标注）。
 > **分发**：唯一正本住 `integrations/src/manual.md`（0.9.4 S01 单真相源重组起），由 `scripts/sync-integrations.mjs` gen 构建期生成 `integrations/shared/manual.md`（pi 寻址位）与 `integrations/plugin/manual.md`（插件包）两份产物，`--check` 比对手改即拦（原 sha256 三方同步断言退役）。寻址写法见 §11。（该脚本仍作为 prepublishOnly 发布门禁）
 
 目录：§1 访问层总览｜§2 design-ops｜§3 边类型判据式速查｜§4 execute-ops｜§5 状态机｜§6 工具总表（CLI+MCP）｜§7 脚本章｜§8 三层验收实操｜§9 错误处理大表｜§10 solo 自裁边界｜§11 寻址约定｜§12 漂移修正常记
@@ -14,11 +14,22 @@
 
 | 层 | 形态 | 能做什么 | 不能做什么 |
 |----|------|---------|-----------|
-| CLI `graph` | 29 个子命令入口（§6.1），bash 友好 | 全流程：init 建图、多图管理、设计读写、执行流转、verdict 裁决、快照回滚、events 审计、export/serve；**唯一人类运维通道**（--force、rename-graph、delete-graph） | agent 不使用 `--force`；非 JSON 的输出需 `--json` 供解析 |
-| MCP `graph_*` | 26 个工具（§6.2），zod 强校验 | 设计+执行+裁决+版本几乎全能，校验最强——agent 首选 | 刻意不设通道：init 建新图、rename-graph、delete-graph、export --docs（走 CLI）；`force:true` 被**协议级拒绝** |
+| CLI `graph` | 30 个子命令入口（§6.1），bash 友好 | 全流程：init 建图、多图管理、设计读写、执行流转、verdict 裁决、快照回滚、events 审计、export/serve；**唯一人类运维通道**（--force、rename-graph、delete-graph） | agent 不使用 `--force`；非 JSON 的输出需 `--json` 供解析 |
+| MCP `graph_*` | 27 个工具（§6.2），zod 强校验 | 设计+执行+裁决+版本几乎全能，校验最强——agent 首选 | 刻意不设通道：init 建新图、rename-graph、delete-graph、export --docs（走 CLI）；`force:true` 被**协议级拒绝** |
 | 脚本 `sp.mjs` | 单入口子命令（§7），另有设计体检脚本 | 无 MCP 客户端时的 claim / checkpoint / report / 状态流转 / 读节点 / 遍历 | 只是核心引擎的包装，能力面窄于前两层；从含 `.graph/` 的 cwd 运行 |
 
 优先级：**MCP > CLI > 脚本**。执行期一切状态流转必须经这三者之一——**绝不手改 `.graph/` YAML 伪造状态**。
+
+### 1.1 1.0.0 协议冻结与统一入口承诺（adr_0010 / adr_0011）
+
+从 1.0.0 起，MCP `graph_*` 工具面与 `graph` CLI 语义冻结为 v1 稳定契约：
+
+- 工具/命令名称、必填参数、返回字段、状态机与门禁、错误语义构成 v1 约定；不改变既有调用含义的修复和增量可以在 v1 内发布。
+- 移除或重命名工具/命令，改变必填参数、返回结构或既有状态/门禁/错误含义的破坏性变更，必须进入下一 major version，不得在 v1 内静默发生。
+- deprecation 遵循“先标记、后移除”：标记时写明替代入口、迁移说明和计划移除版本；在公告的过渡期内保留旧入口并给出提示，达到计划版本后才移除。
+- MCP/CLI 双通道同进退：同一面向 agent 的能力在两个通道的语义与弃用节奏保持一致；`sp.mjs` 是 CLI 语义薄封装，随 CLI 对齐。按 S06 交付的新能力列出 MCP 工具、CLI 命令、脚本封装，缺少某通道时明确理由。
+- `/plumber` 是统一路由入口，只提示是否使用 SP、工作档位、目标图和当前阶段，不自动点火；`/plumber-design` 与 `/plumber-execute` 保留直达入口。
+- `README.md`、`README.en.md` 与本手册同步维护；手册正本是 `integrations/src/manual.md`，两份渠道副本由 `scripts/sync-integrations.mjs` 生成。
 
 ---
 
@@ -294,6 +305,10 @@ serve 贯穿全程不关闭、已在运行不重复启动（编排纪律在 skil
 ```bash
 graph_get_next_actions { }                       # MCP；可选 stale_ms（缺省基线 30 分钟，requires_human 节点 ×8=4h；显式传值对全部节点生效）、limit（每桶默认100）、assigned_to
 graph next [--stale-ms <ms>] [--json]            # CLI
+graph next --all [--stale-ms <ms>] [--json]       # CLI；跨图只读前沿聚合，不切换 active
+graph survey [--stale-ms <ms>] [--json]           # CLI；blocked/stale/ADR 冲突体检，报告落系统临时目录
+graph_get_next_actions {all_graphs:true}          # MCP；跨图只读前沿聚合
+graph_survey { }                                  # MCP；同口径体检报告
 ```
 
 脚本目标图协议：`sp.mjs` 全部子命令接受 `--graph <名>`，可放在入口前或子命令参数后；未指定时按 `SUPER_PLUMBER_GRAPH > .graph/active > default` 解析。显式目标或环境目标非法/不存在时立即报错并列出可用图，不静默回退到另一张图。
@@ -422,7 +437,7 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 
 何时查这章：拼写参数、找某能力在哪一层、核对工具是否存在时。**绝不发明工具名/参数**；以下两表经 v0.6.0 CLI `--help` 与 MCP 工具清单实测。行尾〔已校〕表示与旧版 reference 文档不一致、以实测为准。
 
-### 6.1 CLI 子命令表（29 个入口〔已校〕，旧档记 20–21）
+### 6.1 CLI 子命令表（30 个入口〔已校〕，旧档记 20–21）
 
 几乎所有子命令支持全局选项 `--graph <名>`（缺省按环境变量 SUPER_PLUMBER_GRAPH > `.graph/active` > default 解析）。
 
@@ -445,7 +460,8 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 | `reclaim` / `rc` | 回收死认领 running→pending | `-i --by` |
 | `update-node` / `un` | 编辑节点内容全家桶 | 见 §2.3 参数清单 |
 | `update-graph` / `ug` | 编辑图级字段 | 见 §2.2（0.9.1 增 `--by <名>`：class 变更凭据，缺省 agent，用户直发传 user；实际变更落 class_changed 事件） |
-| `next` / `n` | 调度五桶（ready/ready_eligible/blocked/running/stale_running）；死节点条目带 attempts_exhausted/fallback_routes（0.9.3 adr_0017） | `--stale-ms`（缺省基线 30 分钟，requires_human 节点 ×8=4h；显式传值对全部节点生效）`--json` |
+| `next` / `n` | 调度五桶（ready/ready_eligible/blocked/running/stale_running）；死节点条目带 attempts_exhausted/fallback_routes（0.9.3 adr_0017）；`--all` 可跨图只读聚合 | `--all` `--stale-ms`（缺省基线 30 分钟，requires_human 节点 ×8=4h；显式传值对全部节点生效）`--json` |
+| `survey` | 多图工作区只读体检：巡检 blocked / stale / ADR 冲突并落临时报告 | `--stale-ms` `--json` |
 | `verdict` / `vd` | 记录裁决结论到 verification | `-i --verdict pending/passed/failed --note` |
 | `snapshot` / `sp` | 版本快照（自动导出领域文档） | `-m --git` |
 | `snapshots` / `sps` | 快照列表 | `--json` |
@@ -458,7 +474,7 @@ MCP 各节点类型的合法转换可用 `graph_get_node` 的 `allowed_transitio
 | `rename-graph` / `rg` | 重命名图（仅人类通道） | `-o <旧名> -n <新名>`〔已校：新增〕 |
 | `delete-graph` / `dg` | 删图（软删除至 .trash，仅人类通道） | `-i <图名> --confirm`〔已校：新增〕 |
 
-### 6.2 MCP 工具表（26 个〔已校〕，旧档记 19）
+### 6.2 MCP 工具表（27 个〔已校〕，旧档记 19）
 
 | 分组 | 工具 | 用途 | 注意 |
 |------|------|------|------|

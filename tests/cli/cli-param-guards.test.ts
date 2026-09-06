@@ -114,3 +114,31 @@ describe("CLI 数值参数防线（S1-1/S1-2/S3-17）", () => {
     expect(r.stderr).not.toContain("不存在");
   });
 });
+
+describe("C6 create-node 完整压缩包", () => {
+  it("一次命令写入 checkpoints 与 max_attempts", () => {
+    init();
+    const created = run([
+      "create-node",
+      "-i", "complete",
+      "-l", "完整节点",
+      "--plan-desc", "实现完整节点",
+      "--dod", "压缩包可读",
+      "--add-checkpoint", '{"id":"cp1","label":"实现"}',
+      "--add-checkpoint", '{"id":"cp2","label":"验证","verifier":"cross_review"}',
+      "--max-attempts", "5",
+    ]);
+    expect(created.status, created.stderr).toBe(0);
+
+    const read = run(["get-node", "-i", "complete", "--json"]);
+    expect(read.status, read.stderr).toBe(0);
+    const node = JSON.parse(read.stdout).node;
+    expect(node.plan.description).toBe("实现完整节点");
+    expect(node.expected_outcome.definition_of_done).toEqual(["压缩包可读"]);
+    expect(node.checkpoints).toEqual([
+      { id: "cp1", label: "实现", status: "pending", verifier: "auto" },
+      { id: "cp2", label: "验证", status: "pending", verifier: "cross_review" },
+    ]);
+    expect(node.max_attempts).toBe(5);
+  });
+});

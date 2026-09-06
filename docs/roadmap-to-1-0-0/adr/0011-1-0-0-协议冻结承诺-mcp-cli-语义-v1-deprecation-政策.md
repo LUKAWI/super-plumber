@@ -2,7 +2,7 @@
 
 1.0.0 起 MCP 工具面与 CLI 语义冻结为 v1；deprecation 政策成文（废弃先标记后移除、双通道同进退）；双语 README/手册同步率 100%；九项量化指标 Q1-Q9 为就绪判据。
 
-**Status：** proposed（待裁决）
+**Status：** accepted
 
 **Context：** 从「能用的工具」到「承诺稳定的底座」的定位升级，协议面变动成本随生态采用上升。
 

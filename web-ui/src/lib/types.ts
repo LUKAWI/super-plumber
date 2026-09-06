@@ -43,7 +43,7 @@ export interface Plan {
 
 export interface ExpectedOutcome {
 	definition_of_done: string[];
-	quality_gates?: { check: string; method: string }[];
+	quality_gates?: { check: string; method: "auto" | "cross_review" | "human" }[];
 }
 
 export interface Checkpoint {
@@ -86,6 +86,8 @@ export interface NodeSchema {
 	boundary?: string;
 	/** v0.5（context 顶点）：术语表 */
 	glossary?: GlossaryEntry[];
+	/** IL-012（context 顶点）：对其他 context 的默认契约声明 */
+	contracts?: ContextContractDecl[];
 	/** v0.5（adr 顶点）：决策内容（label 即标题，decision 必填） */
 	decision?: string;
 	background?: string;
@@ -112,6 +114,11 @@ export interface EdgeContract {
 	produces?: string;
 	consumed_by?: { artifact: string; used_as: string }[];
 	validation?: { required: boolean; method: string };
+}
+
+export interface ContextContractDecl {
+	to: string;
+	contract: EdgeContract;
 }
 
 export interface EdgeSchema {

@@ -30,7 +30,7 @@
  *   (a) integrations/src/manual.md 版本锚点行（可 grep 模板 `> **版本锚点**：super-plumber **<x.y.z>**（`）
  *       的版本 == package.json version；
  *   (b) README「项目状态」状态行（可 grep 模板
- *       `Tests: <n>（后端）+ <n>（前端）✅ | CLI: <n> 命令 | MCP: <n> 工具 |`）== 实测值：
+ *       `Tests: <n>（后端）+ <n>（前端）✅/⚠️ | CLI: <n> 命令 | MCP: <n> 工具 |`）== 实测值：
  *       CLI 命令数从 dist/cli/index.js 数 `.addCommand(`（dist 缺失回退 src/cli/index.ts，CI 冷启动步骤），
  *       MCP 工具数从 dist/mcp/server.js 数 `.registerTool(`（同上回退 src/mcp/server.ts），
  *       测试计数动态取 vitest list --json（后端=仓库根、前端=web-ui；vitest 不可用时该项跳过并提示）。
@@ -172,6 +172,13 @@ const TEMPLATED = [
     outs: {
       pi: path.join('.pi', 'skills', 'plumber-join', 'SKILL.md'),
       plugin: path.join('integrations', 'plugin', 'skills', 'plumber-join', 'SKILL.md'),
+    },
+  },
+  {
+    src: path.join('skills', 'plumber', 'SKILL.md'),
+    outs: {
+      pi: path.join('.pi', 'skills', 'plumber', 'SKILL.md'),
+      plugin: path.join('integrations', 'plugin', 'skills', 'plumber', 'SKILL.md'),
     },
   },
   {
@@ -385,7 +392,7 @@ const MANUAL_VERSION_ANCHOR_RE =
 /** README「项目状态」状态行前缀的可 grep 模板（捕获组：后端用例数/前端用例数/CLI 命令数/MCP 工具数；
  *  行内该前缀之后的自由文本不受约束）。 */
 const README_STATUS_LINE_RE =
-  /^Tests: (\d+)（后端）\+ (\d+)（前端）✅ \| CLI: (\d+) 命令 \| MCP: (\d+) 工具 \|/gm;
+  /^Tests: (\d+)（后端）\+ (\d+)（前端）(?:✅|⚠️) \| CLI: (\d+) 命令 \| MCP: (\d+) 工具 \|/gm;
 
 /** 统计文件内 pattern 出现次数；文件缺失返回 null。 */
 function countPatternInFile(relPath, pattern) {
@@ -496,7 +503,7 @@ function checkProseAnchors() {
   if (statusMatches.length !== 1) {
     issues.push(
       `README.md 项目状态行匹配到 ${statusMatches.length} 处（应为恰好 1 处；` +
-        '模板：`Tests: <n>（后端）+ <n>（前端）✅ | CLI: <n> 命令 | MCP: <n> 工具 |`）'
+        '模板：`Tests: <n>（后端）+ <n>（前端）✅/⚠️ | CLI: <n> 命令 | MCP: <n> 工具 |`）'
     );
   } else {
     const [, testsBack, testsFront, cliCount, mcpCount] = statusMatches[0];

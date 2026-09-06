@@ -9,14 +9,14 @@
 // Usage: node sp-check-design.mjs [--json] [root] [--graph <name>]   （从含 .graph/ 的工作区根目录运行）
 //        等价入口：node sp.mjs check-design [--json] [root] [--graph <name>]
 // 退出码：0 = 无 error；1 = 有 error（warning 不影响退出码）
+import { execSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import path from "node:path";
 import * as fs from "node:fs";
-import { loadCore } from "./sp.mjs";
 
 // 位置参数 = 可选的工作区根目录（缺省 cwd）；--graph 指定工作区内目标图。
 // 过滤掉 --json/--graph 等旗标，避免旗标被误当路径。
 const _args = process.argv.slice(2);
-
 function parseTargetArgs(args) {
   const positional = [];
   let graph;
@@ -50,6 +50,26 @@ const ROOT = _targetArgs.root;
 const GRAPH_NAME = _targetArgs.graph;
 const JSON_OUT = _targetArgs.json;
 
+// 与 sp.mjs 同款加载：优先项目本地安装/包自引用，回退全局安装的公开桶。
+async function loadCore() {
+  try {
+    return await import("@lukawi/super-plumber/core");
+  } catch {
+    try {
+      const globalRoot = execSync("npm root -g").toString().trim();
+      return await import(
+        pathToFileURL(
+          path.join(globalRoot, "@lukawi/super-plumber/dist/core/index.js"),
+        ).href,
+      );
+    } catch {
+      console.error(
+        "❌ 无法定位 super-plumber 核心。请先安装: npm install -g @lukawi/super-plumber",
+      );
+      process.exit(1);
+    }
+  }
+}
 const { readGraph, readNode, readEdge, lintNodeWording, resolveGraphDir } = await loadCore();
 
 const TOPO_TYPES = new Set(["depends_on", "validates"]);

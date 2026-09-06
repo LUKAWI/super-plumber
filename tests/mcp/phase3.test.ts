@@ -60,6 +60,7 @@ describe("MCP phase 3 — agent-native toolset", () => {
         { id: "cp1", label: "步骤1" },
         { id: "cp2", label: "步骤2" },
       ],
+      max_attempts: 5,
     });
     expect(r.isError).toBeFalsy();
     const g = await call(client, "graph_get_node", { id: "n1" });
@@ -69,6 +70,7 @@ describe("MCP phase 3 — agent-native toolset", () => {
         plan?: { description: string };
         expected_outcome?: { definition_of_done: string[] };
         checkpoints?: unknown[];
+        max_attempts: number;
       };
       allowed_transitions: string[];
       ready_gate: { ok: boolean };
@@ -76,6 +78,7 @@ describe("MCP phase 3 — agent-native toolset", () => {
     expect(data.node.plan?.description).toBe("实现 X");
     expect(data.node.expected_outcome?.definition_of_done).toEqual(["d1", "d2"]);
     expect(data.node.checkpoints).toHaveLength(2);
+    expect(data.node.max_attempts).toBe(5);
     expect(data.allowed_transitions).toContain("ready");
     expect(data.ready_gate.ok).toBe(true);
   });

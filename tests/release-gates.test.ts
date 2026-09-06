@@ -10,7 +10,7 @@ import { inspectCoverageSummary, inspectReleaseTestReport } from "../scripts/run
 import { createReleaseSteps } from "../scripts/release-gates.mjs";
 import { checkPinnedPluginDependencies } from "../scripts/plugin-dependency-check.mjs";
 
-describe("0.9.7 release version gate", () => {
+describe("1.0.0-beta release version gate", () => {
   const tempRoots: string[] = [];
 
   afterEach(() => {
@@ -23,15 +23,15 @@ describe("0.9.7 release version gate", () => {
     const result = checkReleaseVersions(process.cwd());
 
     expect(result.ok).toBe(true);
-    expect(result.sourceVersion).toBe("0.9.7");
+    expect(result.sourceVersion).toBe("1.0.0-beta");
     expect(result.records).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ file: "package-lock.json", location: "version", value: "0.9.7" }),
-        expect.objectContaining({ file: "package-lock.json", location: "packages[\"\"].version", value: "0.9.7" }),
-        expect.objectContaining({ file: ".claude-plugin/marketplace.json", location: "version", value: "0.9.7" }),
-        expect.objectContaining({ file: ".agents/plugins/marketplace.json", location: "plugins[0].version", value: "0.9.7" }),
-        expect.objectContaining({ file: "integrations/plugin/.claude-plugin/plugin.json", location: "version", value: "0.9.7" }),
-        expect.objectContaining({ file: "integrations/plugin/.codex-plugin/plugin.json", location: "version", value: "0.9.7" }),
+        expect.objectContaining({ file: "package-lock.json", location: "version", value: "1.0.0-beta" }),
+        expect.objectContaining({ file: "package-lock.json", location: "packages[\"\"].version", value: "1.0.0-beta" }),
+        expect.objectContaining({ file: ".claude-plugin/marketplace.json", location: "version", value: "1.0.0-beta" }),
+        expect.objectContaining({ file: ".agents/plugins/marketplace.json", location: "plugins[0].version", value: "1.0.0-beta" }),
+        expect.objectContaining({ file: "integrations/plugin/.claude-plugin/plugin.json", location: "version", value: "1.0.0-beta" }),
+        expect.objectContaining({ file: "integrations/plugin/.codex-plugin/plugin.json", location: "version", value: "1.0.0-beta" }),
       ]),
     );
   });
@@ -175,7 +175,7 @@ describe("0.9.7 release version gate", () => {
     const result = checkPinnedPluginDependencies(process.cwd());
 
     expect(result.ok).toBe(true);
-    expect(result.packageSpec).toBe("@lukawi/super-plumber@0.9.7");
+    expect(result.packageSpec).toBe("@lukawi/super-plumber@1.0.0-beta");
     expect(result.checked).toEqual([
       "integrations/plugin/.mcp.json",
       "integrations/plugin/.codex-plugin/plugin.json",
@@ -187,7 +187,7 @@ describe("0.9.7 release version gate", () => {
     tempRoots.push(root);
     fs.writeFileSync(
       path.join(root, "package.json"),
-      JSON.stringify({ name: "@lukawi/super-plumber", version: "0.9.7" }),
+      JSON.stringify({ name: "@lukawi/super-plumber", version: "1.0.0-beta" }),
     );
     for (const file of ["integrations/plugin/.mcp.json", "integrations/plugin/.codex-plugin/plugin.json"]) {
       const source = path.resolve(file);

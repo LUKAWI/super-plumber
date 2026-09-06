@@ -2,7 +2,7 @@
 
 新增 /plumber router skill，只回答「该不该用 SP/走哪档/用哪张图/现在在该档哪一步」；只 hint 不点火；/plumber-design 与 /plumber-execute 保留直达入口；这是 DEC-4 入口冻结的第二次解除（首次为 0.9.4 sp-executor 定义）。
 
-**Status：** proposed（待裁决）
+**Status：** accepted
 
 **Context：** 无统一入口，「该不该建图/走哪档」无路由器；MP router 论证——路由器是认知负载的净削减但只能提示。
 

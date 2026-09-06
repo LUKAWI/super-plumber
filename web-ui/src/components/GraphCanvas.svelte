@@ -1163,7 +1163,6 @@
     stopFlowDots();
     const svg = d3.select(svgEl);
     const previousTransform = (svgEl as SVGSVGElement & { __zoom?: d3.ZoomTransform }).__zoom;
-    const previousUserMovedView = userMovedView;
     const positions = positionsFor(graphName);
     currentPositions = positions;
 
@@ -1341,7 +1340,7 @@
       updateFogCloud();
 
       // fit 挂接模拟收敛（alpha ≤ 0.3 ≈ 布局可用），每次渲染只取景一次
-      if (!fitDone && !userMovedView && !pinned && simulation && simulation.alpha() <= 0.3) {
+      if (!fitDone && !pinned && simulation && simulation.alpha() <= 0.3) {
         fitDone = true;
         autoFit();
       }
@@ -1361,9 +1360,9 @@
     // fit 兜底：若 4s 内 alpha 阈值未触发（如 pinned/极小图），强制取景一次
     if (fitFallbackTimer) clearTimeout(fitFallbackTimer);
     fitDone = false;
-    userMovedView = isGraphSwitch ? false : previousUserMovedView;
+    userMovedView = false;
     fitFallbackTimer = setTimeout(() => {
-      if (!fitDone && !userMovedView && !pinned) {
+      if (!fitDone && !pinned) {
         fitDone = true;
         autoFit();
       }
