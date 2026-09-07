@@ -1,8 +1,10 @@
 // F11：MCP description 预算与逐工具语义锚点。
 // token-equivalent 口径：汉字=1、非空 ASCII 字符=0.25、空白=0；用于稳定比较，
 // 不是特定模型 tokenizer。baseline 来自清扫前 27 个工具的 listTools 快照。
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
@@ -42,9 +44,110 @@ const required = {
 
 function estimate(text) {
   return [...text].reduce(
-    (total, ch) => total + (/[一-鿿]/u.test(ch) ? 1 : /s/u.test(ch) ? 0 : 0.25),
+    (total, ch) => total + (/[一-鿿]/u.test(ch) ? 1 : /\s/u.test(ch) ? 0 : 0.25),
     0,
   );
+}
+
+function parseToolBody(result) {
+  const text = result?.content?.find((item) => item.type === "text")?.text;
+  if (!text) throw new Error("MCP 工具未返回 JSON 文本");
+  return JSON.parse(text);
+}
+
+function percentile95(values) {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)];
+}
+
+async function measureNudgeBudget() {
+  const dir = mkdtempSync(join(tmpdir(), "super-plumber-q4-"));
+  const cli = resolve(root, "dist/cli/index.js");
+  const serverJs = resolve(root, "dist/mcp/server.js");
+  const runCli = (args) => execFileSync(process.execPath, [cli, ...args], { cwd: dir, stdio: "pipe" });
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [serverJs],
+    cwd: dir,
+  });
+  const sampleClient = new Client({ name: "q4-nudge-budget", version: "1.0.0" });
+  const samples = [];
+  const gaps = [];
+  const add = (scene, text, anchors = []) => {
+    const value = text ?? "";
+    for (const anchor of anchors) {
+      if (!value.includes(anchor)) gaps.push(`${scene}: 缺少 ${anchor}`);
+    }
+    samples.push({ scene, text: value, tokens: estimate(value) });
+  };
+  const call = async (name, args = {}) => {
+    const result = await sampleClient.callTool({ name, arguments: args });
+    if (result.isError) {
+      const detail = result.content?.find((item) => item.type === "text")?.text ?? "未知错误";
+      throw new Error(`${name} 失败：${detail}`);
+    }
+    return parseToolBody(result);
+  };
+
+  try {
+    runCli(["init", "q4-budget", "--class", "quick"]);
+    runCli(["create-node", "--id", "amend", "--label", "Amend"]);
+    runCli(["create-node", "--id", "research", "--label", "Research"]);
+    runCli(["create-node", "--id", "claim", "--label", "Claim"]);
+    await sampleClient.connect(transport);
+
+    await call("graph_update_graph", {
+      class: "standard",
+      fog: {
+        id: "q4-fog",
+        description: "关键未知",
+        graduation: "证据齐备",
+        ignited: ["research"],
+      },
+    });
+
+    for (const id of ["research", "amend"]) {
+      await call("graph_update_node_status", { id, status: "ready" });
+      await call("graph_update_node_status", { id, status: "running", claim_by: "q4-budget" });
+      await call("graph_update_execution_report", { node_id: id, summary: `${id} sample complete` });
+      await call("graph_update_node_status", { id, status: "passed" });
+    }
+
+    const next = await call("graph_get_next_actions");
+    add("next", next.class_nudge, ["雾区", "关键未知", "program"]);
+    add("next", next.fog_graduation_nudge, ["雾区", "graduate-fog", "standard"]);
+
+    await call("graph_update_node_status", { id: "claim", status: "ready" });
+    const claimed = await call("graph_update_node_status", {
+      id: "claim",
+      status: "running",
+      claim_by: "q4-budget",
+    });
+    add("claim", claimed.review_flag, ["仅提示", "认领"]);
+
+    const amended = await call("graph_update_node", {
+      id: "amend",
+      plan_description: "更新后的最小计划",
+    });
+    add("amend", amended.plan_amend_nudge, ["计划已变更", "不自动流转", "重开/重验"]);
+
+    const approved = await call("graph_approve", { by: "q4-budget" });
+    add("approve", undefined);
+    if (approved.review?.status !== "approved") gaps.push("approve: review 未落 approved");
+  } finally {
+    await sampleClient.close().catch(() => undefined);
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  const hardLimit = 64;
+  const p95 = percentile95(samples.map((sample) => sample.tokens));
+  return {
+    samples,
+    p95_tokens: p95,
+    hard_limit_tokens: hardLimit,
+    semantic_gaps: gaps,
+  };
 }
 
 const transport = new StdioClientTransport({
@@ -74,6 +177,7 @@ try {
   }
   const total = rows.reduce((sum, row) => sum + row.tokens, 0);
   const max = baseline.baseline_tokens * baseline.max_ratio;
+  const nudgeBudget = await measureNudgeBudget();
   const result = {
     tool_count: rows.length,
     total_tokens: total,
@@ -82,9 +186,17 @@ try {
     max_tokens: max,
     semantic_gaps: missing,
     rows: rows.map(({ name, tokens }) => ({ name, tokens })),
+    nudge_budget: nudgeBudget,
   };
   console.log(JSON.stringify(result, null, 2));
-  if (rows.length !== baseline.tool_count || total > max || missing.length > 0) {
+  if (
+    rows.length !== baseline.tool_count ||
+    total > max ||
+    missing.length > 0 ||
+    nudgeBudget.semantic_gaps.length > 0 ||
+    nudgeBudget.p95_tokens > 32 ||
+    nudgeBudget.samples.some((sample) => sample.tokens > nudgeBudget.hard_limit_tokens)
+  ) {
     process.exitCode = 1;
   }
 } finally {

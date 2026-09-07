@@ -1,7 +1,7 @@
 # Super Plumber Operations 手册（唯一正本）
 
 > **定位**：三访问层（CLI / MCP / 脚本）操作语法、状态机、错误处理、solo 裁决边界的**唯一权威正本**。角色提示词与 skill 中的一切语法引用指向本文对应章节；本文不复述任何角色的判断力内容（边类型选型、设计甄别、DoD 质量裁量等归各自角色提示词，见 §10/§11）。
-> **版本锚点**：super-plumber **1.0.0-beta**（全部 CLI 参数经 `graph --help` 实测：0.6.1 重构期全量校，其后增量（0.7.x 多图/导出、0.8.0 approve 与写作规范、0.8.1 拒绝理由凭据与分期导出、0.9.x 雾区/档位/分层审批、0.9.3 fallback 拍板、0.9.4 单真相源重组后 gen 门禁/锚点断言）随交付核对；与旧文档不符处以实测为准，表中以〔已校〕标注）。
+> **版本锚点**：super-plumber **1.0.0**（稳定版；MCP/CLI v1 语义冻结）。全部 CLI 参数经 `graph --help` 实测：0.6.1 重构期全量校，其后增量（0.7.x 多图/导出、0.8.0 approve 与写作规范、0.8.1 拒绝理由凭据与分期导出、0.9.x 雾区/档位/分层审批、0.9.3 fallback 拍板、0.9.4 单真相源重组后 gen 门禁/锚点断言）随交付核对；与旧文档不符处以实测为准，表中以〔已校〕标注。
 > **分发**：唯一正本住 `integrations/src/manual.md`（0.9.4 S01 单真相源重组起），由 `scripts/sync-integrations.mjs` gen 构建期生成 `integrations/shared/manual.md`（pi 寻址位）与 `integrations/plugin/manual.md`（插件包）两份产物，`--check` 比对手改即拦（原 sha256 三方同步断言退役）。寻址写法见 §11。（该脚本仍作为 prepublishOnly 发布门禁）
 
 目录：§1 访问层总览｜§2 design-ops｜§3 边类型判据式速查｜§4 execute-ops｜§5 状态机｜§6 工具总表（CLI+MCP）｜§7 脚本章｜§8 三层验收实操｜§9 错误处理大表｜§10 solo 自裁边界｜§11 寻址约定｜§12 漂移修正常记
@@ -69,8 +69,8 @@ graph update-graph \
 # 跨会话/跨图/跨仓库不单独触发 program；fog.description 写未知及影响的决定，graduation 写可验证证据。
 # program 转 standard 须关键未知解决、可信交付计划成立并经增量人审；研究票 passed 或 fog 清空不足以单独转档。
 # --set-fog 登记/更新雾区（整体 upsert，0.9.0 F04/adr_0007）；--class 标注工作类 quick|standard|program（DEC-2）。
-# --by <名>（0.9.1 adr_0016）：class 变更的操作者凭据，缺省 "agent"；用户直发（/plumber-class 命令或对话批准）
-# 时由命令文本指示 agent 传 --by user——血统落 class_changed 审计事件（from/to/by 结构化字段，from 缺省=首次设置；
+# --by <名>（0.9.1 adr_0016）：class 变更的操作者凭据，缺省 "agent"；用户在对话中明确指定或批准档位
+# 时，agent 传 --by user——血统落 class_changed 审计事件（from/to/by 结构化字段，from 缺省=首次设置；
 # 同值重设不落事件），雾/档矛盾提示据此静默。实测参数全集即上九项（MCP graph_update_graph 同名字段）。
 
 # 雾区毕业（0.9.0 F05）：清除 fog 字段 + fog_graduated 专用事件 + DEC-7 amend 守卫
@@ -215,8 +215,8 @@ serve 贯穿全程不关闭、已在运行不重复启动（编排纪律在 skil
 何时查这小节：给节点写 plan.description / definition_of_done / checkpoints 文案时。plan/DoD 是执行 agent 的唯一任务书与验收判据——写得脆，验收就脆。四原则，每条配一正一反例句；反例即 F16 文案 lint 的靶子（三类规则码：**a 脆弱定位**＝路径+行号/函数名式指认文件内部实现位置，板块级文件落点不报；**b 行号式**＝「第 N 行 / line N / :N」式；**c 不可验证措辞**＝「正确地/合理地/适当地/完善/确保质量」类主观词）：
 
 1. **耐久 ＞ 精确**：不写行号式定位，文件落点写到板块级路径。行号与函数名会随重构漂移，定位粒度以「其他任务改完本文件后仍找得到」为限。
-   - 正例：把 integrations/shared/manual.md §2.6 体检表补上 W7 判据（以 sp-check-design.mjs 现行实现为准）
-   - 反例：修改 integrations/shared/manual.md 第 152–169 行的表格〔a+b〕
+   - 正例：把 integrations/src/manual.md §2.6 体检表补上 W7 判据（以 sp-check-design.mjs 现行实现为准）
+   - 反例：修改 integrations/src/manual.md 第 152–169 行的表格〔a+b〕
 2. **行为式**：写「执行 X 后可观察到 Y」——验收的是可观察的行为差异，不是「做了」这个动作。
    - 正例：执行 node scripts/sync-integrations.mjs --check，输出含「全部一致」且退出码为 0
    - 反例：正确地同步插件包拷贝〔c〕
@@ -224,7 +224,7 @@ serve 贯穿全程不关闭、已在运行不重复启动（编排纪律在 skil
    - 正例：integrations/plugin/manual.md 与 integrations/shared/manual.md 内容一致（sha256 相同）
    - 反例：把结果与上游节点产出合理地对齐〔c〕
 4. **显式范围**：写明只动什么、不碰什么——范围外被顺手改动是验收纠纷的头号来源。
-   - 正例：只改 integrations/shared/manual.md 正本并运行 sync；不碰 .pi/skills/** 与 src/**
+   - 正例：只改 integrations/src/manual.md 正本并运行 sync；不手改 integrations/shared/** 与 integrations/plugin/**
    - 反例：顺带完善相关文档〔c；没写边界＝全仓都算「相关」〕
 
 落笔自查：任何一条 DoD 读不出「拿什么命令/文件/读数核对」就按对应原则改写。

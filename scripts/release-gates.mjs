@@ -6,6 +6,21 @@ import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
+// S06 agent-facing surface：这些双通道、生命周期、工具覆盖与 Q3 样本必须真实被 root 测试收集。
+// run-release-tests.mjs 会把未收集或测试进程失败都转换为非零门禁结果。
+const AGENT_SURFACE_CRITICAL_TESTS = [
+  "tests/cli/approve-cli.test.ts",
+  "tests/cli/class-command-cli.test.ts",
+  "tests/cli/fog-cli.test.ts",
+  "tests/cli/q3-flow-economy.test.ts",
+  "tests/mcp/approve-mcp.test.ts",
+  "tests/mcp/class-command-mcp.test.ts",
+  "tests/mcp/e2e-agent-loop.test.ts",
+  "tests/mcp/fog-mcp.test.ts",
+  "tests/mcp/phase3.test.ts",
+  "tests/mcp/tools-coverage.test.ts",
+];
+
 const ROOT_CRITICAL_TESTS = [
   "tests/release-gates.test.ts",
   "tests/core/style-lint.test.ts",
@@ -15,6 +30,7 @@ const ROOT_CRITICAL_TESTS = [
   "tests/cli/sp-script.test.ts",
   "tests/cli/sp-targeting.test.ts",
   "tests/mcp/server.test.ts",
+  ...AGENT_SURFACE_CRITICAL_TESTS,
 ];
 
 const UI_CRITICAL_TESTS = [
@@ -27,10 +43,6 @@ const UI_CRITICAL_TESTS = [
 const ROOT_COVERAGE_INCLUDES = [
   "src/core/graph-dir.ts",
   "src/core/style-lint.ts",
-  "scripts/plugin-dependency-check.mjs",
-  "scripts/release-gates.mjs",
-  "scripts/release-version-check.mjs",
-  "scripts/run-release-tests.mjs",
 ];
 
 const UI_COVERAGE_INCLUDES = ["src/components/GraphCanvas.svelte"];
@@ -60,6 +72,12 @@ export function createReleaseSteps(root = REPO_ROOT) {
       label: "插件 npx 依赖精确版本",
       command: process.execPath,
       args: ["scripts/plugin-dependency-check.mjs"],
+      cwd: root,
+    },
+    {
+      label: "S级问题账本审计",
+      command: process.execPath,
+      args: ["scripts/issue-severity-audit.mjs"],
       cwd: root,
     },
     {

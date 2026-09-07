@@ -8,6 +8,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { validateGraphDir } from "../../src/core/validate.js";
 import { createGraph } from "../../src/core/graph-dir.js";
+import { resetIndexCache } from "../../src/core/graph.js";
 import { createNode } from "../../src/core/node.js";
 import { createEdge } from "../../src/core/edge.js";
 import { NodeType, EdgeType } from "../../src/core/types.js";
@@ -122,6 +123,41 @@ describe("validateGraphDir：结构契约（arch-c3b）", () => {
       r.errors.some((e) => e.includes("不存在的源节点") && e.includes("missing-node")),
     ).toBe(true);
     expect(r.edge_count).toBe(1);
+  });
+
+  it("索引 metadata 不变但 payload 损坏 → validate 回退源文件，不能 false-green", () => {
+    createNode(graphDir, { id: "a", type: NodeType.Task, label: "A" });
+    createNode(graphDir, { id: "b", type: NodeType.Task, label: "B" });
+    createEdge(graphDir, { id: "ab", source: "a", target: "b", type: EdgeType.DependsOn });
+    createEdge(graphDir, { id: "ba", source: "b", target: "a", type: EdgeType.DependsOn });
+
+    // 首次校验生成带 source snapshot metadata 的磁盘缓存；源图确定含循环。
+    const first = validateGraphDir(graphDir);
+    expect(first.ok).toBe(false);
+    expect(first.edge_count).toBe(2);
+
+    const cacheFile = path.join(graphDir, "index", "graph.json");
+    const payload = JSON.parse(fs.readFileSync(cacheFile, "utf-8")) as Record<string, unknown>;
+    const metadata = {
+      index_version: payload.index_version,
+      generation: payload.generation,
+      sources: payload.sources,
+    };
+    // 只破坏派生载荷，metadata/source snapshot 保持原样。
+    payload.edges = [];
+    payload.adjacency = {};
+    payload.reverseAdj = {};
+    payload.gateReverseAdj = {};
+    fs.writeFileSync(cacheFile, JSON.stringify(payload), "utf-8");
+    resetIndexCache();
+
+    const second = validateGraphDir(graphDir);
+    expect(payload.index_version).toBe(metadata.index_version);
+    expect(payload.generation).toBe(metadata.generation);
+    expect(payload.sources).toEqual(metadata.sources);
+    expect(second.ok).toBe(false);
+    expect(second.edge_count).toBe(2);
+    expect(second.errors.some((error) => error.includes("检测到循环依赖"))).toBe(true);
   });
 
   it("schema 损坏的单节点不中断其余：缺字段逐项进 errors 且带文件前缀", () => {

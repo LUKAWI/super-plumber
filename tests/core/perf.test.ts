@@ -1,19 +1,18 @@
 // tests/core/perf.test.ts — 大图热路径性能回归（5k 节点级）
 // 目的：防止 checkReadyGate / computeNextActions 重新退化为全图扫描 / O(N²)。
 // 阈值宽松防 CI flaky（stat 校验 ~0.2s@5k，冷构建 ~8s），只断言数量级。
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import * as yaml from "js-yaml";
 import {
   computeNextActions,
   resetIndexCache,
 } from "../../src/core/graph.js";
-import { createNode, checkReadyGate, getNode } from "../../src/core/node.js";
-import { NodeType } from "../../src/core/types.js";
-import { createEdge } from "../../src/core/edge.js";
+import { checkReadyGate, getNode } from "../../src/core/node.js";
+import { NodeStatus, NodeType } from "../../src/core/types.js";
 import { rebuildGraphRefs, writeGraph } from "../../src/core/parser.js";
-import { withGraphAmend } from "../../src/core/amend.js";
 import { EdgeType } from "../../src/core/types.js";
 
 const N = 5000;
@@ -29,30 +28,41 @@ function buildChainGraph(): string {
     nodes: [],
     edges: [],
   });
-  // F21 起逐次结构写自带守卫（落图前自动快照）——5k 次紧循环是批量构建场景，
-  // 与 MCP batch_create 同理经 withGraphAmend 整批守卫一次（C5 组合器；退役前
-  // 的「跳过守卫」透传语义即其嵌套免守卫），防 O(n²) 快照风暴。守卫本身的行为由
-  // tests/core/amend.test.ts 专测。
-  withGraphAmend(
-    tmpDir,
-    { action: "batch-create", detail: `nodes=${N}, edges=${N - 1}` },
-    () => {
-      for (let i = 0; i < N; i++) {
-        createNode(
-          tmpDir,
-          { id: "n" + i, type: NodeType.Task, label: "n" + i, level: 1 },
-          { syncRef: false },
-        );
-      }
-      for (let i = 0; i < N - 1; i++) {
-        createEdge(
-          tmpDir,
-          { id: "e" + i, source: "n" + i, target: "n" + (i + 1), type: EdgeType.DependsOn },
-          { syncRef: false },
-        );
-      }
-    },
-  );
+  // 性能 seam 只测 index/next，不把 9,999 次公共写事务、事件和 amend 快照成本
+  // 混进 beforeEach。夹具直接写确定性、schema 合法的 YAML，最后一次性重建 refs。
+  const graphDir = path.join(tmpDir, ".graph");
+  const nodeDir = path.join(graphDir, "nodes");
+  const edgeDir = path.join(graphDir, "edges");
+  const now = "2026-01-01T00:00:00.000Z";
+  for (let i = 0; i < N; i++) {
+    fs.writeFileSync(
+      path.join(nodeDir, `n${i}.yaml`),
+      yaml.dump({
+        id: `n${i}`,
+        type: NodeType.Task,
+        label: `n${i}`,
+        level: 1,
+        status: NodeStatus.Pending,
+        attempts: 0,
+        max_attempts: 3,
+        created_at: now,
+        updated_at: now,
+      }, { indent: 2, lineWidth: 120 }),
+      "utf-8",
+    );
+  }
+  for (let i = 0; i < N - 1; i++) {
+    fs.writeFileSync(
+      path.join(edgeDir, `e${i}.yaml`),
+      yaml.dump({
+        id: `e${i}`,
+        source: `n${i}`,
+        target: `n${i + 1}`,
+        type: EdgeType.DependsOn,
+      }, { indent: 2, lineWidth: 120 }),
+      "utf-8",
+    );
+  }
   rebuildGraphRefs(tmpDir);
   return tmpDir;
 }
@@ -60,12 +70,15 @@ function buildChainGraph(): string {
 describe("perf: 5k 节点链式图热路径", () => {
   let tmpDir: string;
 
-  beforeEach(() => {
-    resetIndexCache();
+  beforeAll(() => {
     tmpDir = buildChainGraph();
   }, 120_000);
 
-  afterEach(() => {
+  beforeEach(() => {
+    resetIndexCache();
+  });
+
+  afterAll(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
     resetIndexCache();
   });

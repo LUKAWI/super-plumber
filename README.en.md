@@ -558,10 +558,10 @@ node dist/cli/index.js export --docs --check
 
 ## Project status
 
-The current source includes the CLI, MCP server, Web UI, YAML storage, multiple graphs per workspace, domain contexts and ADRs, snapshots, and audit events. The stable protocol commitment is documented in the 1.0.0 section of the Operations manual.
+The current release is **1.0.0 stable**. The MCP/CLI v1 semantics are frozen; the source includes the CLI, MCP server, Web UI, YAML storage, multiple graphs per workspace, domain contexts and ADRs, snapshots, and audit events.
 
 ~~~text
-Tests: 876 (backend) + 122 (frontend) ⚠️ | CLI: 30 commands | MCP: 27 tools | State machine: 7 states + ready gate + max_attempts + passed hard gate | Edge types: 9 | Storage: YAML + Git
+Tests: 895 (backend) + 122 (frontend) ✅ | CLI: 30 commands | MCP: 27 tools | State machine: 7 states + ready gate + max_attempts + passed hard gate | Edge types: 9 | Storage: YAML + Git
 ~~~
 
 - GitHub: [LUKAWI/super-plumber](https://github.com/LUKAWI/super-plumber)

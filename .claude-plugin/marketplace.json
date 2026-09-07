@@ -7,9 +7,9 @@
     {
       "name": "super-plumber",
       "source": "./integrations/plugin",
-      "version": "1.0.0-beta",
+      "version": "1.0.0",
       "description": "Super Plumber workflow orchestration (design graphs, execute nodes) for Claude Code & ZCode"
     }
   ],
-  "version": "1.0.0-beta"
+  "version": "1.0.0"
 }

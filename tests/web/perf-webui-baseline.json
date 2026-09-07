@@ -1,0 +1,8 @@
+{
+  "browser": "Google Chrome 152.0.7977.76 headless=new",
+  "device": { "width": 1365, "height": 768, "deviceScaleFactor": 1 },
+  "fixture": { "nodes": 1000, "edges": 999 },
+  "benchmark-normal": { "fps": 84.95, "firstScreenP95Ms": 155.1 },
+  "low-end-normal": { "fps": 51.02, "firstScreenP95Ms": 547.4 },
+  "benchmark-reduced-motion": { "fps": 97.25, "firstScreenP95Ms": 140.2 }
+}

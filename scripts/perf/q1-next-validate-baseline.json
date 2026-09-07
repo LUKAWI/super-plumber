@@ -1,0 +1,21 @@
+{
+  "method": "q1-next-validate-v1",
+  "captured_at": "2026-09-07",
+  "environment": {
+    "platform": "win32",
+    "node": "v24.13.0",
+    "cpu": "13th Gen Intel(R) Core(TM) i7-13650HX"
+  },
+  "scales": [
+    {
+      "nodes": 1000,
+      "next": { "p95_ms": 53.83 },
+      "validate": { "p95_ms": 58.45 }
+    },
+    {
+      "nodes": 10000,
+      "next": { "p95_ms": 421.5 },
+      "validate": { "p95_ms": 444.84 }
+    }
+  ]
+}

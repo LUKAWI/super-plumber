@@ -12,6 +12,7 @@ import { lintNodeWording } from "./style-lint.js";
 import { fogWarnings, fogClassNudge, fogGraduationNudge } from "./fog.js";
 import { readEvents } from "./eventlog.js";
 import { aggregateCheckpointStatus } from "./state-machine.js";
+import { buildGraphIndex, type GraphIndex } from "./index-service.js";
 import {
   loadNodeFile,
   loadEdgeFile,
@@ -113,14 +114,24 @@ export function validateGraphDir(rootDir: string): GraphValidateResult {
     errors.push(`无法读取 nodes/ 目录: ${e.message}`);
     return result(errors, warnings, 0, 0, "nodes", false, false, []);
   }
-  const nodes: NodeSchema[] = [];
-  for (const f of nodeFiles) {
-    const r = loadNodeFile(rootDir, f);
-    if (r.ok) {
-      nodes.push(r.data);
-    } else {
-      for (const i of r.issues) {
-        errors.push(`nodes/${f}: ${i.field}: ${i.message}`);
+  // 有效且来源未变化的索引已经过同一 schema 解析，可直接复用于热路径；索引构建
+  // 失败时仍走逐文件诊断，保留 validate 对多个损坏文件一次收集完整 issues 的契约。
+  let cachedIndex: GraphIndex | null = null;
+  try {
+    cachedIndex = buildGraphIndex(rootDir, { useCache: true });
+  } catch {
+    /* 下方逐文件路径负责给出精确错误 */
+  }
+  const nodes: NodeSchema[] = cachedIndex ? [...cachedIndex.nodes] : [];
+  if (cachedIndex === null) {
+    for (const f of nodeFiles) {
+      const r = loadNodeFile(rootDir, f);
+      if (r.ok) {
+        nodes.push(r.data);
+      } else {
+        for (const i of r.issues) {
+          errors.push(`nodes/${f}: ${i.field}: ${i.message}`);
+        }
       }
     }
   }
@@ -174,14 +185,16 @@ export function validateGraphDir(rootDir: string): GraphValidateResult {
     errors.push(`无法读取 edges/ 目录: ${e.message}`);
     return result(errors, warnings, nodes.length, 0, "edges", false, false, checkpoint_summaries);
   }
-  const edges: EdgeSchema[] = [];
-  for (const f of edgeFiles) {
-    const r = loadEdgeFile(rootDir, f);
-    if (r.ok) {
-      edges.push(r.data);
-    } else {
-      for (const i of r.issues) {
-        errors.push(`edges/${f}: ${i.field}: ${i.message}`);
+  const edges: EdgeSchema[] = cachedIndex ? [...cachedIndex.edges] : [];
+  if (cachedIndex === null) {
+    for (const f of edgeFiles) {
+      const r = loadEdgeFile(rootDir, f);
+      if (r.ok) {
+        edges.push(r.data);
+      } else {
+        for (const i of r.issues) {
+          errors.push(`edges/${f}: ${i.field}: ${i.message}`);
+        }
       }
     }
   }

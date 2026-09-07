@@ -206,6 +206,49 @@ function jsonText(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
 }
 
+// Q4：MCP 面只保留可执行语义锚点，避免 core 侧完整说明把模型上下文撑大。
+// CLI 仍由 core 原文呈现；MCP 只压缩提示文本，不改变状态、门禁或凭据字段。
+function nudgePart(value: string | undefined, limit = 16): string {
+  if (!value) return "?";
+  const chars = [...value];
+  return chars.length <= limit ? value : `${chars.slice(0, limit - 1).join("")}…`;
+}
+
+function compactNudge(text: string): string {
+  if (text.includes("计划已变更")) {
+    // planAmendNudge is already the compact core-owned contract; preserve it
+    // verbatim so CLI and MCP remain byte-for-byte consistent.
+    return text;
+  }
+  if (text.includes("关键未知") && text.includes("当前档位")) {
+    const id = text.match(/未毕业雾区\s+(.+?)（/u)?.[1];
+    const cls = text.match(/当前档位\s+([a-z]+)/u)?.[1];
+    return `⚠️雾区 ${nudgePart(id)}/${nudgePart(cls, 8)}：核对关键未知；用户批准→program；跨会话/跨图不触发；仅提示。`;
+  }
+  if (text.includes("研究票已全部 passed")) {
+    const id = text.match(/雾区\s+(.+?)\s+的已点火研究票/u)?.[1];
+    return `⚠️雾区 ${nudgePart(id)}：票全 passed≠已解；核对条件→graduate-fog；转standard需计划+人审；仅提示。`;
+  }
+  if (text.includes("决策依据已过时")) {
+    const id = text.match(/ADR\s+([^\s（]+)/u)?.[1];
+    return `⚠️ADR ${nudgePart(id)}：决策依据已过时，建议重审。`;
+  }
+  return text;
+}
+
+function compactNextEntry<T extends { adr_flags?: string[]; review_flag?: string }>(entry: T): T {
+  return {
+    ...entry,
+    ...(entry.adr_flags ? { adr_flags: entry.adr_flags.map(compactNudge) } : {}),
+    // review_flag 是已冻结的定稿短文案，保留逐字合同。
+    ...(entry.review_flag ? { review_flag: entry.review_flag } : {}),
+  };
+}
+
+function compactNextList<T extends { adr_flags?: string[]; review_flag?: string }>(list: T[]): T[] {
+  return list.map(compactNextEntry);
+}
+
 /**
  * v0.5.2 兜底②：跨图智能纠错——操作当前图不存在的节点/边 id 时扫描兄弟图，
  * 命中则在错误消息追加"它存在于图 X，请先 graph_switch"。仅错误路径触发（不碰热路径），
@@ -584,10 +627,10 @@ server.registerTool(
         return {
           graph: r.graph,
           label: r.label,
-          ready: cap(r.ready),
-          ready_eligible: cap(r.ready_eligible),
+          ready: compactNextList(cap(r.ready)),
+          ready_eligible: compactNextList(cap(r.ready_eligible)),
           blocked: cap(r.blocked),
-          running: cap(running),
+          running: compactNextList(cap(running)),
           stale_running: cap(stale),
           truncated: {
             ready: r.ready.length > limit,
@@ -597,9 +640,9 @@ server.registerTool(
             stale_running: stale.length > limit,
           },
           ...(r.fog !== undefined ? { fog: r.fog } : {}),
-          ...(r.class_nudge !== undefined ? { class_nudge: r.class_nudge } : {}),
+          ...(r.class_nudge !== undefined ? { class_nudge: compactNudge(r.class_nudge) } : {}),
           ...(r.fog_graduation_nudge !== undefined
-            ? { fog_graduation_nudge: r.fog_graduation_nudge }
+            ? { fog_graduation_nudge: compactNudge(r.fog_graduation_nudge) }
             : {}),
           summary: r.summary,
         };
@@ -623,10 +666,10 @@ server.registerTool(
         )
       : r.stale_running;
     return jsonGraph(gctx, {
-      ready: cap(r.ready),
-      ready_eligible: cap(r.ready_eligible),
+      ready: compactNextList(cap(r.ready)),
+      ready_eligible: compactNextList(cap(r.ready_eligible)),
       blocked: cap(r.blocked),
-      running: cap(running),
+      running: compactNextList(cap(running)),
       stale_running: cap(stale),
       truncated: {
         ready: r.ready.length > limit,
@@ -637,11 +680,11 @@ server.registerTool(
       },
       // F04（adr_0007）：雾区概要随调度结果透出（图无雾缺省；零门禁）
       ...(r.fog !== undefined ? { fog: r.fog } : {}),
-      // v091（adr_0016）：雾/档矛盾 nudge 随调度结果透出（core 单源派生，透传不改写）
-      ...(r.class_nudge !== undefined ? { class_nudge: r.class_nudge } : {}),
-      // IL-025：雾可毕业 nudge 随调度结果透出（core 单源派生，透传不改写）
+      // v091（adr_0016）：雾/档矛盾 nudge 随调度结果透出（core 单源派生，MCP 面压缩）
+      ...(r.class_nudge !== undefined ? { class_nudge: compactNudge(r.class_nudge) } : {}),
+      // IL-025：雾可毕业 nudge 随调度结果透出（core 单源派生，MCP 面压缩）
       ...(r.fog_graduation_nudge !== undefined
-        ? { fog_graduation_nudge: r.fog_graduation_nudge }
+        ? { fog_graduation_nudge: compactNudge(r.fog_graduation_nudge) }
         : {}),
       summary: r.summary,
     });
@@ -1181,7 +1224,7 @@ server.registerTool(
       actor: mcpActor(),
       ...(reset_attempts ? { resetAttempts: true } : {}),
     });
-    return jsonGraph(gctx, nudge ? { ...updated, plan_amend_nudge: nudge } : updated);
+    return jsonGraph(gctx, nudge ? { ...updated, plan_amend_nudge: compactNudge(nudge) } : updated);
   },
 );
 
@@ -1223,7 +1266,7 @@ server.registerTool(
     );
     // v0.5：claim（→running）响应附管辖 ADR 指针——agent 此刻最需要知道"依据哪些决策干活"
     // arch-c3a：提示包改由 core 单源组装（buildClaimNudgePackage：governing_adrs /
-    // adr_flags / review_flag / requires_human），渠道只渲染、不改写。
+    // adr_flags / review_flag / requires_human）；MCP nudge 只压缩文案，不改语义字段。
     // 响应透出 governing_adrs / review_flag / requires_human（F06 接线：含未完成
     // human checkpoint 的票在 claim 响应提示认领者；adr_flags 随调度面各桶透出）。
     // DEC-1：图有 review 凭据时 review_flag 不出现。仅提示、零门禁——claim 不因此被拒绝。
@@ -1231,6 +1274,7 @@ server.registerTool(
       const pkg = buildClaimNudgePackage(rootDir, id);
       const extra: Record<string, unknown> = {};
       if (pkg.governing_adrs !== undefined) extra.governing_adrs = pkg.governing_adrs;
+      if (pkg.adr_flags !== undefined) extra.adr_flags = pkg.adr_flags.map(compactNudge);
       if (pkg.review_flag !== undefined) extra.review_flag = pkg.review_flag;
       if (pkg.requires_human !== undefined) extra.requires_human = pkg.requires_human;
       if (Object.keys(extra).length > 0) {

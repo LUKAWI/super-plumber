@@ -13,11 +13,23 @@ describe("F11 MCP description token budget", () => {
       ratio: number;
       semantic_gaps: string[];
       rows: { name: string; tokens: number }[];
+      nudge_budget: {
+        samples: { scene: string; tokens: number; text: string }[];
+        p95_tokens: number;
+        hard_limit_tokens: number;
+      };
     };
     expect(result.tool_count).toBe(27);
     expect(result.ratio).toBeLessThanOrEqual(0.8);
     expect(result.semantic_gaps).toEqual([]);
     expect(result.rows).toHaveLength(27);
     expect(result.rows.every((row) => row.tokens > 0)).toBe(true);
+    expect(result.nudge_budget.samples.length).toBeGreaterThanOrEqual(4);
+    expect(result.nudge_budget.samples.map((sample) => sample.scene)).toEqual(
+      expect.arrayContaining(["next", "claim", "amend", "approve"]),
+    );
+    expect(result.nudge_budget.p95_tokens).toBeLessThanOrEqual(32);
+    expect(result.nudge_budget.samples.every((sample) => sample.tokens <= 64)).toBe(true);
+    expect(result.nudge_budget.hard_limit_tokens).toBe(64);
   });
 });

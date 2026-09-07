@@ -15,10 +15,11 @@
 // 2. 磁盘缓存 .graph/index/graph.json（未命中时构建后落盘）：新进程冷启动时用
 //    stat 校验 + JSON.parse 替代全量文件读，冷路径从 ~9s 降到 <1.5s。
 //
-// 每份新缓存都记录 generation 与 graph.yaml/nodes/edges 的源快照。构建前后、提交
-// 前后均复核快照，且提交在图级锁内完成：外部写入或 watcher 触发的并发重建不能把旧
-// 代际发布到新状态上。缺 generation/source snapshot 的旧磁盘缓存不再命中，
-// 会回源重建；带完整代际但缺 gateReverseAdj 的早期 v2 缓存仍可就地推导兼容。
+// 每份新缓存都记录 generation、graph.yaml/nodes/edges 的源快照和 payload 完整性令牌。
+// 构建前后、提交前后均复核快照，且提交在图级锁内完成：外部写入或 watcher 触发的
+// 并发重建不能把旧代际发布到新状态上。缺 generation/source snapshot 或 payload 令牌
+// 不匹配的磁盘缓存都会回源重建；带完整代际但缺 gateReverseAdj 的早期 v2 缓存仍可
+// 就地推导兼容。
 // 新增 gateReverseAdj（4 种门控边的反向邻接）是 checkReadyGate（node.ts）与
 // computeNextActions（scheduler.ts）从"全图扫描"变为"按需查表"的关键数据结构。
 
@@ -294,14 +295,7 @@ function buildIndex(
     gateReverseAdj = mapFromRecord(data.gateReverseAdj);
   } else {
     // 早期 v2 缓存：从 edges 就地推导门控邻接（同 D2：源头去重）。
-    gateReverseAdj = new Map<string, string[]>();
-    for (const n of data.nodes) gateReverseAdj.set(n.id, []);
-    for (const e of data.edges) {
-      if (GATE_EDGE_TYPES.includes(e.type)) {
-        const list = gateReverseAdj.get(e.target);
-        if (list && !list.includes(e.source)) list.push(e.source);
-      }
-    }
+    gateReverseAdj = derivedGateReverseAdj(data.nodes, data.edges);
   }
   return {
     nodes: data.nodes,
@@ -322,10 +316,64 @@ interface IndexCachePayload {
   adjacency: Record<string, string[]>;
   reverseAdj: Record<string, string[]>;
   gateReverseAdj: Record<string, string[]>;
+  payload_integrity: string;
+}
+
+function fnv1a(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `fnv1a:${hash.toString(16).padStart(8, "0")}`;
+}
+
+function derivedGateReverseAdj(nodes: NodeSchema[], edges: EdgeSchema[]): Map<string, string[]> {
+  const gateReverseAdj = new Map<string, string[]>();
+  for (const node of nodes) gateReverseAdj.set(node.id, []);
+  for (const edge of edges) {
+    if (GATE_EDGE_TYPES.includes(edge.type)) {
+      const list = gateReverseAdj.get(edge.target);
+      if (list && !list.includes(edge.source)) list.push(edge.source);
+    }
+  }
+  return gateReverseAdj;
+}
+
+function payloadIntegrity(value: {
+  index_version: unknown;
+  generation: unknown;
+  sources: unknown;
+  nodes: unknown;
+  edges: unknown;
+  adjacency: unknown;
+  reverseAdj: unknown;
+  gateReverseAdj?: unknown;
+}): string {
+  // 固定字段顺序的轻量完整性令牌只防意外/截断/部分写入，不承担安全哈希职责。
+  // 旧缓存缺失 gateReverseAdj 时按 edges 推导，保留 v2 兼容读路径。
+  const gateReverseAdj =
+    value.gateReverseAdj === undefined
+      ? Object.fromEntries(
+          derivedGateReverseAdj(value.nodes as NodeSchema[], value.edges as EdgeSchema[]),
+        )
+      : value.gateReverseAdj;
+  return fnv1a(
+    JSON.stringify([
+      value.index_version,
+      value.generation,
+      value.sources,
+      value.nodes,
+      value.edges,
+      value.adjacency,
+      value.reverseAdj,
+      gateReverseAdj,
+    ]),
+  );
 }
 
 function indexPayload(index: GraphIndex, snapshot: SourceSnapshot): IndexCachePayload {
-  return {
+  const body = {
     index_version: INDEX_CACHE_VERSION,
     generation: snapshot.generation,
     sources: snapshot.sources,
@@ -335,22 +383,45 @@ function indexPayload(index: GraphIndex, snapshot: SourceSnapshot): IndexCachePa
     reverseAdj: Object.fromEntries(index.reverseAdj),
     gateReverseAdj: Object.fromEntries(index.gateReverseAdj),
   };
+  return {
+    ...body,
+    payload_integrity: payloadIntegrity(body),
+  };
 }
 
 function validIndexPayload(value: unknown, snapshot: SourceSnapshot): value is IndexCachePayload {
   if (!isRecord(value)) return false;
   const sources = decodeSourceStamps(value.sources);
-  return (
-    value.index_version === INDEX_CACHE_VERSION &&
-    value.generation === snapshot.generation &&
-    sources !== null &&
-    sameSourceSnapshot(
-      snapshot,
-      { generation: String(value.generation), sources },
-    ) &&
-    Array.isArray(value.nodes) &&
-    Array.isArray(value.edges)
-  );
+  if (
+    value.index_version !== INDEX_CACHE_VERSION ||
+    value.generation !== snapshot.generation ||
+    sources === null ||
+    !Array.isArray(value.nodes) ||
+    !Array.isArray(value.edges) ||
+    typeof value.payload_integrity !== "string"
+  ) {
+    return false;
+  }
+  try {
+    return (
+      sameSourceSnapshot(
+        snapshot,
+        { generation: String(value.generation), sources },
+      ) &&
+      value.payload_integrity === payloadIntegrity({
+        index_version: value.index_version,
+        generation: value.generation,
+        sources,
+        nodes: value.nodes,
+        edges: value.edges,
+        adjacency: value.adjacency,
+        reverseAdj: value.reverseAdj,
+        gateReverseAdj: value.gateReverseAdj,
+      })
+    );
+  } catch {
+    return false;
+  }
 }
 
 function atomicWriteIndex(cacheFile: string, payload: IndexCachePayload, snapshot: SourceSnapshot): void {

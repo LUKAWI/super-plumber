@@ -55,7 +55,7 @@ describe("index freshness cache", () => {
     );
   });
 
-  it("代际完整的缓存存在且新鲜 → 命中磁盘缓存数据", () => {
+  it("代际完整但 payload 被改写 → 拒绝缓存并回源 YAML", () => {
     createNode(tmpDir, { id: "a", type: NodeType.Task, label: "A" });
     const real = readNode(tmpDir, "a");
     // 先生成真实 v2 代际，再替换节点载荷为哨兵；重置内存缓存后只验证磁盘命中。
@@ -69,7 +69,13 @@ describe("index freshness cache", () => {
     fs.writeFileSync(cacheFile, JSON.stringify(payload), "utf-8");
 
     const fromCache = buildGraphIndex(tmpDir, { useCache: true });
-    expect(fromCache.nodes[0].label).toBe("FROM_CACHE");
+    expect(fromCache.nodes[0].label).toBe("A");
+    const repaired = JSON.parse(fs.readFileSync(cacheFile, "utf-8")) as {
+      nodes: Array<typeof real>;
+      payload_integrity: string;
+    };
+    expect(repaired.nodes[0]?.label).toBe("A");
+    expect(repaired.payload_integrity).toMatch(/^fnv1a:/);
   });
 
   it("缺代际元数据的旧索引不会在 mtime 回拨后复活更新节点", () => {

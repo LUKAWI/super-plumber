@@ -1,17 +1,107 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import {
-  checkReleaseVersions,
-  collectVersionRecords,
-} from "../scripts/release-version-check.mjs";
-import { inspectCoverageSummary, inspectReleaseTestReport } from "../scripts/run-release-tests.mjs";
-import { createReleaseSteps } from "../scripts/release-gates.mjs";
-import { checkPinnedPluginDependencies } from "../scripts/plugin-dependency-check.mjs";
+import { spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
-describe("1.0.0-beta release version gate", () => {
+type ReleaseVersionModule = typeof import("../scripts/release-version-check.mjs");
+type ReleaseTestsModule = typeof import("../scripts/run-release-tests.mjs");
+type ReleaseGatesModule = typeof import("../scripts/release-gates.mjs");
+type PluginDependencyModule = typeof import("../scripts/plugin-dependency-check.mjs");
+
+let checkReleaseVersions: ReleaseVersionModule["checkReleaseVersions"];
+let collectVersionRecords: ReleaseVersionModule["collectVersionRecords"];
+let inspectCoverageSummary: ReleaseTestsModule["inspectCoverageSummary"];
+let inspectReleaseTestReport: ReleaseTestsModule["inspectReleaseTestReport"];
+let createReleaseSteps: ReleaseGatesModule["createReleaseSteps"];
+let checkPinnedPluginDependencies: PluginDependencyModule["checkPinnedPluginDependencies"];
+
+// Vitest 2 的静态收集会把带 shebang 的 .mjs 当作内联源码解析并报
+// "Invalid or unexpected token"。这里通过 Node 原生 ESM seam 装载真实发布脚本；
+// 测试仍直接断言其导出行为，不复制实现，也不降低发布协议。
+const nativeImport = (specifier: string): Promise<unknown> => import(/* @vite-ignore */ specifier);
+let moduleFixtureRoot: string;
+
+beforeAll(async () => {
+  moduleFixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "release-gates-modules-"));
+  const load = async <T>(relativePath: string): Promise<T> => {
+    const source = fs.readFileSync(path.resolve(relativePath), "utf8").replace(/^#!.*\r?\n/, "");
+    const fixture = path.join(moduleFixtureRoot, path.basename(relativePath));
+    fs.writeFileSync(fixture, source);
+    return (await nativeImport(pathToFileURL(fixture).href)) as T;
+  };
+  const versions = await load<ReleaseVersionModule>("scripts/release-version-check.mjs");
+  const releaseTests = await load<ReleaseTestsModule>("scripts/run-release-tests.mjs");
+  const releaseGates = await load<ReleaseGatesModule>("scripts/release-gates.mjs");
+  const pluginDependencies = await load<PluginDependencyModule>("scripts/plugin-dependency-check.mjs");
+
+  ({ checkReleaseVersions, collectVersionRecords } = versions);
+  ({ inspectCoverageSummary, inspectReleaseTestReport } = releaseTests);
+  ({ createReleaseSteps } = releaseGates);
+  ({ checkPinnedPluginDependencies } = pluginDependencies);
+});
+
+afterAll(() => {
+  fs.rmSync(moduleFixtureRoot, { recursive: true, force: true });
+});
+
+describe("1.0.0 release version gate", () => {
   const tempRoots: string[] = [];
+
+  function createReleaseRunnerFixture(): string {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "release-runner-process-"));
+    tempRoots.push(root);
+    fs.mkdirSync(path.join(root, "scripts"), { recursive: true });
+    fs.copyFileSync(
+      path.resolve("scripts", "run-release-tests.mjs"),
+      path.join(root, "scripts", "run-release-tests.mjs"),
+    );
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify({ type: "module", scripts: { test: "node fake-vitest.mjs" } }),
+    );
+    fs.writeFileSync(
+      path.join(root, "fake-vitest.mjs"),
+      `import fs from "node:fs";
+import path from "node:path";
+
+const valueAfter = (flag) => {
+  const index = process.argv.indexOf(flag);
+  return index >= 0 ? process.argv[index + 1] : undefined;
+};
+const mode = process.env.RELEASE_RUNNER_FIXTURE_MODE;
+if (mode !== "missing-report") {
+  const reportFile = valueAfter("--outputFile");
+  fs.mkdirSync(path.dirname(reportFile), { recursive: true });
+  fs.writeFileSync(reportFile, JSON.stringify({
+    numTotalTestSuites: 1,
+    numPassedTestSuites: 1,
+    numTotalTests: 1,
+    numPassedTests: 1,
+    numPendingTests: 0,
+    numTodoTests: 0,
+    testResults: [{
+      name: path.join(process.cwd(), "tests", "collected.test.ts"),
+      assertionResults: [{ status: "passed" }],
+    }],
+  }));
+}
+if (mode === "bad-coverage") {
+  const coverageDir = valueAfter("--coverage.reportsDirectory");
+  fs.mkdirSync(coverageDir, { recursive: true });
+  fs.writeFileSync(path.join(coverageDir, "coverage-summary.json"), JSON.stringify({
+    total: {
+      lines: { pct: 0 },
+      functions: { pct: 100 },
+      branches: { pct: 100 },
+    },
+  }));
+}
+`,
+    );
+    return root;
+  }
 
   afterEach(() => {
     for (const root of tempRoots.splice(0)) {
@@ -19,19 +109,42 @@ describe("1.0.0-beta release version gate", () => {
     }
   });
 
+  it.each([
+    ["关键文件未收集", "missing-critical", ["--critical-file", "tests/required.test.ts"], "关键测试文件未被收集"],
+    ["JSON 报告缺失", "missing-report", [], "Vitest 未生成 JSON 测试报告"],
+    [
+      "coverage 校验失败",
+      "bad-coverage",
+      ["--coverage", "--coverage-include", "fake-vitest.mjs", "--coverage-min-lines", "1"],
+      "coverage 行覆盖率",
+    ],
+  ])("Vitest 退出 0 后%s仍让 runner 非零退出", (_label, mode, args, expectedError) => {
+    const root = createReleaseRunnerFixture();
+    const runner = path.join(root, "scripts", "run-release-tests.mjs");
+    const result = spawnSync(process.execPath, [runner, "--project", "root", ...args], {
+      cwd: root,
+      encoding: "utf8",
+      windowsHide: true,
+      env: { ...process.env, RELEASE_RUNNER_FIXTURE_MODE: mode },
+    });
+
+    expect(result.status, result.stderr).not.toBe(0);
+    expect(result.stderr).toContain(expectedError);
+  });
+
   it("checks package-lock roots and every release manifest against package.json", () => {
     const result = checkReleaseVersions(process.cwd());
 
     expect(result.ok).toBe(true);
-    expect(result.sourceVersion).toBe("1.0.0-beta");
+    expect(result.sourceVersion).toBe("1.0.0");
     expect(result.records).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ file: "package-lock.json", location: "version", value: "1.0.0-beta" }),
-        expect.objectContaining({ file: "package-lock.json", location: "packages[\"\"].version", value: "1.0.0-beta" }),
-        expect.objectContaining({ file: ".claude-plugin/marketplace.json", location: "version", value: "1.0.0-beta" }),
-        expect.objectContaining({ file: ".agents/plugins/marketplace.json", location: "plugins[0].version", value: "1.0.0-beta" }),
-        expect.objectContaining({ file: "integrations/plugin/.claude-plugin/plugin.json", location: "version", value: "1.0.0-beta" }),
-        expect.objectContaining({ file: "integrations/plugin/.codex-plugin/plugin.json", location: "version", value: "1.0.0-beta" }),
+        expect.objectContaining({ file: "package-lock.json", location: "version", value: "1.0.0" }),
+        expect.objectContaining({ file: "package-lock.json", location: "packages[\"\"].version", value: "1.0.0" }),
+        expect.objectContaining({ file: ".claude-plugin/marketplace.json", location: "version", value: "1.0.0" }),
+        expect.objectContaining({ file: ".agents/plugins/marketplace.json", location: "plugins[0].version", value: "1.0.0" }),
+        expect.objectContaining({ file: "integrations/plugin/.claude-plugin/plugin.json", location: "version", value: "1.0.0" }),
+        expect.objectContaining({ file: "integrations/plugin/.codex-plugin/plugin.json", location: "version", value: "1.0.0" }),
       ]),
     );
   });
@@ -133,6 +246,7 @@ describe("1.0.0-beta release version gate", () => {
     expect(labels).toEqual([
       "版本单一来源（package.json/package-lock/manifest）",
       "插件 npx 依赖精确版本",
+      "S级问题账本审计",
       "root typecheck",
       "root build",
       "发布 CLI/MCP 构建物存在",
@@ -149,6 +263,20 @@ describe("1.0.0-beta release version gate", () => {
     );
     expect(steps.find((step) => step.label === "root test + 关键 coverage")?.args).toEqual(
       expect.arrayContaining(["tests/cli/sp-script.test.ts", "tests/cli/sp-targeting.test.ts"]),
+    );
+    expect(steps.find((step) => step.label === "root test + 关键 coverage")?.args).toEqual(
+      expect.arrayContaining([
+        "tests/cli/approve-cli.test.ts",
+        "tests/cli/class-command-cli.test.ts",
+        "tests/cli/fog-cli.test.ts",
+        "tests/cli/q3-flow-economy.test.ts",
+        "tests/mcp/approve-mcp.test.ts",
+        "tests/mcp/class-command-mcp.test.ts",
+        "tests/mcp/e2e-agent-loop.test.ts",
+        "tests/mcp/fog-mcp.test.ts",
+        "tests/mcp/phase3.test.ts",
+        "tests/mcp/tools-coverage.test.ts",
+      ]),
     );
     expect(steps.find((step) => step.label === "web-ui test + 关键 coverage")?.args).toContain("src/lib/render-smoke.test.ts");
     expect(steps.find((step) => step.label === "web-ui test + 关键 coverage")?.args).toEqual(
@@ -175,7 +303,7 @@ describe("1.0.0-beta release version gate", () => {
     const result = checkPinnedPluginDependencies(process.cwd());
 
     expect(result.ok).toBe(true);
-    expect(result.packageSpec).toBe("@lukawi/super-plumber@1.0.0-beta");
+    expect(result.packageSpec).toBe("@lukawi/super-plumber@1.0.0");
     expect(result.checked).toEqual([
       "integrations/plugin/.mcp.json",
       "integrations/plugin/.codex-plugin/plugin.json",
@@ -187,7 +315,7 @@ describe("1.0.0-beta release version gate", () => {
     tempRoots.push(root);
     fs.writeFileSync(
       path.join(root, "package.json"),
-      JSON.stringify({ name: "@lukawi/super-plumber", version: "1.0.0-beta" }),
+      JSON.stringify({ name: "@lukawi/super-plumber", version: "1.0.0" }),
     );
     for (const file of ["integrations/plugin/.mcp.json", "integrations/plugin/.codex-plugin/plugin.json"]) {
       const source = path.resolve(file);

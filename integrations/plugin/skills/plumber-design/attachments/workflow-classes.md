@@ -36,6 +36,6 @@
 ## 档位凭据纪律（adr_0016）
 
 - 用户未设档时由 agent 按上表自判档位（现状维持，缺省 `--by` 即 agent 自判）。
-- 用户说「设为某档」=凭据效力（pi 对话约定，与 `/plumber-class` 命令同款），agent 代发 `graph update-graph --class <档>` 须带 `--by user`——血统落 class_changed 审计事件，与用户直发可区分。
+- 用户说「设为某档」或明确批准档位即构成凭据，agent 代发 `graph update-graph --class <档>` 须带 `--by user`——血统落 class_changed 审计事件，与 agent 自判可区分。
 - 升降档须用户批准；执行期降档向（→quick）从严。
 - 雾/档矛盾由读面 `class_nudge` 提示，用户直发 `--by user` 凭据后静默（→ 手册 §4.1；寻址约定见手册 §11）。

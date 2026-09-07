@@ -206,6 +206,7 @@ function run() {
     );
     status = 0;
   } catch (error) {
+    status = status === 0 ? 1 : status;
     console.error(`发布测试门禁失败：${error instanceof Error ? error.message : String(error)}`);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });

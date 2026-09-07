@@ -19,12 +19,16 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
-      - name: Integrations gen completeness (integrations/src -> .pi / integrations/plugin / shared)
-        run: node scripts/sync-integrations.mjs --check
       - name: Install root deps
         run: npm ci
+      - name: Integrations gen completeness (integrations/src -> .pi / integrations/plugin / shared)
+        run: node scripts/sync-integrations.mjs --check
       - name: Build backend (dist/ required by CLI/MCP tests)
         run: npm run build
+      - name: Roadmap domain-view drift
+        run: node dist/cli/index.js export --docs --check --graph roadmap-to-1-0-0
+      - name: Q1 next/validate scale benchmark
+        run: node scripts/perf/q1-next-validate.mjs --sizes 1000,10000 --samples 5 --baseline scripts/perf/q1-next-validate-baseline.json --check
       - name: Typecheck backend
         run: npm run typecheck
       - name: Backend unit tests

@@ -118,11 +118,7 @@ export function planAmendNudge(
   if (node.status !== NodeStatus.Passed && node.status !== NodeStatus.Blocked) {
     return undefined;
   }
-  return (
-    `⚠️ 计划已变更，是否重开/重验：节点 ${node.id} 当前状态为 ${node.status}，` +
-    `plan 修改不会自动触发状态流转——既有执行报告与裁决可能已与新计划失配，` +
-    `请评估是否重开节点重新验收（blocked → ready / 人工重开），纯文案微调可忽略本提示。`
-  );
+  return `⚠️计划已变更，是否重开/重验：${node.id}/${node.status}；不自动流转，失配时重开/重验。`;
 }
 
 // ── C5（0.9.2）：改图守卫组合器 ──

@@ -559,10 +559,10 @@ node dist/cli/index.js export --docs --check
 
 ## 项目状态
 
-当前源码包含 CLI、MCP、Web UI、纯文件存储、多图工作区、领域 context/ADR、快照和审计日志。稳定协议约定见手册中的 1.0.0 协议冻结章节。
+当前发布为 **1.0.0 stable**。MCP/CLI v1 语义已冻结；源码包含 CLI、MCP、Web UI、纯文件存储、多图工作区、领域 context/ADR、快照和审计日志。
 
 ~~~text
-Tests: 876（后端）+ 122（前端）⚠️ | CLI: 30 命令 | MCP: 27 工具 | 状态机: 7 态 + ready 门禁 + max_attempts + passed 硬门禁 | 边类型: 9 种 | 存储: YAML + Git
+Tests: 895（后端）+ 122（前端）✅ | CLI: 30 命令 | MCP: 27 工具 | 状态机: 7 态 + ready 门禁 + max_attempts + passed 硬门禁 | 边类型: 9 种 | 存储: YAML + Git
 ~~~
 
 - GitHub：[LUKAWI/super-plumber](https://github.com/LUKAWI/super-plumber)

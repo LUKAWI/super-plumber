@@ -113,7 +113,15 @@
 | task · passed | v097-release-gates | [0.9.7] 发布门禁、依赖版本与覆盖率收口 | 2026-09-05T16:39:50.138Z |
 | task · passed | v097-verify | [0.9.7] 交叉验证：工具链、WebUI 与发布门禁 | 2026-09-05T23:26:53.635Z |
 | task · passed | v097-webui-middle-pan | [0.9.7] WebUI CAD 式中键拖动视图 | 2026-09-05T22:59:31.815Z |
+| task · passed | v100-bootstrap-class | [1.0.0] 自举图 class 元数据与样本修复 | 2026-09-06T15:08:46.888Z |
+| task · passed | v100-context-budget | [1.0.0] description/nudge 上下文预算收敛 | 2026-09-07T06:25:05.602Z |
+| task · passed | v100-debug-core | [1.0.0] core/next/validate debug 与规模性能基线 | 2026-09-07T00:38:16.851Z |
+| task · passed | v100-debug-surface | [1.0.0] CLI/MCP 流程、审批与质量门禁 debug | 2026-09-07T00:39:44.780Z |
 | task · passed | v100-disciplines | [1.0.0] S11 +grilling-lite（服务统一入口路由） | 2026-09-05T14:21:14.788Z |
+| task · passed | v100-freeze | [1.0.0] 1.0 协议冻结承诺成文 + 双语文档同步 + accept adr_0010/adr_0011 | 2026-09-05T23:29:35.495Z |
+| task · passed | v100-perf-webui | [1.0.0] WebUI 首屏与千节点交互性能 | 2026-09-07T06:26:52.120Z |
+| task · passed | v100-release-consistency | [1.0.0] 生成一致性、CI 锚定与当前版本接入证据 | 2026-09-07T06:29:39.890Z |
 | task · passed | v100-router | [1.0.0] WF13 /plumber router skill + S07 命令三通道（commands 终态 4） | 2026-09-05T14:28:51.302Z |
 | task · passed | v100-survey | [1.0.0] F10 next --all 跨图聚合 → F20 graph survey 巡检（内链串行，F20 依赖 F10） | 2026-09-05T14:14:40.646Z |
 | task · passed | v100-template-lint | [1.0.0] F19 init --template 四型 + F11 工具 description no-op 清扫（−20% token） | 2026-09-05T14:27:22.852Z |
+| task · passed | v100-verify | [1.0.0] Q1-Q9 九项量化指标全量核验 | 2026-09-07T06:54:02.139Z |

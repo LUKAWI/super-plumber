@@ -28,16 +28,35 @@
   // Extend NodeSchema with D3 simulation properties
   type SimNode = NodeSchema & d3.SimulationNodeDatum;
   type SimEdge = EdgeSchema & { source: SimNode | string; target: SimNode | string };
+  type EdgeRenderView = {
+    data: SimEdge;
+    line: SVGLineElement;
+    hit: SVGLineElement;
+    gradient: SVGLinearGradientElement | null;
+    label: SVGTextElement;
+  };
+  type NodeRenderView = {
+    data: SimNode;
+    element: SVGGElement;
+  };
+  type LargeGraphCanvasGeometry = {
+    edgeBuckets: { color: string; width: number; dashed: boolean; path: Path2D }[];
+    nodeBuckets: { color: string; alpha: number; path: Path2D }[];
+  };
 
   let svgEl: SVGSVGElement;
   let wrapperEl: HTMLDivElement;
   let tooltipEl: HTMLDivElement;
   let dustEl: SVGSVGElement;
+  let largeCanvasEl: HTMLCanvasElement;
+  let compactEdgePath: SVGPathElement | null = null;
+  let largeGraphCanvasGeometry: LargeGraphCanvasGeometry | null = null;
   let simulation: d3.Simulation<SimNode, undefined> | null = null;
   let zoomBehavior: d3.ZoomBehavior<SVGSVGElement, unknown> | null = null;
   let zoomGroup: d3.Selection<SVGGElement, unknown, null, undefined> | null = null;
   let middlePanPointerId: number | null = null;
   let middlePanPoint: { x: number; y: number } | null = null;
+  let largeGraphActive = false;
 
   function isMiddleMousePointer(event: PointerEvent): boolean {
     // button 是手势契约；空 pointerType 可能出现在兼容事件/测试桩中，
@@ -208,6 +227,9 @@
     : false;
 
   const ENTER_DURATION = prefersReducedMotion ? 0 : 400;
+  // 1k 图的逐帧力导向布局和装饰动画会与用户缩放争用主线程；大图先用
+  // 有界的静态布局呈现，拖拽时仍可按原有 simulation 路径接管。
+  const LARGE_GRAPH_NODE_LIMIT = 600;
   const NODE_R = 20;
   const CONTEXT_R = 26; // context 顶点（领域视图）：虚线大圆
   const HULL_PAD = NODE_R + 20; // 星云云体外扩半径（罩住成员星芒主体）
@@ -221,6 +243,21 @@
 
   function nodeR(d: SimNode): number {
     return d.type === "context" ? CONTEXT_R : NODE_R;
+  }
+
+  /** 大图轻量首屏布局：保持节点可见与连线可用，不启动数百轮力导向 tick。 */
+  function seedLargeGraphLayout(nodes: SimNode[]) {
+    const columns = Math.max(1, Math.ceil(Math.sqrt(nodes.length * 1.6)));
+    const columnGap = 96;
+    const rowGap = 76;
+    const rows = Math.ceil(nodes.length / columns);
+    const centerX = (columns - 1) / 2;
+    const centerY = (rows - 1) / 2;
+    nodes.forEach((node, index) => {
+      if (node.x !== undefined && node.y !== undefined) return;
+      node.x = (index % columns - centerX) * columnGap;
+      node.y = (Math.floor(index / columns) - centerY) * rowGap;
+    });
   }
 
   function getContainerSize() {
@@ -391,6 +428,7 @@
     lastAppliedZoomW = w;
     zoomGroup?.selectAll<SVGLineElement, SimEdge>(".edges .edge-line")
       .attr("stroke-width", (d: SimEdge) => edgeWidthOf(d));
+    compactEdgePath?.setAttribute("stroke-width", String(w));
   }
   function edgeWidthOf(e: SimEdge): number {
     return edgeBaseWidth(e) * edgeZoomW;
@@ -421,9 +459,10 @@
       g.attr("x1", sx).attr("y1", sy).attr("x2", tx).attr("y2", ty);
     });
     sel.select<SVGLineElement>(".edge-line")
-      .attr("stroke", (d: SimEdge) => `url(#${edgeGradId(d)})`)
+      .attr("stroke", (d: SimEdge) => largeGraphActive ? "transparent" : `url(#${edgeGradId(d)})`)
       .attr("stroke-width", (d: SimEdge) => edgeWidthOf(d))
       .attr("stroke-opacity", 1);
+    if (largeGraphActive) sel.select<SVGLineElement>(".edge-line").style("pointer-events", "none");
     sel.select<SVGLineElement>(".edge-hit")
       .attr("stroke", "transparent")
       .attr("stroke-width", 12)
@@ -469,6 +508,10 @@
       .attr("stroke-opacity", 1)
       .attr("stroke-width", (d: SimEdge) => edgeWidthOf(d))
       .attr("stroke-dasharray", (d: SimEdge) => (edgeIsContract(d) ? "7 4" : null));
+    if (largeGraphActive && largeCanvasEl) {
+      largeGraphCanvasGeometry = null;
+      drawLargeGraph();
+    }
   }
 
   // ── 领域星云装饰（领域图勾选即渲染；叠加 = 星体+边+云，领域图单独 = 星体+云、无连线）──
@@ -801,9 +844,24 @@
   function renderEdgeLayer(
     parent: d3.Selection<SVGGElement, unknown, null, undefined>,
     edges: SimEdge[],
+    simplified = false,
   ) {
     let linkG = parent.select<SVGGElement>(".edges");
     if (linkG.empty()) linkG = parent.append("g").attr("class", "edges");
+    if (simplified && !largeCanvasEl) {
+      let bundle = linkG.select<SVGPathElement>("path.edge-bundle");
+      if (bundle.empty()) bundle = linkG.insert<SVGPathElement>("path", ":first-child").attr("class", "edge-bundle");
+      bundle
+        .attr("fill", "none")
+        .attr("stroke", "rgba(255, 255, 255, 0.35)")
+        .attr("stroke-width", edgeZoomW)
+        .attr("stroke-opacity", 1)
+        .style("pointer-events", "none");
+      compactEdgePath = bundle.node();
+    } else {
+      linkG.select("path.edge-bundle").remove();
+      compactEdgePath = null;
+    }
 
     const link = linkG
       .selectAll<SVGGElement, SimEdge>("g.edge-group")
@@ -817,20 +875,21 @@
       .attr("class", "edge-group")
       .style("cursor", "pointer");
 
-    // 渐变内嵌在边组里（随组生死，免 defs 孤儿清理）；坐标由 tick 逐帧同步。
-    // 2026-08-28 排查实锤：此处曾漏设 id——全部渐变 id 为空，stroke 的
-    // url(#eg-…) 引用悬空（Chrome 对无 fallback 的失效 paint 引用按 initial
-    // none 处理 → 线整体不绘制），即"边完全不可见"的根因；computed style
-    // 逐项核验却全部"正确"（引用字面值无误，无人解引用查目标存在性）。
-    enter.append("linearGradient")
-      .attr("class", "edge-grad")
-      .attr("id", (d: SimEdge) => edgeGradId(d))
-      .attr("gradientUnits", "userSpaceOnUse")
-      .attr("x1", 0).attr("y1", 0).attr("x2", 0).attr("y2", 0);
-    enter.append("line").attr("class", "edge-line");
-    // 透明加宽命中线：可见线仅 1.5px 极难点中（评审 F5），命中域扩到 12 个图形单位
-    enter.append("line").attr("class", "edge-hit");
-    enter.append("text").attr("class", "edge-label");
+    if (!simplified) {
+      // 渐变内嵌在边组里（随组生死，免 defs 孤儿清理）；坐标由 tick 逐帧同步。
+      // 密集视图使用纯色线，保留结构与能量色但省去渐变子树及坐标写入。
+      enter.append("linearGradient")
+        .attr("class", "edge-grad")
+        .attr("id", (d: SimEdge) => edgeGradId(d))
+        .attr("gradientUnits", "userSpaceOnUse")
+        .attr("x1", 0).attr("y1", 0).attr("x2", 0).attr("y2", 0);
+    }
+    if (!simplified) {
+      enter.append("line").attr("class", "edge-line");
+      // 透明加宽命中线：可见线仅 1.5px 极难点中（评审 F5），命中域扩到 12 个图形单位
+      enter.append("line").attr("class", "edge-hit");
+      enter.append("text").attr("class", "edge-label");
+    }
 
     const all = enter.merge(link);
 
@@ -937,7 +996,7 @@
 
   /** 依状态/尺寸应用星体几何与闪烁相位（全量渲染与增量补丁共用） */
   function applyStarVisual(sel: d3.Selection<SVGGElement, SimNode, any, any>) {
-    sel.select(".node-hit").attr("r", (d: SimNode) => nodeR(d) + 8);
+    sel.select(".node-hit").attr("r", (d: SimNode) => nodeR(d) + (largeGraphActive ? 4 : 8));
     sel.select(".star-scale").attr("transform", (d: SimNode) => `scale(${starSpecOf(d).s})`);
     const L = (d: SimNode) => starSpecOf(d).spike * starSpecOf(d).s;
     sel.select(".star-halo")
@@ -970,8 +1029,262 @@
     sel.select(".assign-label").attr("y", (d: SimNode) => -(L(d) + 14));
   }
 
+  let compactNodeLayer: d3.Selection<SVGGElement, unknown, null, undefined> | null = null;
+
+  function compactNodePath(nodes: SimNode[]): string {
+    return nodes.map((node) => {
+      const x = node.x ?? 0;
+      const y = node.y ?? 0;
+      const r = node.type === "context" ? 6 : 5;
+      return `M${x - r},${y}a${r},${r} 0 1,0 ${r * 2},0a${r},${r} 0 1,0 ${-r * 2},0`;
+    }).join("");
+  }
+
+  /** 密集总览按状态合并节点圆，节点组本身仍保留键盘与透明命中盘。 */
+  function refreshCompactNodeLayer(
+    nodes: SimNode[],
+    parent?: d3.Selection<SVGGElement, unknown, null, undefined>,
+  ) {
+    // Canvas 是大图的主呈现路径；保留这段 SVG 合并路径作为无 canvas 环境的
+    // 兼容兜底（例如非浏览器测试桩），避免改变小图的视觉与交互契约。
+    if (!largeGraphActive || largeCanvasEl) return;
+    const nodeG = parent ?? zoomGroup?.select<SVGGElement>(".nodes");
+    if (!nodeG || nodeG.empty()) return;
+    if (!compactNodeLayer || compactNodeLayer.empty() || !nodeG.node()?.contains(compactNodeLayer.node())) {
+      compactNodeLayer = nodeG.insert<SVGGElement>("g", ":first-child").attr("class", "large-node-layer");
+    }
+    const frontierGraph = currentGraph ?? graphState.graph;
+    const frontier = graphState.frontierOnly && frontierGraph ? frontierIds(frontierGraph) : null;
+    const byStatus = new Map<string, { status: string; dimmed: boolean; nodes: SimNode[] }>();
+    for (const node of nodes) {
+      if (!nodeRendered(node)) continue;
+      const dimmed = !nodeMatchesFilters(node, frontier);
+      const key = `${node.status}:${dimmed ? "dimmed" : "normal"}`;
+      const group = byStatus.get(key) ?? { status: node.status, dimmed, nodes: [] };
+      group.nodes.push(node);
+      byStatus.set(key, group);
+    }
+    const paths = compactNodeLayer
+      .selectAll<SVGPathElement, string>("path.compact-node")
+      .data([...byStatus.keys()], (key) => key);
+    paths.exit().remove();
+    paths.enter().append("path")
+      .attr("class", "compact-node")
+      .style("pointer-events", "none")
+      .merge(paths)
+      .attr("d", (key) => compactNodePath(byStatus.get(key)?.nodes ?? []))
+      .attr("fill", (key) => statusColorOf(byStatus.get(key)?.status as NodeStatus))
+      .attr("opacity", (key) => byStatus.get(key)?.dimmed ? 0.3 : 1);
+  }
+
+  function clearLargeGraphCanvas() {
+    if (!largeCanvasEl) return;
+    // 重置 bitmap 本身即可清空，且不要求 jsdom/非 canvas 环境实现 2D context。
+    largeCanvasEl.width = 0;
+    largeCanvasEl.height = 0;
+  }
+
+  function buildLargeGraphCanvasGeometry(): LargeGraphCanvasGeometry {
+    const edgeBuckets = new Map<string, { color: string; width: number; dashed: boolean; path: Path2D }>();
+    const runningIds = new Set(currentNodes.filter((node) => node.status === "running").map((node) => node.id));
+    for (const edge of currentEdges) {
+      if (!edgeRendered(edge)) continue;
+      const source = typeof edge.source === "object" ? edge.source as SimNode : null;
+      const target = typeof edge.target === "object" ? edge.target as SimNode : null;
+      if (!source || !target) continue;
+      const energy = runningIds.has(edgeEndId(edge.source));
+      const contract = edgeIsContract(edge);
+      const color = energy ? STATUS_COLORS.running : "rgba(255, 255, 255, 0.35)";
+      const width = energy ? 1.9 : contract ? 1.8 : 1.5;
+      const key = `${color}:${width}:${contract ? "dashed" : "solid"}`;
+      const bucket = edgeBuckets.get(key) ?? { color, width, dashed: contract, path: new Path2D() };
+      bucket.path.moveTo(source.x ?? 0, source.y ?? 0);
+      bucket.path.lineTo(target.x ?? 0, target.y ?? 0);
+      edgeBuckets.set(key, bucket);
+    }
+
+    const frontierGraph = currentGraph ?? graphState.graph;
+    const frontier = graphState.frontierOnly && frontierGraph ? frontierIds(frontierGraph) : null;
+    const nodeBuckets = new Map<string, { color: string; alpha: number; path: Path2D }>();
+    for (const node of currentNodes) {
+      if (!nodeRendered(node)) continue;
+      const dimmed = !nodeMatchesFilters(node, frontier);
+      const color = statusColorOf(node.status as NodeStatus);
+      const alpha = dimmed ? 0.3 : 1;
+      const key = `${color}:${alpha}`;
+      const bucket = nodeBuckets.get(key) ?? { color, alpha, path: new Path2D() };
+      const x = node.x ?? 0;
+      const y = node.y ?? 0;
+      const radius = node.type === "context" ? 6 : 5;
+      bucket.path.moveTo(x + radius, y);
+      bucket.path.arc(x, y, radius, 0, Math.PI * 2);
+      nodeBuckets.set(key, bucket);
+    }
+    return { edgeBuckets: [...edgeBuckets.values()], nodeBuckets: [...nodeBuckets.values()] };
+  }
+
+  /** 1k 图使用预建 Path2D 批量绘制；缩放只重放路径，不重复遍历 2k 个图元。 */
+  function drawLargeGraph(transform: d3.ZoomTransform = d3.zoomIdentity) {
+    if (!largeGraphActive || !largeCanvasEl || !wrapperEl) return;
+    const { w, h } = getContainerSize();
+    const dpr = window.devicePixelRatio || 1;
+    const pixelWidth = Math.max(1, Math.round(w * dpr));
+    const pixelHeight = Math.max(1, Math.round(h * dpr));
+    if (largeCanvasEl.width !== pixelWidth || largeCanvasEl.height !== pixelHeight) {
+      largeCanvasEl.width = pixelWidth;
+      largeCanvasEl.height = pixelHeight;
+      largeCanvasEl.style.width = `${w}px`;
+      largeCanvasEl.style.height = `${h}px`;
+    }
+    const ctx = largeCanvasEl.getContext("2d");
+    if (!ctx) return;
+    largeGraphCanvasGeometry ??= buildLargeGraphCanvasGeometry();
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    ctx.setTransform(
+      dpr * transform.k,
+      0,
+      0,
+      dpr * transform.k,
+      dpr * transform.x,
+      dpr * transform.y,
+    );
+    for (const bucket of largeGraphCanvasGeometry.edgeBuckets) {
+      ctx.strokeStyle = bucket.color;
+      ctx.lineWidth = bucket.width * edgeZoomW;
+      ctx.setLineDash(bucket.dashed ? [7, 4] : []);
+      ctx.stroke(bucket.path);
+    }
+    ctx.setLineDash([]);
+    for (const bucket of largeGraphCanvasGeometry.nodeBuckets) {
+      ctx.fillStyle = bucket.color;
+      ctx.globalAlpha = bucket.alpha;
+      ctx.fill(bucket.path);
+    }
+    ctx.globalAlpha = 1;
+
+    const selected = graphState.selectedNode;
+    if (selected) {
+      const node = currentNodes.find((candidate) => candidate.id === selected.id);
+      if (node && nodeRendered(node) && node.x !== undefined && node.y !== undefined) {
+        const k = Math.max(transform.k, 0.15);
+        ctx.beginPath();
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2 / k;
+        ctx.arc(node.x, node.y, (node.type === "context" ? 10 : 8) / k, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+  }
+
+  function compactEdgePathData(edges: SimEdge[]): string {
+    return edges.filter(edgeRendered).map((edge) => {
+      const source = typeof edge.source === "object" ? edge.source as SimNode : null;
+      const target = typeof edge.target === "object" ? edge.target as SimNode : null;
+      return `M${source?.x ?? 0},${source?.y ?? 0}L${target?.x ?? 0},${target?.y ?? 0}`;
+    }).join("");
+  }
+
+  function updateCompactEdgePath(edges: SimEdge[] = currentEdges) {
+    compactEdgePath?.setAttribute("d", compactEdgePathData(edges));
+  }
+
+  function nearestLargeGraphNode(event: MouseEvent | PointerEvent): SimNode | null {
+    if (!svgEl || currentNodes.length === 0) return null;
+    const screenPoint = d3.pointer(event, svgEl);
+    const transform = d3.zoomTransform(svgEl);
+    const [x, y] = transform.invert(screenPoint);
+    const maxDistance = (NODE_R + 8) / Math.max(transform.k, 0.15);
+    const maxDistanceSq = maxDistance * maxDistance;
+    let nearest: SimNode | null = null;
+    let nearestDistance = maxDistanceSq;
+    for (const node of currentNodes) {
+      const dx = (node.x ?? 0) - x;
+      const dy = (node.y ?? 0) - y;
+      const distance = dx * dx + dy * dy;
+      if (distance <= nearestDistance) {
+        nearest = node;
+        nearestDistance = distance;
+      }
+    }
+    return nearest;
+  }
+
+  function installLargeGraphHitLayer(
+    svg: d3.Selection<SVGSVGElement, unknown, null, undefined>,
+    width: number,
+    height: number,
+  ) {
+    const layer = svg.append("rect")
+      .attr("class", "large-node-hit-layer")
+      .attr("width", width)
+      .attr("height", height)
+      .attr("fill", "transparent");
+    layer
+      .on("click.large-hit", (event: MouseEvent) => {
+        const node = nearestLargeGraphNode(event);
+        if (node) graphState.selectNode(node);
+        else {
+          graphState.selectNode(null);
+          graphState.selectEdge(null);
+        }
+      })
+      .on("pointermove.large-hit", (event: PointerEvent) => {
+        const node = nearestLargeGraphNode(event);
+        if (!node || node.label.length <= 20 || !tooltipEl || !wrapperEl) {
+          if (tooltipEl) tooltipEl.style.display = "none";
+          return;
+        }
+        const rect = wrapperEl.getBoundingClientRect();
+        tooltipEl.textContent = node.label;
+        tooltipEl.style.whiteSpace = "normal";
+        tooltipEl.style.display = "block";
+        tooltipEl.style.left = `${event.clientX - rect.left + 12}px`;
+        tooltipEl.style.top = `${event.clientY - rect.top - 8}px`;
+      })
+      .on("pointerleave.large-hit", () => {
+        if (tooltipEl) tooltipEl.style.display = "none";
+      });
+
+    const drag = d3.drag<SVGRectElement, SimNode>()
+      .container(() => svgEl)
+      .subject((event) => nearestLargeGraphNode(event.sourceEvent as MouseEvent) as SimNode)
+      .on("start", (_event, node) => {
+        node.fx = node.x;
+        node.fy = node.y;
+      })
+      .on("drag", (event, node) => {
+        const [x, y] = d3.zoomTransform(svgEl).invert([event.x, event.y]);
+        node.x = x;
+        node.y = y;
+        node.fx = x;
+        node.fy = y;
+        currentPositions.set(node.id, { x, y });
+        zoomGroup?.selectAll<SVGGElement, SimNode>(".nodes > g.node")
+          .filter((candidate) => candidate.id === node.id)
+          .attr("transform", `translate(${x},${y})`);
+        if (largeCanvasEl) {
+          largeGraphCanvasGeometry = null;
+          drawLargeGraph();
+        }
+        else refreshCompactNodeLayer(currentNodes);
+        updateCompactEdgePath();
+      })
+      .on("end", (_event, node) => {
+        node.fx = null;
+        node.fy = null;
+        currentPositions.set(node.id, { x: node.x ?? 0, y: node.y ?? 0 });
+      });
+    layer.call(drag as never);
+  }
+
   // ── 节点层渲染 ──
-  function renderNodeLayer(parent: d3.Selection<SVGGElement, unknown, null, undefined>, nodes: SimNode[]) {
+  function renderNodeLayer(
+    parent: d3.Selection<SVGGElement, unknown, null, undefined>,
+    nodes: SimNode[],
+    simplified = false,
+  ) {
     let nodeG = parent.select<SVGGElement>(".nodes");
     if (nodeG.empty()) nodeG = parent.append("g").attr("class", "nodes");
 
@@ -986,39 +1299,47 @@
       .attr("tabindex", 0)
       .attr("role", "button");
 
-    // 命中盘：星体不参与拾取，交互面积 = 星心外扩 8
-    enter.append("circle").attr("class", "node-hit").attr("fill", "transparent");
+    // 命中盘：小图由每个节点承载；大图由统一 SVG 命中层承载，节点组只保留键盘入口。
+    if (!simplified) enter.append("circle").attr("class", "node-hit").attr("fill", "transparent");
 
-    // 星体（V4 正本）：halo 贴芒 → 色差残像 → 八向星芒 → 白炽心；
-    // hover 声呐元素（flash/ring）默认不可见；diff-ring 仅对比模式显现
-    const sky = enter.append("g").attr("class", "star-scale")
-      .append("g").attr("class", "star-sky");
-    sky.append("circle").attr("class", "star-halo");
-    sky.append("circle").attr("class", "hover-flash").attr("fill", "url(#flash-grad)");
-    sky.append("circle").attr("class", "hover-ring")
-      .attr("fill", "none").attr("stroke", "#ffffff").attr("stroke-width", 1).attr("stroke-opacity", 0.9);
-    sky.append("circle").attr("class", "diff-ring").attr("fill", "none").attr("stroke-opacity", 0.9);
-    const ghostSpecs = [
-      { cls: "prism-r", color: "#e5504f", offV: "translate(0.8,0)", offH: "translate(0,-0.8)" },
-      { cls: "prism-b", color: "#4a93e8", offV: "translate(-0.8,0)", offH: "translate(0,0.8)" },
-    ] as const;
-    for (const g of ghostSpecs) {
-      const pg = sky.append("g").attr("class", g.cls).attr("fill", g.color).attr("opacity", 0.5);
-      pg.append("path").attr("class", "prism-v").attr("transform", g.offV);
-      pg.append("path").attr("class", "prism-h").attr("transform", g.offH);
+    if (simplified) {
+      // 密集视图的状态色心由 refreshCompactNodeLayer 按状态合并绘制；
+      // 每个节点只保留透明命中盘，避免 1k 个可见 SVG circle 分别参与绘制。
+    } else {
+      // 星体（V4 正本）：halo 贴芒 → 色差残像 → 八向星芒 → 白炽心；
+      // hover 声呐元素（flash/ring）默认不可见；diff-ring 仅对比模式显现
+      const sky = enter.append("g").attr("class", "star-scale")
+        .append("g").attr("class", "star-sky");
+      sky.append("circle").attr("class", "star-halo");
+      sky.append("circle").attr("class", "hover-flash").attr("fill", "url(#flash-grad)");
+      sky.append("circle").attr("class", "hover-ring")
+        .attr("fill", "none").attr("stroke", "#ffffff").attr("stroke-width", 1).attr("stroke-opacity", 0.9);
+      sky.append("circle").attr("class", "diff-ring").attr("fill", "none").attr("stroke-opacity", 0.9);
+      const ghostSpecs = [
+        { cls: "prism-r", color: "#e5504f", offV: "translate(0.8,0)", offH: "translate(0,-0.8)" },
+        { cls: "prism-b", color: "#4a93e8", offV: "translate(-0.8,0)", offH: "translate(0,0.8)" },
+      ] as const;
+      for (const g of ghostSpecs) {
+        const pg = sky.append("g").attr("class", g.cls).attr("fill", g.color).attr("opacity", 0.5);
+        pg.append("path").attr("class", "prism-v").attr("transform", g.offV);
+        pg.append("path").attr("class", "prism-h").attr("transform", g.offH);
+      }
+      const spikes = sky.append("g").attr("class", "star-spikes");
+      spikes.append("path").attr("class", "spike-v").attr("fill", "url(#spike-v)");
+      spikes.append("path").attr("class", "spike-h").attr("fill", "url(#spike-h)");
+      spikes.append("path").attr("class", "spike-d1").attr("transform", "rotate(45)")
+        .attr("fill", "rgba(255,255,255,0.95)").attr("fill-opacity", 0.55);
+      spikes.append("path").attr("class", "spike-d2").attr("transform", "rotate(-45)")
+        .attr("fill", "rgba(255,255,255,0.95)").attr("fill-opacity", 0.55);
+      sky.append("circle").attr("class", "star-core").attr("fill", "#ffffff");
     }
-    const spikes = sky.append("g").attr("class", "star-spikes");
-    spikes.append("path").attr("class", "spike-v").attr("fill", "url(#spike-v)");
-    spikes.append("path").attr("class", "spike-h").attr("fill", "url(#spike-h)");
-    spikes.append("path").attr("class", "spike-d1").attr("transform", "rotate(45)")
-      .attr("fill", "rgba(255,255,255,0.95)").attr("fill-opacity", 0.55);
-    spikes.append("path").attr("class", "spike-d2").attr("transform", "rotate(-45)")
-      .attr("fill", "rgba(255,255,255,0.95)").attr("fill-opacity", 0.55);
-    sky.append("circle").attr("class", "star-core").attr("fill", "#ffffff");
 
-    // 摘要（星芒外侧常显）+ 执行者标签（running）
-    enter.append("text").attr("class", "node-label");
-    enter.append("text").attr("class", "assign-label");
+    // 密集图的标签交由节点详情/tooltip 提供，避免在总览同时布局 2k 个
+    // SVG text；完整图仍保留原有常显摘要与执行者标签。
+    if (!simplified) {
+      enter.append("text").attr("class", "node-label");
+      enter.append("text").attr("class", "assign-label");
+    }
 
     const all = enter.merge(node);
 
@@ -1053,8 +1374,10 @@
 
     // 星体几何/相位（放在基线设置之后：y/x 等位置由星等决定）
     applyStarVisual(all);
+    if (simplified) refreshCompactNodeLayer(nodes, nodeG);
 
-    // 交互：hover 声呐环（CSS）+ tooltip + 点击选中 + 键盘焦点/选中（类驱动）
+    // 交互：键盘入口对所有节点保留；密集图的鼠标命中统一交由画布层，
+    // 避免为 1k 个节点各挂一组 mouse/drag listener。
     all
       .attr("aria-label", (d: SimNode) => `${d.label}（${d.status}）`)
       .on("keydown", function (event: KeyboardEvent, d: SimNode) {
@@ -1069,7 +1392,9 @@
       })
       .on("blur", function (this: SVGGElement) {
         d3.select(this).classed("is-focused", false);
-      })
+      });
+
+    if (!simplified) all
       .on("mouseenter", function (this: SVGGElement, event: MouseEvent) {
         const el = this;
         const d = d3.select(el).datum() as SimNode;
@@ -1096,29 +1421,31 @@
       });
 
     // 拖拽（位置写入缓存）
-    const drag = d3.drag<SVGGElement, SimNode>()
-      .on("start", (event, d) => {
-        if (!event.active && simulation) simulation.alphaTarget(0.3).restart();
-        d.fx = d.x;
-        d.fy = d.y;
-      })
-      .on("drag", (event, d) => {
-        d.fx = event.x;
-        d.fy = event.y;
-        currentPositions.set(d.id, { x: event.x, y: event.y });
-      })
-      .on("end", (event, d) => {
-        if (!event.active && simulation) simulation.alphaTarget(0);
-        if (pinned) {
+    if (!simplified) {
+      const drag = d3.drag<SVGGElement, SimNode>()
+        .on("start", (event, d) => {
+          if (!event.active && simulation) simulation.alphaTarget(0.3).restart();
           d.fx = d.x;
-          d.fy = d.y; // 固定布局模式下保持钉住
-        } else {
-          d.fx = null;
-          d.fy = null;
-        }
-        currentPositions.set(d.id, { x: d.x ?? 0, y: d.y ?? 0 });
-      });
-    all.call(drag as never);
+          d.fy = d.y;
+        })
+        .on("drag", (event, d) => {
+          d.fx = event.x;
+          d.fy = event.y;
+          currentPositions.set(d.id, { x: event.x, y: event.y });
+        })
+        .on("end", (event, d) => {
+          if (!event.active && simulation) simulation.alphaTarget(0);
+          if (pinned) {
+            d.fx = d.x;
+            d.fy = d.y; // 固定布局模式下保持钉住
+          } else {
+            d.fx = null;
+            d.fy = null;
+          }
+          currentPositions.set(d.id, { x: d.x ?? 0, y: d.y ?? 0 });
+        });
+      all.call(drag as never);
+    }
 
     return { nodeG, all };
   }
@@ -1157,6 +1484,10 @@
     const { w, h } = getContainerSize();
     const overlay = isOverlay;
     const graphName = graph.name ?? "default";
+    const largeGraph = graph.nodes.filter((n) => n.type !== "adr").length >= LARGE_GRAPH_NODE_LIMIT;
+    largeGraphActive = largeGraph;
+    largeGraphCanvasGeometry = null;
+    if (!largeGraph) clearLargeGraphCanvas();
     const isGraphSwitch = lastGraphName !== null && lastGraphName !== graphName;
     lastGraphName = graphName;
 
@@ -1167,6 +1498,8 @@
     currentPositions = positions;
 
     svg.selectAll("*").remove();
+    compactNodeLayer = null;
+    compactEdgePath = null;
     svg.attr("viewBox", `0 0 ${w} ${h}`).attr("preserveAspectRatio", "xMidYMid meet");
 
     // 渲染上下文重建
@@ -1228,7 +1561,7 @@
       .attr("class", "grid-bg");
 
     // 缩放组（复用一个 zoom behavior，保持用户视角）
-    zoomGroup = svg.append("g").attr("class", "zoom-group");
+    zoomGroup = svg.append("g").attr("class", largeGraph ? "zoom-group large-graph" : "zoom-group");
     if (!zoomBehavior) {
       let declutterTimer: ReturnType<typeof setTimeout> | null = null;
       zoomBehavior = d3.zoom<SVGSVGElement, unknown>()
@@ -1237,13 +1570,17 @@
         .filter((event: Event) =>
           event.type === "wheel" || event.type === "dblclick" || event.type === "touchstart")
         .on("zoom", (event) => {
-          if (zoomGroup) zoomGroup.attr("transform", event.transform);
+          if (zoomGroup) {
+            zoomGroup.attr("transform", event.transform)
+              .classed("show-large-labels", !largeGraphActive || event.transform.k >= 0.7);
+          }
           // 程序化取景（fit/定位）不带 sourceEvent——只有真实滚轮/拖拽才算用户操作
           if (event.sourceEvent) userMovedView = true;
           const gridOpacity = Math.min(1, event.transform.k * 1.5);
           svg.select(".grid-bg").attr("opacity", gridOpacity);
           // 边线宽随缩放补偿（k<1 亚像素摊薄是"看不到线"的共因）
           syncEdgeZoomWidth(event.transform.k);
+          if (largeGraphActive) drawLargeGraph(event.transform);
         })
         .on("end", () => {
           // 缩放稳定后重跑标签退让（放大后隐藏的标签自然回归）
@@ -1269,6 +1606,7 @@
       // 同图重渲染（透镜切换/数据刷新）保持用户视角；切图则由 fit 管线重新取景
       zoomGroup.attr("transform", previousTransform as unknown as string);
     }
+    zoomGroup.classed("show-large-labels", !largeGraph || (previousTransform?.k ?? 1) >= 0.7);
 
     // 节点（位置缓存种子；ADR 顶点不进模拟——以徽章呈现，无连线）
     const nodes: SimNode[] = graph.nodes
@@ -1291,24 +1629,34 @@
     refreshFogCloud();
 
     simulation?.stop();
-    const chargeStrength = -Math.min(800, 300 + nodes.length * 25);
     simulation = d3.forceSimulation(nodes)
       .force("link", d3.forceLink<SimNode, SimEdge>(edges).id((d) => d.id).distance(160))
-      .force("charge", d3.forceManyBody().strength(chargeStrength))
-      .force("center", d3.forceCenter(w / 2, h / 2))
-      .force("collision", d3.forceCollide<SimNode>().radius((d) => nodeR(d) + 8))
-      .force("ctxCluster", graphState.activeMaps.domain ? contextClusterForce : null)
       .alphaDecay(0.02);
 
-    renderEdgeLayer(zoomGroup, edges);
-    renderNodeLayer(zoomGroup, nodes);
+    if (largeGraph) {
+      // 大图使用确定性网格，保留 link force 负责解析 source/target datum，
+      // 但不启动后台布局，避免 1k 图在用户首次缩放期间持续执行力计算。
+      seedLargeGraphLayout(nodes);
+      simulation.stop();
+    } else {
+      const chargeStrength = -Math.min(800, 300 + nodes.length * 25);
+      simulation
+        .force("charge", d3.forceManyBody().strength(chargeStrength))
+        .force("center", d3.forceCenter(w / 2, h / 2))
+        .force("collision", d3.forceCollide<SimNode>().radius((d) => nodeR(d) + 8))
+        .force("ctxCluster", graphState.activeMaps.domain ? contextClusterForce : null);
+    }
+
+    renderEdgeLayer(zoomGroup, edges, largeGraph);
+    renderNodeLayer(zoomGroup, nodes, largeGraph);
+    if (largeGraph) installLargeGraphHitLayer(svg, w, h);
     applyFiltersAndDiff();
     // 保持视角的同图重渲染：边宽补偿与当前 k 对齐（新建 DOM 已按 edgeZoomW 生成，
     // 这里兜底 lastAppliedZoomW 状态与实际 transform 一致）
     syncEdgeZoomWidth((svgEl as SVGSVGElement & { __zoom?: d3.ZoomTransform }).__zoom?.k ?? 1);
 
     // 入场动画只跑一次（v0.7：原实现在 tick 内每帧重启，浪费且抖动）
-    if (!prefersReducedMotion && !isGraphSwitch) {
+    if (!prefersReducedMotion && !isGraphSwitch && !largeGraph) {
       zoomGroup.selectAll<SVGGElement, SimNode>(".nodes > g.node")
         .attr("opacity", 0)
         .transition().delay((_, i) => Math.min(i, 40) * 15).duration(ENTER_DURATION)
@@ -1316,26 +1664,56 @@
         .attr("opacity", 1);
     }
 
-    // tick
-    simulation.on("tick", () => {
-      zoomGroup?.selectAll<SVGGElement, SimEdge>(".edges .edge-group").each(function (this: SVGGElement) {
-        const d = d3.select(this).datum() as SimEdge;
+    // tick：D3 选择器/子节点查询在 1k 图上会把每帧放大成数千次 DOM 操作。
+    // 渲染层结构稳定期间缓存引用，保留同一套属性更新与事件语义，避免每个
+    // tick 重新创建 selection；边标签不可见时也不必维护其屏幕外观位置。
+    const edgeViews: EdgeRenderView[] = [];
+    zoomGroup.selectAll<SVGGElement, SimEdge>(".edges .edge-group").each(function (this: SVGGElement, d: SimEdge) {
+      const line = this.querySelector<SVGLineElement>(".edge-line");
+      const hit = this.querySelector<SVGLineElement>(".edge-hit");
+      const gradient = this.querySelector<SVGLinearGradientElement>("linearGradient.edge-grad");
+      const label = this.querySelector<SVGTextElement>(".edge-label");
+      if (line && hit && label) edgeViews.push({ data: d, line, hit, gradient, label });
+    });
+    const nodeViews: NodeRenderView[] = [];
+    zoomGroup.selectAll<SVGGElement, SimNode>(".nodes > g.node").each(function (this: SVGGElement, d: SimNode) {
+      nodeViews.push({ data: d, element: this });
+    });
+
+    const updateRender = () => {
+      for (const view of edgeViews) {
+        const d = view.data;
         const sx = (typeof d.source === "object" ? (d.source as SimNode).x : 0) ?? 0;
         const sy = (typeof d.source === "object" ? (d.source as SimNode).y : 0) ?? 0;
         const tx = (typeof d.target === "object" ? (d.target as SimNode).x : 0) ?? 0;
         const ty = (typeof d.target === "object" ? (d.target as SimNode).y : 0) ?? 0;
-        d3.select(this).select(".edge-line")
-          .attr("x1", sx).attr("y1", sy).attr("x2", tx).attr("y2", ty);
-        d3.select(this).select(".edge-hit")
-          .attr("x1", sx).attr("y1", sy).attr("x2", tx).attr("y2", ty);
+        view.line.setAttribute("x1", String(sx));
+        view.line.setAttribute("y1", String(sy));
+        view.line.setAttribute("x2", String(tx));
+        view.line.setAttribute("y2", String(ty));
+        view.hit.setAttribute("x1", String(sx));
+        view.hit.setAttribute("y1", String(sy));
+        view.hit.setAttribute("x2", String(tx));
+        view.hit.setAttribute("y2", String(ty));
         // E1：渐隐方向必须随端点逐帧同步（userSpaceOnUse 坐标）
-        d3.select(this).select("linearGradient.edge-grad")
-          .attr("x1", sx).attr("y1", sy).attr("x2", tx).attr("y2", ty);
-        d3.select(this).select(".edge-label")
-          .attr("x", (sx + tx) / 2).attr("y", (sy + ty) / 2 - 4);
-      });
-      zoomGroup?.selectAll<SVGGElement, SimNode>(".nodes > g.node")
-        .attr("transform", (d: SimNode) => `translate(${d.x ?? 0},${d.y ?? 0})`);
+        if (view.gradient) {
+          view.gradient.setAttribute("x1", String(sx));
+          view.gradient.setAttribute("y1", String(sy));
+          view.gradient.setAttribute("x2", String(tx));
+          view.gradient.setAttribute("y2", String(ty));
+        }
+        if (view.label.getAttribute("opacity") !== "0") {
+          view.label.setAttribute("x", String((sx + tx) / 2));
+          view.label.setAttribute("y", String((sy + ty) / 2 - 4));
+        }
+      }
+      for (const view of nodeViews) {
+        const d = view.data;
+        view.element.setAttribute("transform", `translate(${d.x ?? 0},${d.y ?? 0})`);
+      }
+      if (largeGraphActive && largeCanvasEl) drawLargeGraph();
+      else if (largeGraphActive) refreshCompactNodeLayer(currentNodes);
+      if (compactEdgePath) updateCompactEdgePath(edges);
       updateHullsAndBadges();
       updateFogCloud();
 
@@ -1344,7 +1722,8 @@
         fitDone = true;
         autoFit();
       }
-    });
+    };
+    simulation.on("tick", updateRender);
 
     simulation.on("end", () => {
       // 结算后写入位置缓存（下次重渲染复用）
@@ -1357,16 +1736,30 @@
       if (!userMovedView && !pinned) autoFit();
     });
 
-    // fit 兜底：若 4s 内 alpha 阈值未触发（如 pinned/极小图），强制取景一次
+    // 大图已经完成有界静态布局，立即刷一次坐标并取景；小图沿用模拟收敛
+    // 与 4s 兜底路径。
     if (fitFallbackTimer) clearTimeout(fitFallbackTimer);
     fitDone = false;
     userMovedView = false;
-    fitFallbackTimer = setTimeout(() => {
-      if (!fitDone && !pinned) {
-        fitDone = true;
-        autoFit();
+    if (largeGraph) {
+      updateRender();
+      for (const n of nodes) {
+        if (n.x !== undefined && n.y !== undefined) positions.set(n.id, { x: n.x, y: n.y });
       }
-    }, 4000);
+      startFlowDots(nodes, edges, runningNodeIds(nodes));
+      fitDone = true;
+      autoFit();
+    }
+
+    // fit 兜底：若 4s 内 alpha 阈值未触发（如 pinned/极小图），强制取景一次
+    if (!largeGraph) {
+      fitFallbackTimer = setTimeout(() => {
+        if (!fitDone && !pinned) {
+          fitDone = true;
+          autoFit();
+        }
+      }, 4000);
+    }
   }
 
   /** 仅边变化：增量更新边层，不重启模拟（P4-2 核心体验） */
@@ -1393,7 +1786,7 @@
       .filter((e) => e.type !== "decides")
       .map((e) => ({ ...e })) as SimEdge[];
     currentEdges = edges;
-    renderEdgeLayer(zoomGroup, edges);
+    renderEdgeLayer(zoomGroup, edges, largeGraphActive);
     refreshOverlayDecorations();
     refreshFogCloud();
     simulation.force("link", d3.forceLink<SimNode, SimEdge>(edges).id((d) => d.id).distance(160));
@@ -1417,6 +1810,7 @@
     edges: SimEdge[],
     running: Set<string>,
   ) {
+    if (largeGraphActive) return;
     if (!zoomGroup) return;
     if (prefersReducedMotion || running.size === 0) return;
 
@@ -1494,7 +1888,7 @@
     });
     if (!t) return;
     d3.select(svgEl)
-      .transition().duration(prefersReducedMotion ? 0 : 500)
+      .transition().duration(largeGraphActive || prefersReducedMotion ? 0 : 500)
       .call(zoomBehavior.transform, d3.zoomIdentity.translate(t.tx, t.ty).scale(t.scale))
       .on("end", () => declutterLabels());
   }
@@ -1673,6 +2067,7 @@
     if (!zoomGroup) return;
     zoomGroup.selectAll<SVGGElement, SimNode>(".nodes > g.node")
       .classed("is-selected", (d: SimNode) => d.id === selectedId);
+    if (largeGraphActive) drawLargeGraph();
   });
 
   // 尺寸变化（v0.7：resize/旋转后强制重新取景——修复移动端黑屏）
@@ -1684,6 +2079,7 @@
       if (graphState.graph && svgEl) {
         const { w, h } = getContainerSize();
         d3.select(svgEl).attr("viewBox", `0 0 ${w} ${h}`);
+        if (largeGraphActive) drawLargeGraph();
         if (resizeFitTimer) clearTimeout(resizeFitTimer);
         resizeFitTimer = setTimeout(() => {
           fitDone = true; // 尺寸变化直接取景，不等模拟
@@ -1825,6 +2221,7 @@
     <div class="sky-band"></div>
     <svg class="sky-dust" bind:this={dustEl}></svg>
   </div>
+  <canvas bind:this={largeCanvasEl} class="large-graph-canvas" aria-hidden="true"></canvas>
   <svg bind:this={svgEl} class="graph-canvas"></svg>
   <div bind:this={tooltipEl} class="node-tooltip"></div>
 
@@ -1957,10 +2354,20 @@
 
   .graph-canvas {
     position: relative;
+    z-index: 2;
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  .large-graph-canvas {
+    position: absolute;
+    inset: 0;
     z-index: 1;
     width: 100%;
     height: 100%;
     display: block;
+    pointer-events: none;
   }
 
   .sky-band {
@@ -2183,6 +2590,40 @@
     .nodes g.node .prism-b {
       animation: prism-shift 2.2s ease-in-out -1.1s infinite;
       transform-box: fill-box;
+    }
+
+    /* 大图仍保留星态、连线与 hover/选中反馈；关闭每个星体的持续装饰动画，
+       把主线程预算让给滚轮缩放与节点命中。 */
+    .zoom-group.large-graph .nodes g.node .star-halo,
+    .zoom-group.large-graph .nodes g.node .star-spikes,
+    .zoom-group.large-graph .nodes g.node .star-core,
+    .zoom-group.large-graph .nodes g.node .prism-r,
+    .zoom-group.large-graph .nodes g.node .prism-b,
+    .zoom-group.large-graph .flow-layer circle {
+      animation: none;
+      filter: none;
+    }
+    .zoom-group.large-graph:not(.show-large-labels) .node-label,
+    .zoom-group.large-graph:not(.show-large-labels) .assign-label {
+      display: none;
+    }
+    .zoom-group.large-graph .large-node-layer {
+      pointer-events: none;
+    }
+    .large-node-hit-layer {
+      pointer-events: all;
+    }
+    .zoom-group.large-graph .nodes g.node .node-hit {
+      pointer-events: all;
+      stroke: transparent;
+    }
+    .zoom-group.large-graph g.node:hover .node-hit,
+    .zoom-group.large-graph g.node.is-focused .node-hit,
+    .zoom-group.large-graph g.node.is-selected .node-hit,
+    .zoom-group.large-graph g.node.edge-hilite .node-hit {
+      stroke: #ffffff;
+      stroke-width: 2;
+      filter: brightness(1.35);
     }
 
     @media (prefers-reduced-motion: reduce) {

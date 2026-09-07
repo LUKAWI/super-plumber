@@ -13,7 +13,7 @@ describe("F16 lintPlanWording：反误报样本（好文案零警告）", () => 
     // 原则1 正例：板块级路径 + 判据引用，无行号/函数名
     expect(
       lintPlanWording(
-        "把 integrations/shared/manual.md §2.6 体检表补上 W7 判据（以 sp-check-design.mjs 现行实现为准）",
+        "把 integrations/src/manual.md §2.6 体检表补上 W7 判据（以 sp-check-design.mjs 现行实现为准）",
         [],
       ),
     ).toEqual([]);
@@ -34,7 +34,7 @@ describe("F16 lintPlanWording：反误报样本（好文案零警告）", () => 
     // 原则4 正例：显式范围（只动什么、不碰什么——路径密集但全是板块级落点）
     expect(
       lintPlanWording(
-        "只改 integrations/shared/manual.md 正本并运行 sync；不碰 .pi/skills/** 与 src/**",
+        "只改 integrations/src/manual.md 正本并运行 sync；不手改 integrations/shared/** 与 integrations/plugin/**",
         [],
       ),
     ).toEqual([]);
