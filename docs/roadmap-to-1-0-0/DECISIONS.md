@@ -121,6 +121,7 @@
 | task · passed | v100-freeze | [1.0.0] 1.0 协议冻结承诺成文 + 双语文档同步 + accept adr_0010/adr_0011 | 2026-09-05T23:29:35.495Z |
 | task · passed | v100-perf-webui | [1.0.0] WebUI 首屏与千节点交互性能 | 2026-09-07T06:26:52.120Z |
 | task · passed | v100-release-consistency | [1.0.0] 生成一致性、CI 锚定与当前版本接入证据 | 2026-09-07T06:29:39.890Z |
+| task · passed | v100-release | [1.0.0] 1.0.0 发布（承诺公告 + tag + publish） | 2026-09-07T08:34:51.639Z |
 | task · passed | v100-router | [1.0.0] WF13 /plumber router skill + S07 命令三通道（commands 终态 4） | 2026-09-05T14:28:51.302Z |
 | task · passed | v100-survey | [1.0.0] F10 next --all 跨图聚合 → F20 graph survey 巡检（内链串行，F20 依赖 F10） | 2026-09-05T14:14:40.646Z |
 | task · passed | v100-template-lint | [1.0.0] F19 init --template 四型 + F11 工具 description no-op 清扫（−20% token） | 2026-09-05T14:27:22.852Z |
